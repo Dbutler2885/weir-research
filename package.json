@@ -1,0 +1,37 @@
+{
+  "name": "pike-family-explorer",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "start": "npm run build && node server/main.mjs",
+    "serve": "node server/main.mjs",
+    "research": "node scripts/research.mjs",
+    "example": "npm run build && node scripts/example.mjs",
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "npm run test && npm run build",
+    "lavish": "npm run build && lavish-axi dist/index.html",
+    "open:brave": "npm run build && open -a 'Brave Browser' dist/index.html",
+    "workspace": "node scripts/workspace.mjs",
+    "coordinator": "node scripts/coordinator.mjs",
+    "test:integration": "npm run build && node scripts/test-coordinator.mjs && node scripts/test-project-start.mjs"
+  },
+  "dependencies": {
+    "d3": "^7.9.0",
+    "elkjs": "^0.11.0"
+  },
+  "devDependencies": {
+    "@types/d3": "^7.4.3",
+    "@types/node": "^24.0.0",
+    "chrome-devtools-mcp": "1.6.0",
+    "jsdom": "^26.1.0",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5",
+    "vite-plugin-singlefile": "^2.2.0",
+    "vitest": "^3.2.4"
+  }
+}

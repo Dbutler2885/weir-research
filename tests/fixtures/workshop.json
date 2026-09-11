@@ -1,0 +1,143 @@
+{
+  "version": 1,
+  "title": "Fictional workshop fixture",
+  "initialFocusId": "alex",
+  "people": [
+    {
+      "id": "alex",
+      "name": "Alex Example",
+      "biography": "Fictional test record.",
+      "sourceIds": [
+        "register"
+      ],
+      "alternateNames": [
+        "Lex"
+      ],
+      "descriptor": "Tool maker"
+    },
+    {
+      "id": "blair",
+      "name": "Blair Example",
+      "biography": "Fictional test record.",
+      "sourceIds": [
+        "register"
+      ]
+    },
+    {
+      "id": "casey",
+      "name": "Casey Example",
+      "biography": "Fictional test record.",
+      "sourceIds": [
+        "register"
+      ]
+    },
+    {
+      "id": "drew",
+      "name": "Drew Example",
+      "biography": "Fictional test record.",
+      "sourceIds": [
+        "register"
+      ]
+    },
+    {
+      "id": "erin",
+      "name": "Erin Example",
+      "biography": "Fictional test record.",
+      "sourceIds": [
+        "register"
+      ]
+    },
+    {
+      "id": "fran",
+      "name": "Fran Example",
+      "biography": "Fictional test record.",
+      "sourceIds": [
+        "register"
+      ]
+    }
+  ],
+  "unions": [
+    {
+      "id": "parents",
+      "partnerIds": [
+        "casey",
+        "drew"
+      ],
+      "childIds": [
+        "alex",
+        "erin"
+      ]
+    },
+    {
+      "id": "couple",
+      "partnerIds": [
+        "alex",
+        "blair"
+      ],
+      "childIds": [
+        "fran"
+      ]
+    }
+  ],
+  "directParentage": [
+    {
+      "id": "uncertain",
+      "parentId": "casey",
+      "childId": "blair",
+      "confidence": "disputed",
+      "label": "Parentage uncertain",
+      "sourceIds": [
+        "account"
+      ]
+    }
+  ],
+  "contextEntities": [
+    {
+      "id": "workshop",
+      "name": "Example Workshop",
+      "kind": "organization",
+      "sourceIds": [
+        "register"
+      ]
+    },
+    {
+      "id": "town",
+      "name": "Example Town",
+      "kind": "place"
+    }
+  ],
+  "contextConnections": [
+    {
+      "id": "employment",
+      "fromId": "alex",
+      "toId": "workshop",
+      "type": "employment",
+      "label": "Worked at",
+      "confidence": "established",
+      "sourceIds": [
+        "register"
+      ]
+    },
+    {
+      "id": "location",
+      "fromId": "workshop",
+      "toId": "town",
+      "type": "association",
+      "label": "Located in",
+      "sourceIds": [
+        "register"
+      ]
+    }
+  ],
+  "sources": [
+    {
+      "id": "register",
+      "title": "Fictional workshop register",
+      "note": "Alex worked at the workshop."
+    },
+    {
+      "id": "account",
+      "title": "Fictional family account"
+    }
+  ]
+}

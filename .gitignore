@@ -1,0 +1,14 @@
+node_modules/
+dist/
+coverage/
+.DS_Store
+.research/
+.browser-test/
+
+# Private research, annotations, agent sessions, and local tooling
+/tmp/
+/.claude/
+/.codex/
+/.lavish/
+.env
+.env.*
