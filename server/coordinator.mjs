@@ -136,6 +136,8 @@ export class Coordinator {
     const a = this.assignment(i.id);
     return (
       a &&
+      a.phase === (i.phase || "research") &&
+      a.graphRequestedAt === i.graphRequest?.at &&
       JSON.stringify(a.annotationIds) ===
         JSON.stringify(
           i.annotations.filter((a) => a.dispatchedAt).map((a) => a.id),
@@ -190,14 +192,19 @@ export class Coordinator {
           type: "claim",
           investigationId: id,
           worker: `Coordinator: ${this.session.name}`,
+          provider: data.provider || "coordinator/native",
+          model: data.model,
         });
         return { ...structuredClone(result), coordinatorBrief: data.brief };
       }
+      data.engine ||= this.store.state.engine;
       if (!["codex", "claude"].includes(data.engine))
         throw new Error("Choose codex or claude for a managed researcher.");
       this.store.update((next) => {
         next.coordination.assignments[id] = {
           engine: data.engine,
+          phase: i.phase || "research",
+          graphRequestedAt: i.graphRequest?.at,
           brief: data.brief,
           annotationIds: i.annotations
             .filter((a) => a.dispatchedAt)
@@ -222,6 +229,7 @@ export class Coordinator {
         summary: data.summary,
         findings: data.findings,
         nextSteps: data.nextSteps,
+        accessRequest: data.accessRequest,
       });
     }
     if (data.action === "publish") {

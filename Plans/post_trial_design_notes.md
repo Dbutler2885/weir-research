@@ -3,7 +3,7 @@
 Working notes for future design and implementation, recorded September 11, 2026.
 This is a synthesis of the discussion, not a finished specification or a commitment to every interaction described below.
 It develops the earlier vision and revises assumptions that the first real trial exposed.
-No application or research data changes accompany this note.
+The original note preceded implementation; the implementation checkpoint below records the subsequent changes.
 
 ## Product intention
 
@@ -243,3 +243,31 @@ Questions to resolve through implementation and prototypes include:
 These are design tasks to work through, not a request for another exhaustive user interview before progress.
 The current agreement is strongest on separating research from graph construction, preserving ambiguity, allowing partial review, making sources accessible as research objects, and providing annotations without mandatory selections.
 The composer layout, detailed state vocabulary, source-graph visualization, and graph acceptance mechanics remain hypotheses to test.
+
+## Implementation checkpoint: September 11, 2026
+
+The first Git commit captures the existing application after separating private research under ignored `.research/` storage.
+This second implementation preserves historical proposals while adding a distinct contract for new research.
+
+- [x] Keep qualified findings independently of graph changes, with replacement references and preserved history.
+- [x] Request a separate graph pass from exact kept findings, with explicit dependencies, partial application, and recorded omissions.
+- [x] Show graph previews with changed content distinguished, and retain an explicit application boundary.
+- [x] Support card and continuous review, readable paragraphs, stable references, and historical review navigation.
+- [x] Expose a source library, recorded passages, related findings, accepted graph connections, and access metadata.
+- [x] Support reference-free and multiple-reference instructions, persistent drafts, unsent edits and moves, and immutable sent amendments.
+- [x] Dock composition outside the reviewed surface and share its column with node inspection.
+- [x] Store interface feedback separately and make it inspectable in Investigations and through coordinator inspection.
+- [x] Give researcher passes distinct instructions, honor the managed provider preference, and show actual assignment metadata when known.
+- [x] Pause for source-access assistance and resume from saved context through the browser.
+- [x] Verify domain transitions, local HTTP/CLI integration, graph preview, draft retention, source inspection, and narrow-screen layout using fictional material.
+
+Keeping a finding retains its qualified account, including unresolved or disputed assertions.
+Graph acceptance applies selected coherent groups; declared dependencies require explicit selection or previous acceptance.
+Corrections supersede earlier findings only when kept, invalidate pending representations based on them, and leave applied records for explicit subsequent review.
+Legacy reviews keep their original whole-proposal behavior instead of receiving fabricated structured findings.
+
+The optional source graph layer and drawing annotations remain design experiments, not implemented controls.
+The source inspector and durable links provide the foundation for deciding whether that visualization helps.
+Browser and computer interaction depend on the research runtime; this change enables available browser tooling and assistance requests, not a universal desktop automation service or institutional login integration.
+The historical trial's actual model identity remains unverified; new assignments record the provider and identify unreported model metadata honestly.
+The docked layout is implemented and browser-tested, but its usefulness during sustained real research still needs the human's judgment.

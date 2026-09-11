@@ -321,6 +321,11 @@ async function startApplication() {
 
     if (detailsRecord.kind === "person") {
       renderDetails(detailsRecord.id);
+      window.dispatchEvent(
+        new CustomEvent("research:inspect", {
+          detail: { id: detailsRecord.id },
+        }),
+      );
       return;
     }
 
@@ -332,6 +337,9 @@ async function startApplication() {
       },
       onOpenContextEntity: openContextDetails,
     });
+    window.dispatchEvent(
+      new CustomEvent("research:inspect", { detail: { id: detailsRecord.id } }),
+    );
   }
 
   function closeDetails(): void {

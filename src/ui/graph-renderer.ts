@@ -47,9 +47,16 @@ export class GraphRenderer {
   private currentLayout?: FamilyLayout;
   private currentTransform: ZoomTransform = zoomIdentity;
   private hasRendered = false;
+  private readonly fitOnRender: boolean;
   private resizeTimer?: number;
+  private readonly resizeObserver: ResizeObserver;
 
-  constructor(container: HTMLElement, handlers: GraphRendererHandlers) {
+  constructor(
+    container: HTMLElement,
+    handlers: GraphRendererHandlers,
+    fitOnRender = false,
+  ) {
+    this.fitOnRender = fitOnRender;
     this.handlers = handlers;
     this.svg = select(container)
       .append("svg")
@@ -92,15 +99,23 @@ export class GraphRenderer {
     this.svg.call(this.zoomBehavior);
     this.svg.on("dblclick.zoom", null);
 
-    const resizeObserver = new ResizeObserver(() => {
+    this.resizeObserver = new ResizeObserver(() => {
       window.clearTimeout(this.resizeTimer);
       this.resizeTimer = window.setTimeout(() => {
         if (this.currentLayout) {
-          this.centerOn(this.currentLayout.focusId, false);
+          if (this.fitOnRender) this.fitAll(false);
+          else this.centerOn(this.currentLayout.focusId, false);
         }
       }, 120);
     });
-    resizeObserver.observe(container);
+    this.resizeObserver.observe(container);
+  }
+
+  destroy(): void {
+    this.resizeObserver.disconnect();
+    window.clearTimeout(this.resizeTimer);
+    this.svg.selectAll("*").interrupt();
+    this.svg.interrupt().remove();
   }
 
   render(
@@ -270,7 +285,9 @@ export class GraphRenderer {
 
     this.hasRendered = true;
     window.requestAnimationFrame(() =>
-      this.centerOn(layout.focusId, duration > 0),
+      this.fitOnRender
+        ? this.fitAll(false)
+        : this.centerOn(layout.focusId, duration > 0),
     );
   }
 

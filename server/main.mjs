@@ -58,6 +58,13 @@ const documentsDir = join(directory, "documents");
 mkdirSync(documentsDir, { recursive: true });
 const workerCommands = new Set(["claim", "checkpoint", "propose"]);
 const userCommands = new Set([
+  "finding-decision",
+  "build-graph",
+  "apply-groups",
+  "edit-annotation",
+  "delete-annotation",
+  "interface-feedback",
+  "resolve-access",
   "annotate",
   "dispatch",
   "pause",
@@ -201,7 +208,10 @@ const server = createServer(async (req, res) => {
         if (res.destroyed) return;
         return json(res, 200, coordinator.snapshot(data.session));
       }
-      if (data.action === "assign" && !researchers.findExecutable(data.engine))
+      if (
+        data.action === "assign" &&
+        !researchers.findExecutable(data.engine || store.state.engine)
+      )
         throw new Error("Requested researcher CLI is not available.");
       const result = coordinator.command(data);
       researchers.pump();

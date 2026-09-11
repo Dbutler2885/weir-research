@@ -100,6 +100,13 @@ function appendSources(container: HTMLElement, sources: SourceRecord[]): void {
     }
 
     item.append(title);
+    const inspect = createElement(
+      "button",
+      "source-inspect-button",
+      "Inspect source and findings",
+    );
+    inspect.dataset.inspectSource = source.id;
+    item.append(inspect);
     const metadata = [source.repository, source.date]
       .filter(Boolean)
       .join(" · ");

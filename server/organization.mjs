@@ -23,7 +23,8 @@ function invalidate(next) {
       i.status = "paused";
       delete i.lease;
       for (const p of i.proposals)
-        if (p.status === "pending") p.status = "superseded";
+        if (p.status === "pending" && p.kind !== "findings")
+          p.status = "superseded";
       i.events.push({
         at: new Date().toISOString(),
         message:

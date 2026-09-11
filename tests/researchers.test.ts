@@ -119,6 +119,9 @@ describe("local researcher supervision", () => {
     old.child.emit("close", 1);
     expect(f.launches).toHaveLength(2);
     expect(f.launches[1]!.executable).toBe("/test/claude");
+    expect(f.store.state.investigations[0]!.executions.at(-1).provider).toBe(
+      "claude",
+    );
     expect(f.store.state.investigations[0]!.lease!.worker).toBe(
       "Claude Code researcher",
     );
@@ -169,7 +172,6 @@ describe("coordinator-managed research processes", () => {
       action: "assign",
       session,
       investigationId: id,
-      engine: "codex",
       brief: "Compare the two identities; preserve ambiguity.",
     });
     f.pool.pump();

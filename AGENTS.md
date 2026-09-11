@@ -122,7 +122,7 @@ If another coordinator is live, report that fact and leave its session alone.
 
 ## Research and synthesis
 
-Only dispatched annotations authorize research.
+Only dispatched annotations authorize research; the browser’s graph-construction request authorizes a separate representation pass over the selected kept findings.
 Saved but unsent annotations are visible context, not assignments.
 All follow-ups on a proposal remain attached to that investigation and immutable proposal revision.
 Read across investigations to spot overlapping leads, identity conflicts, and reusable evidence, while preserving each investigation's identity and source scope.
@@ -147,7 +147,16 @@ For managed workers, inspect returned candidates before publishing; they are not
 For native workers, collect their findings under a coordinator-owned investigation, save checkpoints, and synthesize a proposal yourself.
 Workers must not edit the live dataset, workspace state files, or imported originals.
 Publish through the coordinator API so validation, revision capture, and stale-data checks remain enforced.
-The human alone accepts or rejects a proposal in the browser.
+The human alone keeps findings and applies graph groups in the browser.
+Inspect the investigation phase before assigning a pass.
+Research and synthesis return `kind: "findings"`, with qualified statements and evidence but no graph changes.
+Graph construction returns `kind: "graph"`, using exact kept `graphRequest.refs`, coherent groups with explicit dependencies, and omissions.
+Do not ask one pass to both develop historical conclusions and design their graph representation.
+Keeping a finding preserves its qualification, including reported, disputed, and unresolved accounts.
+Read `docs/research-agent.md` for these contracts before publishing.
+Use the saved provider preference for managed assignments; when it specifies a provider, do not silently substitute native delegation.
+Access-help checkpoints pause only the affected investigation and expose a browser resume action.
+Interface feedback is separate from research; inspect it with `{"action":"inspect","kind":"interface-feedback"}` during development, never treat it as a historical assignment.
 
 ## Repository conventions
 

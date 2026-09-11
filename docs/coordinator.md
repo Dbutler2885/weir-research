@@ -80,12 +80,12 @@ Search returns bounded excerpts and stable references across entities, investiga
 Inspect the referenced records through command files:
 
 ```json
-{"action":"inspect","kind":"entity","table":"people","id":"maxwell-russell-comstock"}
+{"action":"inspect","kind":"entity","table":"people","id":"alex"}
 ```
 
 Entity inspection returns that record, references to directly related records, and related investigations.
 Use the returned IDs rather than guessing record names.
-Other inspection kinds are `investigation`, `candidate`, `source`, `map`, and the paginated `investigations` index.
+Other inspection kinds are `investigation`, `candidate`, `source`, `interface-feedback`, `map`, and the paginated `investigations` index.
 Source inspection accepts `offset` and `limit` (default 6,000 characters, maximum 20,000), returns the preserved fingerprint and a next offset, and distinguishes citation metadata from locally available originals.
 Search results for source text include a character offset to locate the matching passage.
 Investigation inspection includes its annotations, checkpoints, and proposals without the worker's private lease or dataset snapshot.
@@ -135,9 +135,15 @@ For an installed managed researcher, use:
 ```
 
 The brief is the place for the coordinator's cross-investigation context and research strategy.
+Read the indexed `phase` before assigning work: research passes return qualified findings without graph changes; graph passes represent exact kept `graphRequest.refs` and return coherent review groups.
+Use the contracts in `docs/research-agent.md`; do not collapse these two tasks into a single proposal.
+If `engine` is omitted for a managed assignment, the saved browser preference is used.
+Choose native delegation only when the saved preference is manual or the human explicitly asks for that route.
+Actual assignments are recorded under Investigations with their provider and model when known; missing model information remains explicitly unreported.
+For native claims, supply `provider` and `model` only if the runtime establishes them.
 Respect each investigation's source scope when sharing findings.
 At most two managed researchers run concurrently, and each pass has a ten-minute limit.
-An assignment records the dispatched annotation IDs; newly dispatched feedback prevents an outdated assignment from starting.
+An assignment records the dispatched annotation IDs, phase, and graph request; changed inputs prevent an outdated assignment from starting.
 Selecting a browser engine preference in coordinator mode does not independently launch work.
 Managed workers save checkpoints and return validated candidate proposals to the coordinator.
 They cannot publish those candidates directly to human review in coordinator mode.
@@ -151,6 +157,8 @@ The returned lease is fenced when the coordinator is replaced.
 Save native findings through a `checkpoint` command containing `investigationId`, `summary`, `findings`, and `nextSteps`.
 Include source locators, failed searches, contrary evidence, and remaining questions.
 This checkpoint becomes the next coordinator's recovery handoff for the investigation.
+Include `accessRequest: {instruction, url?}` when the human needs to supply a document or resolve access.
+That checkpoint pauses the pass and displays assistance in the browser; do not resume it until the human does.
 
 ## Reconcile and publish
 
@@ -164,11 +172,13 @@ Write the synthesis through:
   "investigationId": "investigation ID",
   "candidateId": "returned candidate ID",
   "proposal": {
+    "kind": "findings",
     "title": "A reviewable conclusion",
     "summary": "The evidence and the limited inference it supports.",
     "ambiguity": "What remains unresolved.",
     "evidence": [],
-    "changes": []
+    "changes": [],
+    "findings": [{"id":"open-question","statement":"The identity remains unresolved.","qualification":"unresolved","explanation":"No adequate evidence located in this pass.","evidenceIds":[]}]
   }
 }
 ```
@@ -178,7 +188,7 @@ For coordinator-owned/native work, omit `candidateId` and provide the reconciled
 Follow `docs/research-agent.md` for full evidence and change schemas.
 Publishing revalidates the current lease, exact before records, source references, and quoted text before creating an immutable proposal revision.
 It does not change accepted research.
-Only the human's browser acceptance applies the proposal.
+Only the human can keep findings or apply selected graph groups in the browser.
 
 If a candidate needs another research pass, use `{"action":"revise","investigationId":"...","notes":"What failed and what the next pass must investigate"}`.
 This preserves the candidate, records the correction as a checkpoint, and requeues the investigation for a fresh assignment.

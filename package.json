@@ -18,7 +18,7 @@
     "open:brave": "npm run build && open -a 'Brave Browser' dist/index.html",
     "workspace": "node scripts/workspace.mjs",
     "coordinator": "node scripts/coordinator.mjs",
-    "test:integration": "npm run build && node scripts/test-coordinator.mjs && node scripts/test-project-start.mjs"
+    "test:integration": "npm run build && node scripts/test-coordinator.mjs && node scripts/test-project-start.mjs && node scripts/test-findings.mjs"
   },
   "dependencies": {
     "d3": "^7.9.0",

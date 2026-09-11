@@ -1,3 +1,4 @@
+import { sourceLibrary } from "../src/domain/findings.ts";
 const tables = [
   "people",
   "unions",
@@ -37,7 +38,12 @@ export function projectIndex(state) {
         }
       : null,
     counts: Object.fromEntries(
-      tables.map((t) => [t, (state.dataset[t] || []).length]),
+      tables.map((t) => [
+        t,
+        t === "sources"
+          ? sourceLibrary(state).length
+          : (state.dataset[t] || []).length,
+      ]),
     ),
     sourceCollections: state.collections.map(({ id, name, kind }) => ({
       id,
@@ -56,6 +62,21 @@ export function investigationIndex(i) {
     title: i.title,
     status: i.status,
     sourceScope: i.scope,
+    phase: i.phase || "research",
+    graphRequest: i.graphRequest,
+    accessRequest: i.accessRequest,
+    execution: i.executions?.at(-1),
+    findings: i.proposals
+      .flatMap((p) =>
+        (p.findings || []).map((f) => ({
+          proposalId: p.id,
+          id: f.id,
+          statement: clip(f.statement),
+          qualification: f.qualification,
+          status: f.status,
+        })),
+      )
+      .slice(-30),
     annotationCount: i.annotations.length,
     unsent: i.annotations.filter((a) => !a.dispatchedAt).length,
     checkpointCount: i.checkpoints.length,
@@ -77,6 +98,8 @@ export function investigationIndex(i) {
   };
 }
 export function inspectContext(state, request, candidates) {
+  if (request.kind === "interface-feedback")
+    return { items: state.interfaceFeedback || [] };
   if (request.kind === "map")
     return {
       researchMap: state.coordination?.researchMap || "",
@@ -145,9 +168,7 @@ export function inspectContext(state, request, candidates) {
     };
   }
   if (request.kind === "source") {
-    const record = (state.dataset.sources || []).find(
-      (s) => s.id === request.id,
-    );
+    const record = sourceLibrary(state).find((s) => s.id === request.id);
     if (!record) throw new Error("Source not found.");
     const doc = state.documents.find((d) => d.id === request.id);
     if (!doc)
@@ -204,6 +225,7 @@ export function searchContext(state, query, requestedOffset = 0) {
         annotations: i.annotations,
         checkpoints: i.checkpoints,
         proposals: i.proposals,
+        graphRequest: i.graphRequest,
       }),
     );
   for (const c of state.coordination?.candidates || [])
@@ -216,6 +238,8 @@ export function searchContext(state, query, requestedOffset = 0) {
       },
       JSON.stringify(c.proposal),
     );
+  for (const s of sourceLibrary(state))
+    consider({ kind: "source", id: s.id, label: s.title }, JSON.stringify(s));
   for (const d of state.documents)
     if (d.text) consider({ kind: "source", id: d.id, label: d.name }, d.text);
   const offset = Math.max(0, Math.floor(Number(requestedOffset) || 0));

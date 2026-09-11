@@ -1,7 +1,7 @@
 # Research Workspace
 
 A local research workspace built around an interactive research graph, with genealogy support, annotated investigations, and evidence review.
-Research, Ongoing work, Review, and Sources & access are views of the same application.
+Graph, Investigations, Review, and Sources are views of the same application.
 The interface has no chat transcript.
 
 ## Start with a coding agent
@@ -38,11 +38,16 @@ The local service stores accepted research, investigation history, and imported 
 Keep a backup of that directory to preserve your work.
 
 Explore the graph normally, then enable Annotate with the toolbar button or Command/Control + I.
-Select an element or passage and describe the investigation it needs.
+Select one or several elements or passages, or use Add question with no selection.
+The composer docks beside the surface, preserves drafts when closed, and supports editing queued annotations and amending sent instructions.
+Choose Interface feedback to record product observations separately from historical research.
 Queue annotations or investigate immediately.
 Follow-up annotations on a proposal stay in its investigation and retain the exact revision they address.
-Review the evidence, interpretations, preserved ambiguity, and proposed record changes before accepting them.
-Only acceptance applies researched claims to the graph.
+Review individual findings in cards or a continuous view, with evidence and qualifications alongside each decision.
+Keep findings independently, question them, or set them aside; these decisions do not change the graph.
+Request a separate graph-construction pass from selected kept findings, then preview and apply coherent groups with explicit dependencies.
+Older reviews remain available in their original format.
+The graph and source inspectors link back to the findings that inform them.
 An empty project provides Ask a research question and Add sources without requiring any nodes.
 You may also add a named starting point, such as a place or organization, without creating a person.
 Use Organize to preview which nodes to keep, apply the change in place, or undo the latest organization.
@@ -51,7 +56,7 @@ Organization preserves sources and research history, pauses active work, and pre
 ## Research engines
 
 The default engine is Manual CLI handoff.
-Ongoing work also lets you select an installed Codex or Claude CLI using its existing account configuration.
+Investigations also lets you select an installed Codex or Claude CLI using its existing account configuration.
 Selecting an engine enables queued research and sends each assigned investigation's context and scoped sources to that provider.
 Initial CLI installation and sign-in remain prerequisites outside this application.
 The process supervisor runs at most two researchers concurrently, with a ten-minute limit per pass.
@@ -80,16 +85,21 @@ npm run example
 
 Open http://127.0.0.1:4319.
 This separate workspace uses a fictional workshop fixture to demonstrate evidence review.
-It audits the supplied dataset, adds no new historical assertions, and explicitly distinguishes the dataset's summary from an original obituary quotation.
+It audits the supplied dataset, adds no new historical assertions, and explicitly distinguishes the dataset's summary from an original register quotation.
 Its state lives in `.research/demo/`; accepting its proposal does not affect the main workspace.
+For a fictional fixture of the new findings and graph review flow, run `REVIEW_BROWSER_FIXTURE=1 node scripts/test-findings.mjs` after building and open the printed URL.
+That command leaves an isolated fixture under `.research/development/` and serves it until stopped.
 
 ## Sources and access
 
-Import PDF, TXT, Markdown, or CSV files, or register a local folder from Sources & access.
+Sources shows research source records before graph acceptance, including access metadata, passages, related findings, and accepted graph connections.
+Import PDF, TXT, Markdown, or CSV files, or register a local folder from Sources.
 Imports preserve snapshots and SHA-256 fingerprints; rescanning adds changed files without replacing previously cited copies.
 Text evidence can link to an exact highlighted quotation, and the server verifies that quoted text occurs in its preserved document.
 PDF originals can be viewed, but automatic PDF extraction and page-region highlights are not implemented.
-Subscription services such as JSTOR do not have connected access adapters.
+Subscription services such as JSTOR do not have dedicated access adapters.
+Researchers may use available browser or computer tools; actual capabilities and signed-in sessions depend on the runtime.
+When access needs your help, Investigations displays the request and a resume action.
 Per-investigation source scope is set in the annotation form.
 
 ## Development
@@ -101,9 +111,10 @@ npm run serve
 
 `check` runs the automated tests, TypeScript checks, and production build.
 `npm run test:integration` additionally exercises real local startup, browser-event waiting, recovery, synthesis, acceptance, topic-only creation, place focus, live organization and undo, and project isolation through the CLI and HTTP service without launching a model provider.
+It also checks separate findings and graph phases, partial application, human-only decisions, source-access recovery, and interface feedback.
 `serve` starts the local service using an existing build.
 Set `RESEARCH_PORT` and `RESEARCH_STATE_DIR` to run an isolated workspace elsewhere.
-See [the implementation plan](Plans/research_workspace_implementation.md) for the agreed behavior and first-slice boundaries.
+See [the post-trial design notes](Plans/post_trial_design_notes.md) for the implemented direction and remaining design experiments.
 
 The production build remains a single `dist/index.html` file.
 Opened directly from disk, it opens an empty standalone surface; the live workspace requires the local service.

@@ -19,7 +19,7 @@ npm run research -- claim "provider / investigator name"
 Claim returns the investigation, original annotations, immutable accepted-data snapshot, previous proposals, checkpoints, source scope, and a worker lease token.
 Null means no investigation is queued.
 Do not claim that work is running before a researcher has claimed it.
-Alternatively, the user selects an installed Codex or Claude engine in Ongoing work.
+Alternatively, the user selects an installed Codex or Claude engine in Investigations.
 The local supervisor prepares a scoped task directory and launches up to two researchers, with a ten-minute limit per pass.
 This uses the existing CLI account and sends the assigned research context and scoped sources to its model service.
 The application does not collect account credentials.
@@ -47,6 +47,13 @@ Follow leads necessary to answer the question, but propose unrelated expansion a
 
 Honor the investigation's source scope.
 Public web access depends on the worker's actual tools.
+Use direct retrieval, headless browsers, visible browsers, or computer interaction when available in that runtime and appropriate to the permitted sources.
+The managed Claude adapter allows the installed `chrome-devtools-axi` command for web-scoped work; Codex retains its configured tools and workspace sandbox.
+Browser availability does not imply access to the human's authenticated session.
+Do not claim universal computer-use support or bypass access controls.
+When human assistance is needed, add `accessRequest: {instruction, url?}` to a checkpoint and stop the pass.
+The service pauses it, fences its lease, and displays the requested assistance under Investigations.
+The human can import a source or resolve access, then select the resume action with saved context intact.
 Subscription services have no configured access adapter; do not imply access to full text from metadata or a saved URL.
 Imported documents are available at `/api/documents/<document-id>` on the workspace URL.
 Document metadata includes its SHA-256 and the immutable captured text when available.
@@ -86,7 +93,28 @@ Checkpointing cannot recover unsaved internal agent context, but a replacement w
 ## Return a proposal
 
 Submit a JSON file with `investigationId`, `token`, and `proposal`.
-The proposal contains `title`, `summary`, `ambiguity`, `evidence`, and `changes`.
+New research uses two proposal kinds, `findings` and `graph`, each with `title`, `summary`, `ambiguity`, `evidence`, and `changes`.
+For `kind: "findings"`, `changes` is empty and `findings` contains independently reviewable statements with `id`, `statement`, `qualification`, `explanation`, and `evidenceIds`.
+Qualifications are `supported`, `reported`, `disputed`, and `unresolved`.
+Keeping a finding means retaining that qualified account, not declaring its underlying assertion true.
+An unresolved finding may have no evidence; other qualifications require cited passages.
+Use `replaces: {proposalId, findingId}` when correcting a previous finding; the older version becomes superseded only when the human keeps the replacement.
+Register newly discovered source records in `sources`, independently of graph acceptance, with stable capture IDs and accurate `access` metadata (`discovered`, `metadata`, `abstract`, or `full-text`).
+Changed source captures need new IDs; do not overwrite previously cited material.
+
+The human requests graph construction from selected kept findings.
+The queued investigation then has `phase: "graph"` and `graphRequest.refs` containing exact proposal/finding IDs.
+This is a focused representation pass, not a new search assignment.
+Return `kind: "graph"`, `changes`, `groups`, and `omissions` describing findings not represented and why.
+Each group has `id`, `title`, `changeIndexes`, `findingRefs`, and `dependsOn` (other group IDs).
+Every change belongs to exactly one group, every group cites requested kept findings, and dependencies must be acyclic.
+Declare prerequisites such as new entities needed by a relationship explicitly.
+If none of the selected findings justify graph changes, return empty `groups` and `changes` with a substantive `omissions` explanation for the human to record.
+Reuse evidence from kept findings, preserve qualifications in graph labels, confidence and notes, and inspect meaningful ownership, location, leasing and succession relationships.
+Human review previews and applies selected groups; it never silently accepts dependencies.
+Finding revisions invalidate pending representations that relied on them, while applied records remain until separately reviewed changes replace them.
+The group references remain the durable link between applied graph records and findings.
+Legacy proposals without `kind` retain their original whole-proposal contract and history.
 The shared contract is defined in `src/domain/research.ts`.
 The server assigns the proposal ID and revision and records which dispatched annotations the lease covered.
 
@@ -98,8 +126,8 @@ Each change names a supported collection and stable record ID, the complete `bef
 The before record must match both the assigned snapshot and the current accepted research.
 An ID cannot change within a replacement.
 All references must remain valid after the whole proposal is applied.
-Use one coherent atomic proposal; do not bundle unrelated decisions merely because they were researched together.
-For an unresolved outcome, submit no changes and explicitly describe the remaining ambiguity.
+Use coherent groups, allowing independent decisions without breaking graph references.
+For unresolved research, return qualified findings without graph changes.
 
 ```sh
 npm run research -- propose /path/to/proposal.json

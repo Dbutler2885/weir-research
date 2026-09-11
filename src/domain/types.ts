@@ -15,6 +15,9 @@ export interface SourceRecord {
   date?: string;
   url?: string;
   note?: string;
+  access?: "discovered" | "metadata" | "abstract" | "full-text";
+  accessedAt?: string;
+  originalSourceId?: string;
 }
 
 export interface PersonRecord {
@@ -79,7 +82,10 @@ export type ContextConnectionType =
   | "membership"
   | "founding"
   | "association"
-  | "competition";
+  | "competition"
+  | "location"
+  | "leasing"
+  | "succession";
 
 export interface ContextConnectionRecord {
   id: string;
