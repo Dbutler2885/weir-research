@@ -58,6 +58,12 @@ export function projectIndex(state) {
 }
 export function investigationIndex(i) {
   return {
+    guidedReview: i.reviewFlow ? {
+      walkthrough: i.reviewFlow.walkthroughs.at(-1)?.id,
+      jobs: i.reviewFlow.jobs.filter(j => j.status !== "superseded").map(j => ({id: j.id, status: j.status, progress: j.progress, engine: j.engine, consumedUpdateSequence: j.consumedUpdateSequence, latestUpdateSequence: j.updates.length, resumeRequest: j.resumeRequest, issues: j.issues})),
+      graphReview: i.reviewFlow.graphReviews.at(-1)?.id,
+      nextAction: i.reviewFlow.jobs.some(j => j.status === "returned") ? "Inspect flow, then author and publish the graphical walkthrough." : null,
+    } : i.proposals.some(p => p.kind === "findings") ? {nextAction: "Use the present-research skill to publish a guided walkthrough; graph preparation follows automatically."} : null,
     id: i.id,
     title: i.title,
     status: i.status,
@@ -65,6 +71,7 @@ export function investigationIndex(i) {
     phase: i.phase || "research",
     graphRequest: i.graphRequest,
     accessRequest: i.accessRequest,
+    resumeRequest: i.resumeRequest,
     execution: i.executions?.at(-1),
     findings: i.proposals
       .flatMap((p) =>

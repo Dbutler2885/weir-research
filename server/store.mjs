@@ -38,6 +38,18 @@ export class WorkspaceStore {
   }
   command(command) {
     const { state, result } = transition(this.state, command);
+    if (command.type === "pause") {
+      const i = state.investigations.find(i => i.id === command.investigationId);
+      for (const job of i?.reviewFlow?.jobs || []) if (["queued", "running"].includes(job.status)) {
+        job.status = "paused";
+        job.progress = "Paused with the investigation. Saved graph files are retained.";
+      }
+    }
+    if (
+      command.type === "reclassify-annotation" &&
+      state.coordination?.assignments
+    )
+      delete state.coordination.assignments[command.investigationId];
     if (state !== this.state) this.save(state);
     return result;
   }
@@ -52,6 +64,9 @@ export class WorkspaceStore {
     const state = structuredClone(this.state);
     for (const i of state.investigations)
       if (i.lease) i.lease = { worker: i.lease.worker, at: i.lease.at };
+    for (const i of state.investigations) for (const job of i.reviewFlow?.jobs || []) {
+      for (const key of ["packet", "baseDataset", "candidate", "submissions", "runToken", "directory"]) delete job[key];
+    }
     if (state.organization) {
       delete state.organization.preview;
       state.organization.history = state.organization.history.map(

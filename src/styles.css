@@ -555,7 +555,7 @@ input:focus-visible,
 
 .context-edge-label {
   fill: #6c5a38;
-  font-size: 8.5px;
+  font-size: 14px;
   font-weight: 750;
   letter-spacing: 0.02em;
   paint-order: stroke;
@@ -565,6 +565,21 @@ input:focus-visible,
   stroke-width: 5px;
   text-anchor: middle;
 }
+
+.graph-edge-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 16px;
+  vector-effect: non-scaling-stroke;
+  pointer-events: stroke;
+  cursor: pointer;
+  outline: none;
+}
+
+.graph-edge.is-muted { opacity: 0.1 !important; }
+.graph-node.is-muted { opacity: 0.22 !important; }
+.graph-edge.is-highlighted { opacity: 1 !important; stroke-width: 2.8; }
+.graph-node.is-highlighted { opacity: 1 !important; }
 
 .graph-node {
   cursor: pointer;
@@ -588,7 +603,7 @@ input:focus-visible,
 }
 
 .person-node.is-focus {
-  filter: url("#focus-shadow");
+  filter: var(--focus-shadow);
 }
 
 .person-node.is-focus .person-card {
@@ -731,6 +746,7 @@ input:focus-visible,
 }
 
 .details-panel {
+  overflow-anchor: none;
   position: relative;
   z-index: 12;
   min-width: 0;
@@ -974,6 +990,23 @@ input:focus-visible,
   color: #77766f;
 }
 
+.research-claim {
+  padding: 0.9rem 0;
+  border-bottom: 1px solid var(--line, #d8d3c6);
+}
+.research-claim h4 {
+  margin: 0 0 0.25rem;
+  font: inherit;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+.claim-value { margin: 0.2rem 0; line-height: 1.5; }
+.claim-qualification { color: var(--muted, #607176); }
+.claim-evidence { margin: 0.55rem 0 1rem; font-size: 0.9rem; }
+.claim-evidence summary { cursor: pointer; color: var(--accent, #176b70); }
+.claim-explanation, .claim-passage blockquote { white-space: pre-wrap; line-height: 1.55; }
+.claim-passage { margin-top: 1rem; }
+.claim-passage blockquote { margin: 0.5rem 0; padding-left: 0.8rem; border-left: 2px solid #c6a36a; }
 .source-list {
   display: grid;
   gap: 14px;

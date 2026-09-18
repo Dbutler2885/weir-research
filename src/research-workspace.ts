@@ -1,3 +1,10 @@
+import {
+  investigationView,
+  investigationSubject,
+  feedbackView,
+  settingsView,
+  type InvestigationSection,
+} from "./ui/investigation-view";
 import { findingReview, evidenceCard } from "./ui/finding-review";
 import {
   sourceLibrary,
@@ -9,6 +16,8 @@ import { GenealogyModel } from "./domain/model";
 import { projectAround } from "./domain/projection";
 import { layoutFamily } from "./layout/layout";
 import { GraphRenderer } from "./ui/graph-renderer";
+import { GuidedReview } from "./ui/guided-review";
+import "./guided-review.css";
 import { mountOrganizationPanel } from "./ui/organization-panel";
 import type {
   AnnotationTarget,
@@ -23,6 +32,7 @@ import {
   deriveLavishQueueKey,
 } from "./vendor/lavish/artifact-sdk.js";
 import "./workspace.css";
+import "./investigation.css";
 
 const escape = (value: unknown): string =>
   String(value ?? "").replace(
@@ -41,15 +51,6 @@ const date = (value: string): string =>
     hour: "numeric",
     minute: "2-digit",
   });
-const statusLabel = (status: string): string =>
-  ({
-    draft: "Queued notes",
-    queued: "Awaiting researcher",
-    running: "Investigating",
-    review: "Ready to review",
-    paused: "Paused",
-    closed: "Recorded",
-  })[status] ?? status;
 const targetAttribute = (target: AnnotationTarget): string =>
   `data-research-target="${escape(JSON.stringify(target))}"`;
 
@@ -58,12 +59,16 @@ export function mountResearchWorkspace(
   onDataset: (dataset: FamilyDataset) => void,
 ): void {
   let state = initial;
-  let view = "research";
-  let selectedInvestigation: string | undefined;
+  const destination = new URLSearchParams(location.search);
+  let view = ['review','work','sources'].includes(destination.get('view') || '') ? destination.get('view')! : 'research';
+  let selectedInvestigation: string | undefined = initial.investigations.some(i => i.id === destination.get('investigation')) ? destination.get('investigation')! : undefined;
   let selectedProposal: string | undefined;
   let readingMode = "cards";
+  let investigationSection: InvestigationSection = "findings";
   let cardIndex = 0;
   let previewRenderer: GraphRenderer | undefined;
+  let guidedReview: GuidedReview | undefined;
+  let activityDestination: string | undefined;
   let selectedSource: string | undefined;
   const selectedGroups = new Map<string, Set<string>>();
   let previewGeneration = 0;
@@ -79,6 +84,9 @@ export function mountResearchWorkspace(
   const shell = document.querySelector<HTMLElement>(".app-shell")!;
   const graph = document.querySelector<HTMLElement>("main.workspace")!;
   shell.classList.add("research-app");
+  shell.dataset.workspaceView = "research";
+  const projectHeading = shell.querySelector<HTMLElement>(".brand-block h1");
+  if (projectHeading) projectHeading.title = initial.dataset.title;
   const nav = document.createElement("nav");
   nav.className = "workspace-nav";
   nav.ariaLabel = "Research workspace";
@@ -94,7 +102,7 @@ export function mountResearchWorkspace(
     )
     .join(
       "",
-    )}</div><div class="workspace-actions"><button type="button" data-add-instruction>Add question</button><span class="local-indicator">Saved on this computer</span><button type="button" data-organize-project>Organize</button><button type="button" id="annotation-mode" aria-pressed="false" title="Toggle annotation (Command or Control + I)"><span aria-hidden="true">⌖</span> Annotate <kbd>⌘ I</kbd></button></div>`;
+    )}</div><div class="workspace-actions"><button type="button" data-view="feedback" class="feedback-destination">Feedback <span data-count="feedback"></span></button><span class="local-indicator" title="Saved on this computer">Saved</span><button type="button" data-organize-project>Organize</button><button type="button" data-add-instruction aria-expanded="false" aria-controls="notes-sidebar">Annotations <span data-count="queue" title="Queued annotations"></span></button></div>`;
   shell.insertBefore(nav, graph);
   const surface = document.createElement("section");
   surface.className = "research-surface";
@@ -113,8 +121,10 @@ export function mountResearchWorkspace(
   document.body.append(toast);
   const dialog = document.createElement("dialog");
   dialog.className = "annotation-dialog";
+  dialog.id = "notes-sidebar";
+  dialog.setAttribute("aria-label", "Annotations");
   dialog.setAttribute("data-lavish-ui", "research-composer");
-  dialog.innerHTML = `<form id="annotation-form"><div class="dialog-heading"><span class="eyebrow">Research annotation</span><button type="button" data-close aria-label="Close annotation">×</button></div><h2 id="annotation-label"></h2><div id="annotation-selection"></div><p class="muted">Use Annotate to add references, or send without a selection.</p><label>Destination<select id="annotation-destination"><option value="research">Research investigation</option><option value="interface">Interface feedback</option></select></label><label for="annotation-question">What needs investigating?</label><textarea id="annotation-question" required rows="4" placeholder="Question the evidence, resolve an identity, or follow a connection…"></textarea><details class="annotation-options"><summary>Investigation and sources</summary><div id="annotation-belongs"></div><fieldset id="annotation-scope"><legend>Where to look</legend></fieldset></details><div class="dialog-actions"><button type="submit" name="dispatch" value="queue">Queue annotation</button><button class="primary" type="submit" name="dispatch" value="now">Send now</button></div><p class="form-error" role="alert"></p></form>`;
+  dialog.innerHTML = `<div class="dialog-heading"><h2>Annotations</h2><button type="button" data-close aria-label="Close annotations">×</button></div><nav class="notes-tabs" aria-label="Annotations sidebar"><button type="button" data-drawer-tab="compose">New annotation</button><button type="button" data-drawer-tab="queue">Queued <span data-drawer-count></span></button></nav><form id="annotation-form"><h2 id="annotation-label"></h2><div id="annotation-selection"></div><button type="button" id="annotation-mode" aria-pressed="false" title="Select references (Command or Control + I)">Select references <kbd>⌘ I</kbd></button><p class="muted">Select passages or objects, or write without a reference.</p><label>Destination<select id="annotation-destination"><option value="research">Research investigation</option><option value="interface">Interface feedback</option></select></label><label for="annotation-question">What needs investigating?</label><textarea id="annotation-question" required rows="4" placeholder="Question the evidence, resolve an identity, or follow a connection…"></textarea><details class="annotation-options"><summary>Investigation and sources</summary><div id="annotation-belongs"></div><fieldset id="annotation-scope"><legend>Where to look</legend></fieldset></details><div class="dialog-actions"><button type="submit" name="dispatch" value="queue">Queue annotation</button><button class="primary" type="submit" name="dispatch" value="now">Send now</button></div><p class="form-error" role="alert"></p></form><section class="sidebar-queue" aria-label="Queued annotations" hidden></section>`;
   const composerColumn = document.createElement("aside");
   composerColumn.className = "composer-column";
   composerColumn.setAttribute("aria-label", "Annotation and selected details");
@@ -123,6 +133,9 @@ export function mountResearchWorkspace(
   const nodeInspector = graph.querySelector<HTMLElement>(".details-panel");
   function syncComposer() {
     shell.classList.toggle("composing", dialog.open);
+    nav
+      .querySelector("[data-add-instruction]")!
+      .setAttribute("aria-expanded", String(dialog.open));
     if (nodeInspector) {
       if (dialog.open && view === "research")
         composerColumn.prepend(nodeInspector);
@@ -131,8 +144,17 @@ export function mountResearchWorkspace(
   }
 
   let toastTimer: number;
-  function message(text: string) {
+  function message(text: string, action?: { label: string; run: () => void }) {
     toast.textContent = text;
+    if (action) {
+      const button = document.createElement("button");
+      button.textContent = action.label;
+      button.addEventListener("click", () => {
+        action.run();
+        toast.hidden = true;
+      });
+      toast.append(button);
+    }
     toast.hidden = false;
     window.clearTimeout(toastTimer);
     toastTimer = window.setTimeout(() => {
@@ -156,11 +178,23 @@ export function mountResearchWorkspace(
     return result;
   }
   function updateCounts() {
+    const queued = state.investigations.reduce(
+      (count, i) => count + i.annotations.filter((a) => !a.dispatchedAt).length,
+      0,
+    );
+    nav.querySelector('[data-count="queue"]')!.textContent = queued
+      ? String(queued)
+      : "";
+    dialog.querySelector("[data-drawer-count]")!.textContent = `(${queued})`;
+    renderQueue();
+    nav.querySelector('[data-count="feedback"]')!.textContent = String(
+      state.interfaceFeedback?.length || 0,
+    );
     const work = state.investigations.filter((i) =>
       ["draft", "queued", "running", "paused"].includes(i.status),
     ).length;
     const review = state.investigations.filter((i) =>
-      i.proposals.some((p) => p.status === "pending"),
+      i.reviewFlow?.walkthroughs.length || i.proposals.some((p) => p.status === "pending"),
     ).length;
     nav.querySelector('[data-count="work"]')!.textContent = work
       ? String(work)
@@ -174,7 +208,7 @@ export function mountResearchWorkspace(
     const changed = state.datasetRevision !== fresh.datasetRevision;
     state = fresh;
     updateCounts();
-    notice.hidden = true;
+    if (render) notice.hidden = true;
     if (changed) onDataset(state.dataset);
     if (render) renderView();
   }
@@ -194,6 +228,7 @@ export function mountResearchWorkspace(
   }
   function setView(next: string) {
     view = next;
+    shell.dataset.workspaceView = next;
     graph.hidden = view !== "research";
     surface.hidden = view === "research";
     nav.querySelectorAll<HTMLButtonElement>("[data-view]").forEach((b) => {
@@ -204,9 +239,10 @@ export function mountResearchWorkspace(
     renderView();
   }
   function setMode(enabled: boolean) {
+    if (enabled) openAnnotation();
     annotate = enabled;
     document.body.classList.toggle("research-annotating", annotate);
-    nav
+    dialog
       .querySelector("#annotation-mode")!
       .setAttribute("aria-pressed", String(annotate));
     window.postMessage(
@@ -251,6 +287,8 @@ export function mountResearchWorkspace(
     const proposal =
       element?.closest<HTMLElement>("[data-proposal-id]")?.dataset.proposalId;
     if (proposal) target.proposalId = proposal;
+    const graphReviewId = element?.closest<HTMLElement>("[data-graph-review-id]")?.dataset.graphReviewId;
+    if (graphReviewId) target.graphReviewId = graphReviewId;
     return {
       target: {
         ...target,
@@ -263,7 +301,16 @@ export function mountResearchWorkspace(
     };
   }
   const draftKey = `research-draft:${window.location.origin}`;
+  const destinationKey = `research-destination:${window.location.origin}`;
+  dialog.querySelector<HTMLSelectElement>("#annotation-destination")!.value =
+    localStorage.getItem(destinationKey) === "interface"
+      ? "interface"
+      : "research";
   function saveDraft() {
+    localStorage.setItem(
+      destinationKey,
+      dialog.querySelector<HTMLSelectElement>("#annotation-destination")!.value,
+    );
     localStorage.setItem(
       draftKey,
       JSON.stringify({
@@ -282,6 +329,7 @@ export function mountResearchWorkspace(
   }
   function closeComposer() {
     saveDraft();
+    setMode(false);
     dialog.close();
     syncComposer();
   }
@@ -293,8 +341,7 @@ export function mountResearchWorkspace(
     editingInvestigation = undefined;
     draftScope = undefined;
     amendingAnnotation = undefined;
-    dialog.querySelector<HTMLSelectElement>("#annotation-destination")!.value =
-      "research";
+
     dialog.querySelector<HTMLTextAreaElement>("textarea")!.value = "";
     localStorage.removeItem(draftKey);
   }
@@ -308,6 +355,7 @@ export function mountResearchWorkspace(
         .join("") || '<p class="muted">No selected references</p>';
   }
   function openAnnotation(target?: AnnotationTarget, investigationId?: string) {
+    setDrawerTab("compose");
     if (
       !dialog.open &&
       !references.length &&
@@ -471,19 +519,22 @@ export function mountResearchWorkspace(
         dialog.querySelector<HTMLSelectElement>("#annotation-destination")!
           .value === "interface";
       clearDraft();
-      dialog.close();
-      syncComposer();
+      openAnnotation();
+      setDrawerTab(!interfaceFeedback && !dispatch ? "queue" : "compose");
       setMode(false);
       updateCounts();
       message(
         interfaceFeedback
-          ? "Interface feedback saved for development review."
+          ? "Saved to Interface feedback."
           : dispatch
             ? "Investigation queued for a researcher. Your accepted graph is unchanged."
-            : "Annotation saved. Send it from Investigations when you’re ready.",
+            : "Annotation saved in Your annotations.",
+        interfaceFeedback
+          ? { label: "View feedback", run: () => setView("feedback") }
+          : undefined,
       );
-      if (view === "work") renderView();
-      else if (view === "review") {
+      if (view === "work" || view === "feedback") renderView();
+      else if (view === "review" && !interfaceFeedback) {
         notice.hidden = false;
         notice.querySelector("span")!.textContent =
           "Your feedback is saved in this investigation.";
@@ -510,7 +561,7 @@ export function mountResearchWorkspace(
       setMode(!annotate);
   });
   // D3 starts gestures on mousedown; stop those gestures only while selecting annotations.
-  graph.addEventListener(
+  shell.addEventListener(
     "mousedown",
     (event) => {
       if (annotate && (event.target as Element).closest("svg"))
@@ -530,13 +581,19 @@ export function mountResearchWorkspace(
           ? selectedInvestigation
           : undefined,
       );
-    else if (button?.id === "annotation-mode") setMode(!annotate);
   });
   notice
     .querySelector("button")!
     .addEventListener(
       "click",
-      () => void refresh().catch((error) => message(error.message)),
+      () => {
+        if (activityDestination) {
+          selectedInvestigation = activityDestination;
+          selectedProposal = undefined;
+          setView(state.investigations.find(i => i.id === activityDestination)?.reviewFlow?.walkthroughs.length ? "review" : "work");
+          notice.hidden = true;
+        } else void refresh().catch((error) => message(error.message));
+      },
     );
 
   function heading(kicker: string, title: string, description: string) {
@@ -545,11 +602,44 @@ export function mountResearchWorkspace(
   function empty(title: string, detail: string) {
     return `<div class="workspace-empty"><span class="empty-symbol" aria-hidden="true">⌖</span><h2>${title}</h2><p>${detail}</p><button type="button" data-go-research>Explore the research graph</button></div>`;
   }
-  function listItem(i: Investigation) {
-    const queued = i.annotations.filter((a) => !a.dispatchedAt).length;
-    return `<button type="button" class="investigation-list-item ${selectedInvestigation === i.id ? "selected" : ""}" data-select-investigation="${i.id}"><span class="status-badge status-${i.status}">${statusLabel(i.status)}</span><strong>${escape(i.title)}</strong><small>${i.annotations.length} annotation${i.annotations.length === 1 ? "" : "s"}${queued ? ` · ${queued} unsent` : ""}</small></button>`;
+  function setDrawerTab(tab: "compose" | "queue") {
+    dialog.querySelector<HTMLElement>("#annotation-form")!.hidden =
+      tab !== "compose";
+    dialog.querySelector<HTMLElement>(".sidebar-queue")!.hidden =
+      tab !== "queue";
+    dialog
+      .querySelectorAll<HTMLElement>("[data-drawer-tab]")
+      .forEach((button) => {
+        button.setAttribute(
+          "aria-pressed",
+          String(button.dataset.drawerTab === tab),
+        );
+      });
+    if (tab === "queue") setMode(false);
   }
+  function renderQueue() {
+    const groups = state.investigations
+      .map((i) => ({
+        i,
+        notes: i.annotations.filter((a) => !a.dispatchedAt),
+      }))
+      .filter(({ notes }) => notes.length);
+    dialog.querySelector(".sidebar-queue")!.innerHTML =
+      `<div class="queue-list">${groups.length ? groups.map(({ i, notes }) => `<section class="queue-group" data-investigation-id="${escape(i.id)}"><h2>${escape(investigationSubject(i))}</h2>${notes.map((a) => `<article class="annotation-entry"><p class="annotation-text">${escape(a.question)}</p><div class="note-actions"><button class="text-action" data-edit-note="${escape(a.id)}">Edit</button><button class="text-action" data-delete-note="${escape(a.id)}">Remove</button></div></article>`).join("")}<button data-command="dispatch">Send ${notes.length} queued annotation${notes.length === 1 ? "" : "s"}</button></section>`).join("") : '<p class="page-context">No annotations waiting to be sent.</p>'}</div>`;
+  }
+  dialog
+    .querySelectorAll<HTMLButtonElement>("[data-drawer-tab]")
+    .forEach((button) => {
+      button.addEventListener("click", () =>
+        setDrawerTab(button.dataset.drawerTab as "compose" | "queue"),
+      );
+    });
+  dialog
+    .querySelector("#annotation-mode")!
+    .addEventListener("click", () => setMode(!annotate));
   function renderView() {
+    guidedReview?.destroy();
+    guidedReview = undefined;
     previewGeneration++;
     previewRenderer?.destroy();
     previewRenderer = undefined;
@@ -558,51 +648,78 @@ export function mountResearchWorkspace(
       renderSources();
       return;
     }
+    if (view === "feedback") {
+      surface.innerHTML = feedbackView(state);
+      return;
+    }
     const items = [...state.investigations]
       .reverse()
-      .filter((i) => view === "work" || i.proposals.length > 0);
+      .filter((i) => view !== "review" || i.proposals.length > 0 || i.reviewFlow?.walkthroughs.length);
     if (!items.some((i) => i.id === selectedInvestigation)) {
       selectedInvestigation = items[0]?.id;
       selectedProposal = undefined;
     }
     const investigation = currentInvestigation();
-    const engine = state.researcher;
-    const coordination = state.coordinator;
-    const coordinatorControl =
-      view === "work"
-        ? `<section class="engine-control" aria-label="Research coordinator"><div><strong data-coordinator-status>${coordination?.connected ? "Coordinator connected" : coordination?.enabled ? "Waiting for your coordinator" : "Agent-led research available"}</strong><p data-coordinator-description>${coordination?.connected ? `${escape(coordination.name)} is supervising research and preparing proposals.` : coordination?.enabled ? "Research and findings are saved. Open an agent in the research repository to continue." : "Open an agent in this repository to coordinate investigations, or use the independent researcher below."}</p></div></section>`
-        : "";
-    const engineControl =
-      view === "work" && engine
-        ? `<form id="engine-form" class="engine-control"><div><label for="research-engine">${coordination?.enabled ? "Preferred delegated researcher" : "Researcher for new work"}</label><p>Uses your installed CLI and its existing account. Up to two investigations run together, with a ten-minute limit per pass.</p></div><select id="research-engine"><option value="manual" ${engine.selected === "manual" ? "selected" : ""}>${coordination?.enabled ? "Coordinator’s own research tools" : "Connected agent / manual handoff"}</option>${engine.engines.map((e) => `<option value="${e.id}" ${engine.selected === e.id ? "selected" : ""} ${!e.available ? "disabled" : ""}>${e.id === "codex" ? "Codex" : "Claude Code"}${e.available ? "" : " (not installed)"}</option>`).join("")}</select><button type="submit">${coordination?.enabled ? "Save preference" : "Use for queued research"}</button></form>`
-        : "";
-    surface.innerHTML =
-      (view === "work"
-        ? heading(
-            "Investigation desk",
-            "Investigations",
-            "Questions stay connected to their evidence, findings, and revisions.",
-          )
-        : heading(
-            "Your judgment, in context",
-            "Review research",
-            "Inspect the evidence. Annotate an interpretation. Accept only what it supports.",
-          )) +
-      coordinatorControl +
-      engineControl +
-      (view === "work" && state.interfaceFeedback?.length
-        ? `<details class="interface-feedback-list"><summary>Interface feedback (${state.interfaceFeedback.length})</summary>${state.interfaceFeedback.map((f) => `<article><p class="preserve-lines">${escape(f.text)}</p><small>${date(f.at)} · ${f.references.length} references</small></article>`).join("")}</details>`
-        : "") +
-      (items.length
-        ? `<div class="investigation-layout"><aside class="investigation-list" aria-label="Investigations">${items.map(listItem).join("")}</aside><article class="investigation-detail" data-investigation-id="${investigation!.id}">${view === "work" ? workDetail(investigation!) : reviewDetail(investigation!)}</article></div>`
-        : empty(
-            view === "work"
-              ? "Start with something you wonder about"
-              : "Nothing is waiting for your judgment",
-            view === "work"
-              ? "Explore a person or relationship. Turn on Annotate, select it, and ask what needs investigating."
-              : "Research proposals will arrive here, connected to the questions that prompted them.",
-          ));
+    if (view === "settings")
+      surface.innerHTML = settingsView(state, investigation);
+    else {
+      const picker =
+        items.length > 1
+          ? `<label class="investigation-picker">Investigation <select data-investigation-picker>${items.map((i) => `<option value="${i.id}" ${i.id === selectedInvestigation ? "selected" : ""}>${escape(investigationSubject(i))}</option>`).join("")}</select></label>`
+          : "";
+      surface.innerHTML = `<div class="investigation-desk"><div class="desk-tools">${picker}<button class="text-action" data-open-settings>Research settings</button></div>${investigation ? `<article class="investigation-detail" data-investigation-id="${investigation.id}">${view === "work" ? investigationView(state, investigation, investigationSection) : reviewDetail(investigation)}</article>` : empty(view === "work" ? "No investigations yet" : "No findings are ready for review yet", view === "work" ? "Add a note to begin an investigation." : "Saved research notes remain in Investigations while findings are being prepared.")}</div>`;
+      if (view === "review" && investigation?.reviewFlow?.walkthroughs.length) {
+        guidedReview = new GuidedReview(surface.querySelector<HTMLElement>("[data-guided-host]")!, state, investigation, {
+          command: async data => {
+            await request("/api/review-flow", data);
+            await refresh();
+          },
+          source: (id, quote) => showSource(undefined, quote, id),
+          error: text => message(text),
+        });
+      }
+    }
+    surface
+      .querySelector("#research-time-limit-mode")
+      ?.addEventListener("change", () => {
+        const limited =
+          surface.querySelector<HTMLSelectElement>("#research-time-limit-mode")!
+            .value === "limited";
+        surface.querySelector<HTMLElement>(".time-limit-value")!.hidden =
+          !limited;
+        surface.querySelector<HTMLInputElement>(
+          "#research-time-limit",
+        )!.disabled = !limited;
+      });
+    surface
+      .querySelector("#time-limit-form")
+      ?.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const limited =
+          surface.querySelector<HTMLSelectElement>("#research-time-limit-mode")!
+            .value === "limited";
+        const minutes = limited
+          ? surface.querySelector<HTMLInputElement>("#research-time-limit")!
+              .valueAsNumber
+          : null;
+        if (limited && (!Number.isSafeInteger(minutes) || minutes! < 1)) {
+          message("Enter a positive whole number of minutes.");
+          return;
+        }
+        try {
+          await request("/api/research-settings", {
+            timeLimitMinutes: minutes,
+          });
+          await refresh();
+          message(
+            minutes === null
+              ? "Time limit removed for new research passes."
+              : `New research passes will have a ${minutes}-minute limit.`,
+          );
+        } catch (error) {
+          message((error as Error).message);
+        }
+      });
     surface
       .querySelector("#engine-form")
       ?.addEventListener("submit", async (event) => {
@@ -614,32 +731,11 @@ export function mountResearchWorkspace(
                 .value,
           });
           await refresh();
-          message(
-            state.coordinator?.enabled
-              ? "Researcher preference saved for your coordinator."
-              : "Researcher selection saved. Queued investigations will use this selection.",
-          );
+          message("Researcher preference saved.");
         } catch (error) {
           message((error as Error).message);
         }
       });
-  }
-  function workDetail(i: Investigation): string {
-    const last = i.checkpoints.at(-1);
-    const execution = i.executions?.at(-1);
-    const currentFindings = i.proposals.flatMap((p) =>
-      (p.findings || [])
-        .filter((f) => f.status !== "superseded")
-        .map((f) => ({ p, f })),
-    );
-    const queued = i.annotations.filter((a) => !a.dispatchedAt).length;
-    return `<div class="detail-topline"><span class="status-badge status-${i.status}">${statusLabel(i.status)}</span><span class="muted">Started ${date(i.createdAt)}</span></div><h2>${escape(i.title)}</h2><p class="phase-label">${i.phase === "graph" ? "Graph construction" : "Investigation and findings"}</p>${execution ? `<p class="muted">Actual assignment: ${escape(execution.worker)} · ${escape(execution.provider)} · ${escape(execution.model)}</p>` : ""}${i.accessRequest && !i.accessRequest.resolvedAt ? `<div class="access-request"><h3>Needs your help</h3><p>${escape(i.accessRequest.instruction)}</p>${safeUrl(i.accessRequest.url) ? `<a href="${safeUrl(i.accessRequest.url)}" target="_blank" rel="noopener">Open source</a>` : ""}<button data-command="resolve-access">Access is ready, resume</button></div>` : ""}<div class="work-actions"><button data-add-question>Add question</button>${queued ? '<button class="primary" data-command="dispatch">Send queued annotations</button>' : ""}${["queued", "running"].includes(i.status) ? '<button data-command="pause">Pause investigation</button>' : ""}${["paused", "running", "closed"].includes(i.status) ? `<button data-command="resume">${i.status === "running" ? "Replace researcher" : "Resume investigation"}</button>` : ""}${i.proposals.length ? "<button data-open-review>Open review</button>" : ""}</div><div class="activity-callout"><span class="eyebrow">${i.status === "running" ? "Assigned researcher" : "Research status"}</span><p>${i.status === "running" ? (state.coordinator?.awaitingSynthesis.includes(i.id) ? "Findings returned. Your coordinator is preparing the review proposal." : escape(i.lease?.worker)) : i.status === "queued" ? (state.coordinator?.enabled ? "Sent to your coordinator for assignment. Your accepted research is unchanged." : "Saved and ready for an agent to claim. No researcher is assigned yet.") : i.status === "draft" ? "Your annotations are saved. Send them together when you’re ready." : i.status === "paused" ? "Findings are preserved. Resume to hand them to a new researcher." : i.status === "review" ? "A proposal is ready. The accepted research has not changed." : "The review decision is recorded. You can reopen this investigation."}</p></div><div class="scope-summary"><span class="eyebrow">Where to look</span><p>${i.scope.map((id) => escape(state.collections.find((c) => c.id === id)?.name || id)).join(" · ") || "No collections selected"}</p></div>${last ? `<section class="review-section"><span class="eyebrow">Latest saved checkpoint</span><h3>${escape(last.summary)}</h3><p class="preserve-lines">${escape(last.findings)}</p><h4>Remaining work</h4><p class="preserve-lines">${escape(last.nextSteps)}</p><small>${date(last.at)} · ${escape(last.worker)}</small></section>` : ""}${currentFindings.length ? `<section class="review-section"><h3>Current findings</h3>${currentFindings.map(({ p, f }) => `<article ${targetAttribute({ label: f.statement, proposalId: p.id, findingId: f.id })}><p>${escape(f.statement)}</p><span class="status-badge">${escape(f.status)} · ${escape(f.qualification)}</span><button data-source-review="${i.id}" data-source-proposal="${p.id}">Review finding</button></article>`).join("")}</section>` : ""}<section class="review-section"><h3>Annotations <span class="count-label">${i.annotations.length}</span></h3>${i.annotations.map((a) => `<div class="annotation-record" ${targetAttribute(a.target)}><div><span class="eyebrow">${escape(a.target.label)}</span><small>${a.dispatchedAt ? "Sent" : "Queued"}${a.target.proposalId ? " · Proposal feedback" : ""}</small></div>${a.target.text ? `<blockquote>${escape(a.target.text)}</blockquote>` : ""}<p class="preserve-lines">${escape(a.question)}</p>${a.references?.length ? `<small>${a.references.length} references</small>` : ""}<button data-edit-note="${a.id}">${a.dispatchedAt ? "Amend instruction" : "Edit annotation"}</button>${!a.dispatchedAt ? `<button data-delete-note="${a.id}">Remove</button>` : ""}</div>`).join("")}</section><details class="history-section"><summary>Investigation history</summary>${i.events.map((e) => `<p><time>${date(e.at)}</time> ${escape(e.message)}</p>`).join("")}${i.checkpoints
-      .slice(0, -1)
-      .map(
-        (c) =>
-          `<p><time>${date(c.at)}</time> ${escape(c.summary)}<br>${escape(c.findings)}<br>${escape(c.nextSteps)}</p>`,
-      )
-      .join("")}</details>`;
   }
   function recordFields(record: Record<string, unknown> | null): string {
     if (!record) return '<p class="muted">Not present</p>';
@@ -673,10 +769,12 @@ export function mountResearchWorkspace(
       .join("")}</dl>`;
   }
   function reviewDetail(i: Investigation): string {
+    if (i.reviewFlow?.walkthroughs.length) return '<div data-guided-host></div>';
     const p =
       i.proposals.find((p) => p.id === selectedProposal) ||
       i.proposals.filter((p) => p.status === "pending").at(-1) ||
       i.proposals.at(-1)!;
+    if (!p) return empty("Research is being prepared", "The coordinator will publish an explanation here when the evidence is ready.");
     selectedProposal = p.id;
     if (p.kind)
       return findingReview(
@@ -695,7 +793,7 @@ export function mountResearchWorkspace(
       p.changes.find((c) => c.table === "sources" && c.recordId === id)?.after
         ?.title ||
       id;
-    return `<div data-proposal-id="${p.id}" ${targetAttribute({ label: p.title, proposalId: p.id })}><div class="detail-topline"><span class="status-badge status-${p.status}">${escape(p.status)}</span><span class="muted">Revision ${p.revision} · ${date(p.createdAt)}</span></div><div class="origin-question"><span class="eyebrow">Your investigation</span><p>${escape(i.annotations[0]?.question)}</p></div><h2>${escape(p.title)}</h2><p class="proposal-summary">${escape(p.summary)}</p><div class="revision-choices" aria-label="Proposal revisions">${i.proposals.map((version) => `<button type="button" data-proposal="${version.id}" aria-pressed="${version.id === p.id}">Revision ${version.revision}</button>`).join("")}</div>${outstanding ? '<div class="activity-callout">New feedback belongs to this investigation. Send queued annotations from Investigations, then review the revised proposal before accepting.</div>' : ""}<section class="review-section"><span class="eyebrow">Evidence and interpretation</span><h3>What the sources actually support</h3>${p.evidence.map((e) => `<article class="evidence-card" ${targetAttribute({ label: `Evidence: ${sourceTitle(e.sourceId)}`, proposalId: p.id })}><div class="detail-topline"><span class="status-badge">${escape(e.stance)}</span><span class="muted">${escape(e.locator)}</span></div><h4>${escape(sourceTitle(e.sourceId))}</h4><blockquote>${escape(e.quote)}</blockquote><div class="interpretation" ${targetAttribute({ label: "Interpretation of evidence", proposalId: p.id })}><span class="eyebrow">Interpretation</span><p>${escape(e.interpretation)}</p></div><details><summary>Surrounding context</summary><p class="preserve-lines">${escape(e.context)}</p></details><button type="button" data-evidence="${escape(e.id)}">View source in context ↗</button></article>`).join("") || '<p class="muted">No source passages were found. This outcome records an open question.</p>'}</section>${p.ambiguity ? `<section class="ambiguity-card" ${targetAttribute({ label: "Remaining ambiguity", proposalId: p.id })}><span class="eyebrow">Still open</span><h3>Uncertainty worth preserving</h3><p class="preserve-lines">${escape(p.ambiguity)}</p></section>` : ""}<section class="review-section"><span class="eyebrow">Proposed model changes</span><h3>${p.changes.length ? `${p.changes.length} change${p.changes.length === 1 ? "" : "s"} to review together` : "Preserve an unresolved outcome"}</h3>${p.changes.map((c) => `<article class="change-card" ${targetAttribute({ table: c.table, recordId: c.recordId, label: String(c.after?.name || c.after?.label || c.before?.name || c.recordId), proposalId: p.id })}><h4>${escape(c.after?.name || c.after?.label || c.before?.name || c.recordId)}</h4><p>${escape(c.reason)}</p><div class="change-comparison"><section><span class="eyebrow">Accepted now</span>${recordFields(c.before)}</section><section><span class="eyebrow">Proposed</span>${recordFields(c.after)}</section></div></article>`).join("")}</section><footer class="review-decision">${p.status === "pending" ? `<p>${p.changes.length ? "Accepting applies these exact changes together and preserves this review." : "Recording this outcome preserves the ambiguity without changing the graph."}</p><div><button class="primary" data-command="accept" ${outstanding || i.status !== "review" ? "disabled" : ""}>${p.changes.length ? "Accept proposal" : "Record unresolved outcome"}</button><button data-command="reject" ${outstanding || i.status !== "review" ? "disabled" : ""}>Reject proposal</button><button data-followup>Request further research</button></div>` : `<p>${p.status === "accepted" ? "Accepted and preserved in the research history." : p.status === "superseded" ? "A later research pass superseded this proposal. It remains available for inspection." : "Rejected. The accepted research was unchanged."}</p><button data-followup>Continue this investigation</button>`}</footer></div>`;
+    return `<div data-proposal-id="${p.id}" ${targetAttribute({ label: p.title, proposalId: p.id })}><div class="detail-topline"><span class="status-badge status-${p.status}">${escape(p.status)}</span><span class="muted">Revision ${p.revision} · ${date(p.createdAt)}</span></div><div class="origin-question"><span class="eyebrow">Your investigation</span><p>${escape(i.annotations[0]?.question)}</p></div><h2>${escape(p.title)}</h2><p class="proposal-summary">${escape(p.summary)}</p><div class="revision-choices" aria-label="Proposal revisions">${i.proposals.map((version) => `<button type="button" data-proposal="${version.id}" aria-pressed="${version.id === p.id}">Revision ${version.revision}</button>`).join("")}</div>${outstanding ? '<div class="activity-callout">New feedback belongs to this investigation. Open Annotations, then Queued, to send queued annotations, then review the revised proposal before accepting.</div>' : ""}<section class="review-section"><span class="eyebrow">Evidence and interpretation</span><h3>What the sources actually support</h3>${p.evidence.map((e) => `<article class="evidence-card" ${targetAttribute({ label: `Evidence: ${sourceTitle(e.sourceId)}`, proposalId: p.id })}><div class="detail-topline"><span class="status-badge">${escape(e.stance)}</span><span class="muted">${escape(e.locator)}</span></div><h4>${escape(sourceTitle(e.sourceId))}</h4><blockquote>${escape(e.quote)}</blockquote><div class="interpretation" ${targetAttribute({ label: "Interpretation of evidence", proposalId: p.id })}><span class="eyebrow">Interpretation</span><p>${escape(e.interpretation)}</p></div><details><summary>Surrounding context</summary><p class="preserve-lines">${escape(e.context)}</p></details><button type="button" data-evidence="${escape(e.id)}">View source in context ↗</button></article>`).join("") || '<p class="muted">No source passages were found. This outcome records an open question.</p>'}</section>${p.ambiguity ? `<section class="ambiguity-card" ${targetAttribute({ label: "Remaining ambiguity", proposalId: p.id })}><span class="eyebrow">Still open</span><h3>Uncertainty worth preserving</h3><p class="preserve-lines">${escape(p.ambiguity)}</p></section>` : ""}<section class="review-section"><span class="eyebrow">Proposed model changes</span><h3>${p.changes.length ? `${p.changes.length} change${p.changes.length === 1 ? "" : "s"} to review together` : "Preserve an unresolved outcome"}</h3>${p.changes.map((c) => `<article class="change-card" ${targetAttribute({ table: c.table, recordId: c.recordId, label: String(c.after?.name || c.after?.label || c.before?.name || c.recordId), proposalId: p.id })}><h4>${escape(c.after?.name || c.after?.label || c.before?.name || c.recordId)}</h4><p>${escape(c.reason)}</p><div class="change-comparison"><section><span class="eyebrow">Accepted now</span>${recordFields(c.before)}</section><section><span class="eyebrow">Proposed</span>${recordFields(c.after)}</section></div></article>`).join("")}</section><footer class="review-decision">${p.status === "pending" ? `<p>${p.changes.length ? "Accepting applies these exact changes together and preserves this review." : "Recording this outcome preserves the ambiguity without changing the graph."}</p><div><button class="primary" data-command="accept" ${outstanding || i.status !== "review" ? "disabled" : ""}>${p.changes.length ? "Accept proposal" : "Record unresolved outcome"}</button><button data-command="reject" ${outstanding || i.status !== "review" ? "disabled" : ""}>Reject proposal</button><button data-followup>Request further research</button></div>` : `<p>${p.status === "accepted" ? "Accepted and preserved in the research history." : p.status === "superseded" ? "A later research pass superseded this proposal. It remains available for inspection." : "Rejected. The accepted research was unchanged."}</p><button data-followup>Continue this investigation</button>`}</footer></div>`;
   }
   function renderSources() {
     if (selectedSource) {
@@ -831,6 +929,7 @@ export function mountResearchWorkspace(
       body = `<p>The original document has not been preserved in this workspace.</p>${source && safeUrl(String(source.url || "")) ? `<a class="primary source-external" href="${safeUrl(String(source.url))}" target="_blank" rel="noopener noreferrer">Open original source ↗</a>` : '<p class="muted">No accessible source URL is recorded. Import the original or annotate the evidence to request a precise source.</p>'}`;
     selectedSource = sourceId;
     view = "sources";
+    shell.dataset.workspaceView = view;
     graph.hidden = true;
     surface.hidden = false;
     syncComposer();
@@ -866,7 +965,7 @@ export function mountResearchWorkspace(
       ...(state.dataset.contextEntities || []),
       ...(state.dataset.contextConnections || []),
     ].filter((r) => r.sourceIds?.includes(sourceId || ""));
-    surface.innerHTML = `<button data-source-list>Back to source library</button><article class="source-inspector" ${targetAttribute({ table: "sources", recordId: sourceId || documentId, label: String(source?.title || doc?.name || "Source") })}><span class="eyebrow">Source record</span><h1>${escape(source?.title || doc?.name || "Source")}</h1><p>${[source?.repository, source?.access || "Access not recorded"].filter(Boolean).map(escape).join(" · ")}</p><p class="preserve-lines">${escape(source?.note)}</p>${doc ? `<p>Preserved ${date(doc.importedAt)}</p><a href="/api/documents/${doc.id}" target="_blank" rel="noopener">Open preserved original</a>` : ""}<section class="source-content">${body}</section><h2>Findings from this source</h2>${related.map(({ i, p, f }) => `<section class="source-finding" data-investigation-id="${i.id}" ${targetAttribute({ label: f.statement, proposalId: p.id, findingId: f.id })}><span class="status-badge">${escape(f.status)} · ${escape(f.qualification)}</span><h3>${escape(f.statement)}</h3><p class="preserve-lines">${escape(f.explanation)}</p><button data-source-review="${i.id}" data-source-proposal="${p.id}">Open finding review</button></section>`).join("") || '<p class="muted">No structured findings recorded yet.</p>'}<h2>Accepted graph connections</h2>${subjects.map((r) => `<p ${targetAttribute({ label: "name" in r ? r.name : r.label || r.id, recordId: r.id })}>${escape("name" in r ? r.name : r.label || r.id)}</p>`).join("") || '<p class="muted">No accepted graph records cite this source yet.</p>'}<details><summary>Recorded passages and review history (${passages.length})</summary>${passages.map(({ i, p, e }) => `<section data-investigation-id="${i.id}"><p class="muted">Revision ${p.revision} · ${escape(p.status)}</p>${evidenceCard(state, p, e)}</section>`).join("")}</details></article>`;
+    surface.innerHTML = `<button data-source-list>Back to source library</button>${currentInvestigation()?.reviewFlow?.walkthroughs.length ? '<button data-open-review>Return to your walkthrough</button>' : ""}<article class="source-inspector" ${targetAttribute({ table: "sources", recordId: sourceId || documentId, label: String(source?.title || doc?.name || "Source") })}><span class="eyebrow">Source record</span><h1>${escape(source?.title || doc?.name || "Source")}</h1><p>${[source?.repository, source?.access || "Access not recorded"].filter(Boolean).map(escape).join(" · ")}</p><p class="preserve-lines">${escape(source?.note)}</p>${doc ? `<p>Preserved ${date(doc.importedAt)}</p><a href="/api/documents/${doc.id}" target="_blank" rel="noopener">Open preserved original</a>` : ""}<section class="source-content">${body}</section><h2>Findings from this source</h2>${related.map(({ i, p, f }) => `<section class="source-finding" data-investigation-id="${i.id}" ${targetAttribute({ label: f.statement, proposalId: p.id, findingId: f.id })}><span class="status-badge">${escape(f.status)} · ${escape(f.qualification)}</span><h3>${escape(f.statement)}</h3><p class="preserve-lines">${escape(f.explanation)}</p><button data-source-review="${i.id}" data-source-proposal="${p.id}">Open finding review</button></section>`).join("") || '<p class="muted">No structured findings recorded yet.</p>'}<h2>Accepted graph connections</h2>${subjects.map((r) => `<p ${targetAttribute({ label: "name" in r ? r.name : r.label || r.id, recordId: r.id })}>${escape("name" in r ? r.name : r.label || r.id)}</p>`).join("") || '<p class="muted">No accepted graph records cite this source yet.</p>'}<details><summary>Recorded passages and review history (${passages.length})</summary>${passages.map(({ i, p, e }) => `<section data-investigation-id="${i.id}"><p class="muted">Revision ${p.revision} · ${escape(p.status)}</p>${evidenceCard(state, p, e)}</section>`).join("")}</details></article>`;
     surface.querySelectorAll("[data-evidence]").forEach((b) => b.remove());
     surface.querySelector("mark")?.scrollIntoView({ block: "center" });
   }
@@ -967,11 +1066,40 @@ export function mountResearchWorkspace(
       });
   }
 
-  surface.addEventListener("click", (event) => {
+  const handleContentClick = (event: Event) => {
     const button = (event.target as Element).closest<HTMLButtonElement>(
       "button",
     );
     if (!button) return;
+    if (button.closest(".sidebar-queue")) {
+      const investigationId = button.closest<HTMLElement>(
+        "[data-investigation-id]",
+      )?.dataset.investigationId;
+      if (investigationId) selectedInvestigation = investigationId;
+    }
+    if (button.hasAttribute("data-open-settings")) {
+      setView("settings");
+      return;
+    }
+    if (button.hasAttribute("data-view-work")) {
+      setView("work");
+      return;
+    }
+    if (button.hasAttribute("data-new-interface-note")) {
+      openAnnotation();
+      dialog.querySelector<HTMLSelectElement>(
+        "#annotation-destination",
+      )!.value = "interface";
+      syncDestination();
+      saveDraft();
+      return;
+    }
+    if (button.dataset.investigationSection) {
+      investigationSection = button.dataset
+        .investigationSection as InvestigationSection;
+      renderView();
+      return;
+    }
     if (button.dataset.sourceReview) {
       selectedInvestigation = button.dataset.sourceReview;
       selectedProposal = button.dataset.sourceProposal;
@@ -988,6 +1116,9 @@ export function mountResearchWorkspace(
         (a) => a.id === button.dataset.editNote,
       )!;
       clearDraft();
+      dialog.querySelector<HTMLSelectElement>(
+        "#annotation-destination",
+      )!.value = "research";
       references = a.references?.length ? [...a.references] : [a.target];
       pendingInvestigation = selectedInvestigation;
       if (a.dispatchedAt) amendingAnnotation = a.id;
@@ -1086,6 +1217,8 @@ export function mountResearchWorkspace(
         type: button.dataset.command as ResearchCommand["type"],
         investigationId: selectedInvestigation,
         proposalId: selectedProposal,
+        requestId: button.dataset.resumeRequest,
+        decision: button.dataset.resumeDecision,
       })
         .then(() => message("Research state saved."))
         .catch((error) => message(error.message));
@@ -1103,9 +1236,20 @@ export function mountResearchWorkspace(
       const e = p.evidence.find((e) => e.id === button.dataset.evidence)!;
       showSource(e.documentId, e.quote, e.sourceId, p);
     }
-  });
+  };
+  surface.addEventListener("click", handleContentClick);
+  dialog
+    .querySelector(".sidebar-queue")!
+    .addEventListener("click", handleContentClick);
   surface.addEventListener("change", (event) => {
     const e = event.target as HTMLInputElement;
+    if (e.hasAttribute("data-investigation-picker")) {
+      selectedInvestigation = e.value;
+      selectedProposal = undefined;
+      cardIndex = 0;
+      renderView();
+      return;
+    }
     if (e.dataset.graphGroup && selectedProposal) {
       const ids = selectedGroups.get(selectedProposal) || new Set<string>();
       if (e.checked) ids.add(e.dataset.graphGroup);
@@ -1121,7 +1265,7 @@ export function mountResearchWorkspace(
       renderView();
     }
   });
-  // Poll only lightweight revision metadata. The user decides when to load arriving research.
+  // Refresh activity without replacing an open walkthrough or its reading position.
   let polling = false;
   window.setInterval(async () => {
     if (polling || busy || document.hidden) return;
@@ -1148,9 +1292,28 @@ export function mountResearchWorkspace(
             : "Research and findings are saved. Open an agent in the research repository to continue.";
       }
       if (revision.revision !== state.revision) {
-        notice.querySelector("span")!.textContent =
-          "New research activity is available. Your current view is preserved.";
-        notice.hidden = false;
+        const previous = state;
+        await refresh(false);
+        const current = currentInvestigation();
+        if (guidedReview && current) guidedReview.update(state, current);
+        const changed = [...state.investigations].reverse().find(i => {
+          const prior = previous.investigations.find(p => p.id === i.id);
+          return i.reviewFlow?.walkthroughs.at(-1)?.id !== prior?.reviewFlow?.walkthroughs.at(-1)?.id
+            || i.reviewFlow?.graphReviews.at(-1)?.id !== prior?.reviewFlow?.graphReviews.at(-1)?.id
+            || i.reviewFlow?.jobs.at(-1)?.status !== prior?.reviewFlow?.jobs.at(-1)?.status
+            || i.proposals.length !== prior?.proposals.length;
+        });
+        if (changed && !(guidedReview && current?.id === changed.id)) {
+          activityDestination = changed.id;
+          const job = changed.reviewFlow?.jobs.at(-1);
+          notice.querySelector("span")!.textContent = changed.reviewFlow?.graphReviews.at(-1)
+            ? `Proposed graph ready: ${investigationSubject(changed)}`
+            : job?.status === "paused" ? `Graph preparation paused: ${investigationSubject(changed)}`
+            : changed.reviewFlow?.walkthroughs.length ? `Research walkthrough ready: ${investigationSubject(changed)}`
+            : `Research activity: ${investigationSubject(changed)}`;
+          notice.querySelector("button")!.textContent = changed.reviewFlow?.walkthroughs.length ? "Open review" : "Open investigation";
+          notice.hidden = false;
+        }
       }
     } catch {
       nav.querySelector(".local-indicator")!.textContent =
@@ -1174,4 +1337,5 @@ export function mountResearchWorkspace(
     .querySelector("[data-open-sources]")
     ?.addEventListener("click", () => setView("sources"));
   updateCounts();
+  if (view !== "research") setView(view);
 }

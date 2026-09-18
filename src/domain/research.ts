@@ -14,6 +14,7 @@ import type { Finding, FindingRef, GraphGroup } from "./findings.ts";
 import type { SourceRecord } from "./types.ts";
 import { GenealogyModel } from "./model.ts";
 import type { FamilyDataset } from "./types.ts";
+import type { ReviewFlow } from "./review-flow";
 
 export type Table =
   | "people"
@@ -23,6 +24,10 @@ export type Table =
   | "contextConnections"
   | "sources";
 export interface AnnotationTarget {
+  walkthroughId?: string;
+  stepId?: string;
+  graphReviewId?: string;
+  claimId?: string;
   table?: Table;
   recordId?: string;
   label: string;
@@ -79,6 +84,14 @@ export interface Proposal {
   decidedAt?: string;
 }
 export interface Investigation {
+  reviewFlow?: ReviewFlow;
+  resumeRequest?: {
+    id: string;
+    reason: string;
+    at: string;
+    status: "pending" | "approved" | "declined";
+    decidedAt?: string;
+  };
   phase?: "research" | "graph";
   graphRequest?: { refs: FindingRef[]; at: string };
   accessRequest?: { instruction: string; url?: string; resolvedAt?: string };
@@ -128,6 +141,13 @@ export interface ResearchDocument {
   sha256: string;
   importedAt: string;
   text?: string;
+  extraction?: {
+    processor: string;
+    status: string;
+    totalPages?: number;
+    processedPages?: number[];
+    bundle?: string;
+  };
 }
 export interface ResearchState {
   version: 1;
@@ -143,8 +163,14 @@ export interface ResearchState {
     text: string;
     references: AnnotationTarget[];
     at: string;
+    origin?: {
+      investigationId: string;
+      annotation: Annotation;
+      movedAt: string;
+    };
   }[];
   engine?: "manual" | "codex" | "claude";
+  researchSettings?: { timeLimitMinutes: number | null };
   organization?: {
     history: {
       id: string;
@@ -214,6 +240,8 @@ export interface ResearchCommand {
     | "edit-annotation"
     | "delete-annotation"
     | "interface-feedback"
+    | "reclassify-annotation"
+    | "resume-decision"
     | "resolve-access"
     | "annotate"
     | "dispatch"
@@ -238,6 +266,77 @@ export function transition(
     (i) => i.id === command.investigationId,
   );
   let result: unknown;
+  if (command.type === "resume-decision") {
+    assert(investigation?.status === "paused", "Investigation is not paused.");
+    const pending = investigation.resumeRequest;
+    assert(
+      pending?.status === "pending" && pending.id === command.requestId,
+      "This resume request is no longer pending.",
+    );
+    assert(
+      command.decision === "approve" || command.decision === "decline",
+      "Choose approve or decline.",
+    );
+    pending.status = command.decision === "approve" ? "approved" : "declined";
+    pending.decidedAt = now;
+    investigation.events.push({
+      at: now,
+      message:
+        command.decision === "approve"
+          ? "Human approved the coordinator's request to resume."
+          : "Human declined the coordinator's request; research remains paused.",
+    });
+    if (command.decision === "approve")
+      return transition(
+        next,
+        { type: "resume", investigationId: investigation.id },
+        now,
+      );
+    next.revision++;
+    return { state: next, result: { paused: true } };
+  }
+  if (command.type === "reclassify-annotation") {
+    assert(investigation, "Unknown investigation.");
+    assert(
+      investigation.status === "paused" && !investigation.lease,
+      "Pause the investigation before reclassifying an annotation.",
+    );
+    const original = investigation.annotations.find(
+      (a) => a.id === command.annotationId,
+    );
+    assert(original, "Unknown annotation.");
+    assert(
+      !investigation.proposals.some((p) =>
+        p.addressedAnnotationIds.includes(original.id),
+      ),
+      "Annotations addressed by proposals must retain their research links.",
+    );
+    const feedback = next.interfaceFeedback?.find(
+      (f) => f.id === command.feedbackId,
+    );
+    assert(
+      feedback &&
+        !feedback.origin &&
+        feedback.text === original.question &&
+        canonical(feedback.references) ===
+          canonical(original.references || [original.target]),
+      "Choose the matching interface feedback record without an existing origin.",
+    );
+    feedback.origin = {
+      investigationId: investigation.id,
+      annotation: original,
+      movedAt: now,
+    };
+    investigation.annotations = investigation.annotations.filter(
+      (a) => a.id !== original.id,
+    );
+    investigation.events.push({
+      at: now,
+      message: `Annotation ${original.id} moved to interface feedback ${feedback.id}; excluded from future research assignments.`,
+    });
+    next.revision++;
+    return { state: next, result: { moved: true, feedbackId: feedback.id } };
+  }
   if (command.type === "interface-feedback") {
     nonempty(command.question, "Interface feedback");
     const refs = (command.references || []) as AnnotationTarget[];
@@ -460,7 +559,7 @@ export function transition(
       requireThat(investigation, "Investigation no longer exists.");
     if (!investigation) {
       requireThat(
-        !target.proposalId,
+        ![target, ...references].some(t => t.proposalId || t.walkthroughId || t.graphReviewId),
         "Proposal annotations must belong to their investigation.",
       );
       const scope = (command.scope as string[]) ?? ["web", "imports"];
@@ -487,6 +586,11 @@ export function transition(
         investigation.proposals.some((p) => p.id === target.proposalId),
         "Proposal is not part of this investigation.",
       );
+    for (const ref of [target, ...references]) {
+      requireThat(!ref.proposalId || investigation.proposals.some(p => p.id === ref.proposalId), "Proposal is not part of this investigation.");
+      requireThat(!ref.walkthroughId || !!investigation.reviewFlow?.walkthroughs.some(w => w.id === ref.walkthroughId), "Walkthrough is not part of this investigation.");
+      requireThat(!ref.graphReviewId || !!investigation.reviewFlow?.graphReviews.some(r => r.id === ref.graphReviewId), "Graph review is not part of this investigation.");
+    }
     if (command.amends)
       assert(
         investigation.annotations.some(
@@ -576,6 +680,10 @@ export function transition(
         "Worker lease is no longer current. Read the saved handoff before claiming work again.",
       );
     if (command.type === "dispatch" || command.type === "resume") {
+      if (investigation.resumeRequest?.status === "pending") {
+        investigation.resumeRequest.status = "approved";
+        investigation.resumeRequest.decidedAt = now;
+      }
       const unsent = investigation.annotations.filter((a) => !a.dispatchedAt);
       if (unsent.length)
         investigation.phase = unsent.every((a) =>
@@ -606,6 +714,10 @@ export function transition(
       });
     } else if (command.type === "pause") {
       investigation.status = "paused";
+      if (investigation.resumeRequest?.status === "pending") {
+        investigation.resumeRequest.status = "declined";
+        investigation.resumeRequest.decidedAt = now;
+      }
       delete investigation.lease;
       investigation.events.push({
         at: now,

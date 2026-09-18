@@ -61,6 +61,7 @@ export function organize(store, command) {
     data.contextConnections = (data.contextConnections || []).filter(
       (c) => kept.has(c.fromId) && kept.has(c.toId),
     );
+    data.claims = (data.claims || []).filter(c => kept.has(c.subjectId) && (!c.object.entityId || kept.has(c.object.entityId)));
     const added = [];
     if (command.seed) {
       const { name, kind } = command.seed;
@@ -129,6 +130,7 @@ export function organize(store, command) {
         at: new Date().toISOString(),
         reason: plan.reason,
         before: next.dataset,
+        ...(plan.graphProposal ? { graphProposal: plan.graphProposal } : {}),
         appliedRevision: next.datasetRevision + 1,
       });
       next.dataset = plan.dataset;

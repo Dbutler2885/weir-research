@@ -49,6 +49,133 @@ const proposal = {
   changes: [],
 };
 describe("research coordination", () => {
+  it("requires human confirmation before a coordinator can resume paused work", () => {
+    const f = fixture();
+    const id = f.queue();
+    f.store.command({ type: "pause", investigationId: id });
+    const requested = f.run({
+      action: "request-resume",
+      investigationId: id,
+      reason: "Finish the review using saved evidence.",
+    });
+    expect(f.store.state.investigations[0].status).toBe("paused");
+    expect(
+      f.coordinator.snapshot(f.secret).investigations[0]!.resumeRequest.status,
+    ).toBe("pending");
+    expect(
+      f.run({
+        action: "request-resume",
+        investigationId: id,
+        reason: "Duplicate request",
+      }).requestId,
+    ).toBe(requested.requestId);
+    expect(() =>
+      f.run({ action: "claim", investigationId: id, brief: "Continue" }),
+    ).toThrow("queued");
+    expect(() => f.run({ action: "resume", investigationId: id })).toThrow(
+      "Unknown coordinator action",
+    );
+    f.store.command({
+      type: "resume-decision",
+      investigationId: id,
+      requestId: requested.requestId,
+      decision: "decline",
+    });
+    expect(f.store.state.investigations[0].status).toBe("paused");
+    const next = f.run({
+      action: "request-resume",
+      investigationId: id,
+      reason: "New evidence is available.",
+    });
+    expect(() =>
+      f.store.command({
+        type: "resume-decision",
+        investigationId: id,
+        requestId: requested.requestId,
+        decision: "approve",
+      }),
+    ).toThrow("no longer pending");
+    expect(
+      new WorkspaceStore(f.directory, dataset).state.investigations[0]
+        .resumeRequest.id,
+    ).toBe(next.requestId);
+    f.store.command({
+      type: "resume-decision",
+      investigationId: id,
+      requestId: next.requestId,
+      decision: "approve",
+    });
+    expect(f.store.state.investigations[0].status).toBe("queued");
+    expect(f.store.state.investigations[0].resumeRequest.status).toBe(
+      "approved",
+    );
+    expect(() =>
+      f.run({
+        action: "claim",
+        investigationId: id,
+        brief: "Prepare review from saved evidence",
+      }),
+    ).not.toThrow();
+  });
+  it("archives misrouted feedback and excludes it from replacement assignments", () => {
+    const f = fixture();
+    const id = f.queue();
+    const refs = [{ label: "Toolbar" }];
+    f.store.command({
+      type: "annotate",
+      investigationId: id,
+      question: "Simplify this toolbar",
+      references: refs,
+      dispatch: true,
+    });
+    const original = structuredClone(
+      f.store.state.investigations[0].annotations[1],
+    );
+    f.store.command({
+      type: "interface-feedback",
+      question: original.question,
+      references: refs,
+    });
+    const feedbackId = f.store.state.interfaceFeedback[0].id;
+    const move = {
+      type: "reclassify-annotation",
+      investigationId: id,
+      annotationId: original.id,
+      feedbackId,
+    };
+    expect(() => f.store.command(move)).toThrow("Pause the investigation");
+    f.run({
+      action: "assign",
+      investigationId: id,
+      engine: "claude",
+      brief: "Check the source",
+    });
+    f.store.command({ type: "pause", investigationId: id });
+    expect(() => f.store.command({ ...move, feedbackId: "wrong" })).toThrow(
+      "matching interface feedback",
+    );
+    f.store.command(move);
+    expect(f.store.state.investigations[0].annotations).toHaveLength(1);
+    expect(f.store.state.investigations[0].status).toBe("paused");
+    expect(f.store.state.interfaceFeedback).toHaveLength(1);
+    expect(f.store.state.interfaceFeedback[0].origin.annotation).toEqual(
+      original,
+    );
+    expect(f.store.state.coordination.assignments[id]).toBeUndefined();
+    expect(() => f.store.command(move)).toThrow("Unknown annotation");
+    const reopened = new WorkspaceStore(f.directory, dataset);
+    expect(reopened.state.interfaceFeedback[0].origin.annotation).toEqual(
+      original,
+    );
+    f.store.command({ type: "resume", investigationId: id });
+    const next = f.run({
+      action: "claim",
+      investigationId: id,
+      brief: "Continue the research",
+    });
+    expect(next.investigation.lease.annotationIds).not.toContain(original.id);
+    expect(next.investigation.annotations).toHaveLength(1);
+  });
   it("requires exclusive live ownership and fences the previous session after recovery", () => {
     const f = fixture();
     const id = f.queue();

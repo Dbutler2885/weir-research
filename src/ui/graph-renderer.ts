@@ -17,6 +17,10 @@ export interface GraphRendererHandlers {
 }
 
 function pathFromPoints(edge: LayoutEdge): string {
+  if (edge.curved) {
+    const [a, control, b] = edge.points;
+    return `M${a!.x},${a!.y} Q${control!.x},${control!.y} ${b!.x},${b!.y}`;
+  }
   return edge.points
     .map((point, index) => `${index === 0 ? "M" : "L"}${point.x},${point.y}`)
     .join(" ");
@@ -35,6 +39,7 @@ export class GraphRenderer {
   private readonly svg: Selection<SVGSVGElement, unknown, null, undefined>;
   private readonly viewport: Selection<SVGGElement, unknown, null, undefined>;
   private readonly edgeLayer: Selection<SVGGElement, unknown, null, undefined>;
+  private readonly edgeHitLayer: Selection<SVGGElement, unknown, null, undefined>;
   private readonly edgeLabelLayer: Selection<
     SVGGElement,
     unknown,
@@ -47,8 +52,12 @@ export class GraphRenderer {
   private currentLayout?: FamilyLayout;
   private currentTransform: ZoomTransform = zoomIdentity;
   private hasRendered = false;
+  private selectedEdge?: string;
+  private highlightedNode?: string;
+  private highlightedEdge?: string;
   private readonly fitOnRender: boolean;
   private resizeTimer?: number;
+  private tourRegion?: {nodeIds: string[]; claimIds: string[]};
   private readonly resizeObserver: ResizeObserver;
 
   constructor(
@@ -67,10 +76,12 @@ export class GraphRenderer {
         "Interactive research graph. Select a person, place, or organization to focus its relationships.",
       );
 
+    const shadowId = `focus-shadow-${crypto.randomUUID()}`;
+    this.svg.style("--focus-shadow", `url(#${shadowId})`);
     const defs = this.svg.append("defs");
     const filter = defs
       .append("filter")
-      .attr("id", "focus-shadow")
+      .attr("id", shadowId)
       .attr("x", "-30%")
       .attr("y", "-30%")
       .attr("width", "160%")
@@ -85,6 +96,7 @@ export class GraphRenderer {
 
     this.viewport = this.svg.append("g").attr("class", "graph-viewport");
     this.edgeLayer = this.viewport.append("g").attr("class", "edge-layer");
+    this.edgeHitLayer = this.viewport.append("g").attr("class", "edge-hit-layer");
     this.edgeLabelLayer = this.viewport
       .append("g")
       .attr("class", "edge-label-layer");
@@ -95,15 +107,26 @@ export class GraphRenderer {
       .on("zoom", (event) => {
         this.currentTransform = event.transform;
         this.viewport.attr("transform", event.transform.toString());
+        this.edgeLabelLayer.selectAll("text")
+          .style("font-size", `${13 / event.transform.k}px`)
+          .style("stroke-width", `${4 / event.transform.k}px`);
+        this.highlight(this.highlightedNode, this.highlightedEdge);
       });
     this.svg.call(this.zoomBehavior);
     this.svg.on("dblclick.zoom", null);
+    this.svg.on("click.relationship", (event: MouseEvent) => {
+      if (event.target === this.svg.node()) {
+        this.selectedEdge = undefined;
+        this.highlight();
+      }
+    });
 
     this.resizeObserver = new ResizeObserver(() => {
       window.clearTimeout(this.resizeTimer);
       this.resizeTimer = window.setTimeout(() => {
         if (this.currentLayout) {
-          if (this.fitOnRender) this.fitAll(false);
+          if (this.tourRegion) this.focusRegion(this.tourRegion.nodeIds, this.tourRegion.claimIds);
+          else if (this.fitOnRender) this.fitAll(false);
           else this.centerOn(this.currentLayout.focusId, false);
         }
       }, 120);
@@ -124,6 +147,7 @@ export class GraphRenderer {
     model: GenealogyModel,
   ): void {
     this.currentLayout = layout;
+    this.selectedEdge = undefined;
     const reduceMotion = window.matchMedia(
       "(prefers-reduced-motion: reduce)",
     ).matches;
@@ -194,9 +218,36 @@ export class GraphRenderer {
         );
       });
 
-    const contextEdgeLabels = layout.edges.filter(
-      (edge) => edge.kind === "context" && edge.label,
-    );
+    const hits = this.edgeHitLayer.selectAll<SVGPathElement, LayoutEdge>("path").data(layout.edges, edge => edge.id);
+    hits.exit().remove();
+    hits.enter().append("path").merge(hits)
+      .attr("class", "graph-edge-hit")
+      .attr("d", pathFromPoints)
+      .attr("tabindex", 0)
+      .attr("role", "button")
+      .attr("aria-label", edge => `${model.contextNodeName(edge.sourceId)} → ${edge.label ?? "related to"} → ${model.contextNodeName(edge.targetId)}`)
+      .attr("data-connection-id", edge => edge.kind === "context" ? edge.id : null)
+      .attr("data-research-target", edge => this.edgeLayer.selectAll<SVGPathElement, LayoutEdge>("path.graph-edge").filter(candidate => candidate.id === edge.id).attr("data-research-target"))
+      .attr("data-lavish-label", edge => edge.label ?? "Relationship")
+      .on("pointerenter focus", (_event, edge) => this.highlight(undefined, edge.id))
+      .on("pointerleave blur", () => this.highlight(undefined, this.selectedEdge))
+      .on("click", (event: MouseEvent, edge) => {
+        event.stopPropagation();
+        this.selectedEdge = this.selectedEdge === edge.id ? undefined : edge.id;
+        this.highlight(undefined, this.selectedEdge);
+      })
+      .on("keydown", (event: KeyboardEvent, edge) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          this.selectedEdge = this.selectedEdge === edge.id ? undefined : edge.id;
+          this.highlight(undefined, this.selectedEdge);
+        } else if (event.key === "Escape") {
+          this.selectedEdge = undefined;
+          this.highlight();
+        }
+      });
+
+    const contextEdgeLabels = layout.edges.filter(edge => edge.label);
     const labelSelection = this.edgeLabelLayer
       .selectAll<SVGTextElement, LayoutEdge>("text.context-edge-label")
       .data(contextEdgeLabels, (edge) => edge.id);
@@ -211,19 +262,12 @@ export class GraphRenderer {
         "data-lavish-label",
         (edge) => edge.label ?? "Historical connection",
       )
-      .attr("x", (edge) => edge.points[Math.floor(edge.points.length / 2)]!.x)
+      .attr("x", (edge) => this.labelPosition(edge).x)
       .attr(
         "y",
-        (edge) => edge.points[Math.floor(edge.points.length / 2)]!.y - 7,
+        (edge) => this.labelPosition(edge).y - 9,
       )
-      .attr("opacity", (edge) => {
-        const source = layout.nodes.find((node) => node.id === edge.sourceId);
-        const target = layout.nodes.find((node) => node.id === edge.targetId);
-        return Math.max(
-          source ? nodeOpacity(source) : 0.3,
-          target ? nodeOpacity(target) : 0.3,
-        );
-      })
+      .attr("visibility", "hidden")
       .text((edge) => edge.label ?? "");
 
     const nodeSelection = this.nodeLayer
@@ -250,6 +294,8 @@ export class GraphRenderer {
 
     const merged = nodeEnter.merge(nodeSelection);
     merged
+      .on("pointerenter focusin", (_event, node) => this.highlight(node.id))
+      .on("pointerleave focusout", () => this.highlight(undefined, this.selectedEdge))
       .attr("class", (node) => {
         const focusClass = node.id === projection.focusId ? " is-focus" : "";
         return `graph-node ${node.kind}-node emphasis-${node.emphasis}${focusClass}`;
@@ -284,6 +330,7 @@ export class GraphRenderer {
       .attr("transform", (node) => `translate(${node.x},${node.y})`);
 
     this.hasRendered = true;
+    this.highlight();
     window.requestAnimationFrame(() =>
       this.fitOnRender
         ? this.fitAll(false)
@@ -295,12 +342,14 @@ export class GraphRenderer {
     this.viewport.selectAll("*").interrupt();
     this.nodeLayer.selectAll("*").remove();
     this.edgeLayer.selectAll("*").remove();
+    this.edgeHitLayer.selectAll("*").remove();
     this.edgeLabelLayer.selectAll("*").remove();
     this.currentLayout = undefined;
     this.hasRendered = false;
   }
 
   fitAll(animate = true): void {
+    this.tourRegion = undefined;
     const layout = this.currentLayout;
     const svgNode = this.svg.node();
     if (!layout || !svgNode || layout.width <= 0 || layout.height <= 0) {
@@ -327,6 +376,7 @@ export class GraphRenderer {
   }
 
   centerOn(personId: string, animate = true): void {
+    this.tourRegion = undefined;
     const layout = this.currentLayout;
     const svgNode = this.svg.node();
     const node = layout?.nodes.find((candidate) => candidate.id === personId);
@@ -346,6 +396,64 @@ export class GraphRenderer {
 
   zoomBy(factor: number): void {
     this.svg.transition().duration(240).call(this.zoomBehavior.scaleBy, factor);
+  }
+
+  focusRegion(nodeIds: string[], claimIds: string[] = []): void {
+    this.tourRegion = {nodeIds, claimIds};
+    const layout = this.currentLayout, svg = this.svg.node();
+    if (!layout || !svg) return;
+    const ids = new Set(nodeIds);
+    for (const edge of layout.edges) if (claimIds.includes(edge.id)) { ids.add(edge.sourceId); ids.add(edge.targetId); }
+    const nodes = layout.nodes.filter(n => ids.has(n.id));
+    if (!nodes.length) return;
+    this.nodeLayer.selectAll<SVGGElement, LayoutNode>("g.graph-node").classed("is-tour-focus", n => ids.has(n.id));
+    this.edgeLayer.selectAll<SVGPathElement, LayoutEdge>("path.graph-edge").classed("is-tour-focus", e => claimIds.includes(e.id));
+    const left = Math.min(...nodes.map(n => n.x)), top = Math.min(...nodes.map(n => n.y));
+    const right = Math.max(...nodes.map(n => n.x + n.width)), bottom = Math.max(...nodes.map(n => n.y + n.height));
+    const bounds = svg.getBoundingClientRect();
+    const scale = Math.max(0.08, Math.min(0.95, (bounds.width - 110) / (right - left + 180), (bounds.height - 110) / (bottom - top + 180)));
+    this.applyTransform(zoomIdentity.translate(bounds.width / 2 - (left + right) / 2 * scale, bounds.height / 2 - (top + bottom) / 2 * scale).scale(scale), 0);
+  }
+
+  private labelPosition(edge: LayoutEdge): {x: number; y: number} {
+    if (edge.curved) {
+      const [a, c, b] = edge.points;
+      return {x: (a!.x + 2 * c!.x + b!.x) / 4, y: (a!.y + 2 * c!.y + b!.y) / 4};
+    }
+    return edge.points[Math.floor(edge.points.length / 2)]!;
+  }
+
+  private highlight(nodeId?: string, edgeId?: string): void {
+    this.highlightedNode = nodeId;
+    this.highlightedEdge = edgeId;
+    const layout = this.currentLayout;
+    if (!layout) return;
+    const active = Boolean(nodeId || edgeId);
+    const edges = new Set(layout.edges.filter(edge => edgeId ? edge.id === edgeId : nodeId && (edge.sourceId === nodeId || edge.targetId === nodeId)).map(edge => edge.id));
+    const nodes = new Set(nodeId ? [nodeId] : []);
+    for (const edge of layout.edges) if (edges.has(edge.id)) {
+      nodes.add(edge.sourceId); nodes.add(edge.targetId);
+    }
+    this.edgeLayer.selectAll<SVGPathElement, LayoutEdge>("path.graph-edge")
+      .classed("is-muted", edge => active && !edges.has(edge.id))
+      .classed("is-highlighted", edge => edges.has(edge.id));
+    this.nodeLayer.selectAll<SVGGElement, LayoutNode>("g.graph-node")
+      .classed("is-muted", node => active && !nodes.has(node.id))
+      .classed("is-highlighted", node => active && nodes.has(node.id));
+    // Reveal only labels that fit, leaving individual edges keyboard/hover accessible.
+    const occupied = layout.nodes.map(node => ({x: node.x - 8, y: node.y - 8, width: node.width + 16, height: node.height + 16}));
+    this.edgeLabelLayer.selectAll<SVGTextElement, LayoutEdge>("text")
+      .attr("visibility", "hidden")
+      .each((edge, index, elements) => {
+        if (!edges.has(edge.id)) return;
+        const label = elements[index]!;
+        const box = label.getBBox();
+        const overlaps = occupied.some(other => box.x < other.x + other.width && box.x + box.width > other.x && box.y < other.y + other.height && box.y + box.height > other.y);
+        if (!overlaps || edgeId) {
+          label.setAttribute("visibility", "visible");
+          occupied.push({x: box.x - 8, y: box.y - 6, width: box.width + 16, height: box.height + 12});
+        }
+      });
   }
 
   private applyTransform(transform: ZoomTransform, duration: number): void {

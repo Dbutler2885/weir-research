@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import dataset from "./fixtures/workshop.json";
@@ -58,6 +58,61 @@ function fixture() {
   return { directory, store, pool, launches, queue };
 }
 describe("local researcher supervision", () => {
+  it("defaults to no time limit and tells the worker there is no deadline", () => {
+    const f = fixture();
+    const id = f.queue();
+    f.pool.choose("claude");
+    const task = f.pool.active.get(id);
+    task.started = Date.now() - 24 * 60 * 60_000;
+    f.pool.pump();
+    expect(f.launches[0]!.child.killed).toBe(false);
+    expect(f.store.state.investigations[0].status).toBe("running");
+    expect(f.launches[0]!.args.join(" ")).toContain("No elapsed-time limit");
+    expect(f.launches[0]!.args.join(" ")).not.toContain("within ten minutes");
+  });
+  it("persists optional limits, snapshots each pass, and retains checkpoints on expiry", () => {
+    const f = fixture();
+    for (const value of [0, -1, 1.5, "10", undefined, Infinity])
+      expect(() => f.pool.configure({ timeLimitMinutes: value })).toThrow(
+        "positive whole number",
+      );
+    f.pool.configure({ timeLimitMinutes: 2 });
+    const reopened = new WorkspaceStore(f.directory, dataset);
+    expect(reopened.state.researchSettings.timeLimitMinutes).toBe(2);
+    const id = f.queue();
+    f.pool.choose("claude");
+    expect(f.launches[0]!.args.join(" ")).toContain("2-minute time limit");
+    const task = f.pool.active.get(id);
+    f.pool.configure({ timeLimitMinutes: null });
+    expect(task.timeLimitMinutes).toBe(2);
+    writeFileSync(
+      join(task.directory, "checkpoint.json"),
+      JSON.stringify({
+        summary: "Partial result",
+        findings: "Fictional archive inspected",
+        nextSteps: "Compare another source",
+      }),
+    );
+    task.started = Date.now() - 60_000;
+    f.pool.pump();
+    expect(f.launches[0]!.child.killed).toBe(false);
+    task.started = Date.now() - 2 * 60_000;
+    f.pool.pump();
+    expect(f.launches[0]!.child.killed).toBe(true);
+    expect(f.store.state.investigations[0].status).toBe("paused");
+    expect(f.store.state.investigations[0].checkpoints).toHaveLength(1);
+    expect(f.store.state.investigations[0].events.at(-1).message).toContain(
+      "2-minute time limit",
+    );
+    expect(
+      JSON.parse(readFileSync(join(f.directory, "workspace.json"), "utf8"))
+        .researchSettings.timeLimitMinutes,
+    ).toBeNull();
+    f.launches[0]!.child.emit("close", 1);
+    f.store.command({ type: "resume", investigationId: id });
+    f.pool.pump();
+    expect(f.pool.active.get(id).timeLimitMinutes).toBeNull();
+  });
   it("launches only after selecting an engine and bounds concurrent investigations", () => {
     const f = fixture();
     f.queue();

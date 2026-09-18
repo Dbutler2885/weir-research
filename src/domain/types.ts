@@ -57,6 +57,8 @@ export interface DirectParentageRecord {
 }
 
 export type ContextEntityKind =
+  | "facility"
+  | "observation"
   | "organization"
   | "family"
   | "place"
@@ -97,9 +99,32 @@ export interface ContextConnectionRecord {
   confidence?: Confidence;
   sourceIds?: string[];
   notes?: string[];
+  qualification?: ResearchClaim["qualification"];
+}
+
+export interface ResearchEvidence {
+  id: string;
+  sourceId: string;
+  quote: string;
+  context: string;
+  locator: string;
+  interpretation: string;
+}
+
+export interface ResearchClaim {
+  id: string;
+  subjectId: string;
+  predicate: string;
+  object: { entityId: string } | { value: string | number };
+  qualification: "supported" | "reported" | "inferred" | "disputed" | "unresolved";
+  time: string | null;
+  reasoning: string;
+  evidence: { ref: string; role: "supports" | "challenges" | "context" }[];
 }
 
 export interface FamilyDataset {
+  claims?: ResearchClaim[];
+  evidence?: ResearchEvidence[];
   version: number;
   title: string;
   initialFocusId: string | null;

@@ -12,3 +12,9 @@ coverage/
 /.lavish/
 .env
 .env.*
+
+# Local Python runtime and dependency environments
+/.venv/
+/.python-tools/
+__pycache__/
+*.pyc

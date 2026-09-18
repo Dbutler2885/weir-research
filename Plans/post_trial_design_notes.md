@@ -271,3 +271,46 @@ The source inspector and durable links provide the foundation for deciding wheth
 Browser and computer interaction depend on the research runtime; this change enables available browser tooling and assistance requests, not a universal desktop automation service or institutional login integration.
 The historical trial's actual model identity remains unverified; new assignments record the provider and identify unreported model metadata honestly.
 The docked layout is implemented and browser-tested, but its usefulness during sustained real research still needs the human's judgment.
+
+## Interface cleanup checkpoint: September 13, 2026
+
+The following fixes were implemented and verified on September 11; this checklist was recorded on September 13.
+Checked items mean implemented and tested, not approved by the human after review.
+The original feedback remains preserved in the app, which currently has no feedback completion-status control.
+
+- [x] Separate connection status and researcher preferences from investigation content, placing operational details in Research settings.
+- [x] Remove the repeated single-investigation sidebar card and use a compact selector when multiple investigations exist.
+- [x] Present the referenced research subject as the investigation heading, label the human's words as annotations, and establish a consistent heading and action hierarchy.
+- [x] Move raw researcher checkpoints into Activity, use ordinary summary text, and disclose detailed notes separately.
+- [x] Add a visible Feedback destination with a count and a direct link from the save confirmation, and preserve the selected annotation destination between saves and reloads.
+- [x] Replace nested annotation cards and repeated reference text with consistent note rows, quiet metadata, and expandable references.
+- [x] Make investigation history accessible through an explicit Activity tab alongside Findings and Your annotations.
+- [x] Verify consecutive feedback saves without creating research annotations, destination persistence, investigation navigation, desktop layout, and narrow-screen layout.
+
+Validation: all 44 tests passed, TypeScript and the production build passed, and browser checks confirmed the feedback flow and responsive layout.
+These application changes remain uncommitted at this checkpoint.
+
+### Still open
+
+- [x] Obtain the human's assessment of the revised interface during use; accepted as good for now on September 13.
+- [ ] Add completion or resolution tracking to saved interface feedback in the app.
+- [ ] Clarify the managed worker's permitted shell commands so a denied command does not become a false claim that all browser access is unavailable.
+- [ ] Preserve discoverable returned candidates when new annotations requeue an investigation.
+- [x] Let the coordinator request recovery from a paused pass, requiring explicit human confirmation before it can claim saved evidence or assign another worker.
+- [x] Default managed research passes to no time limit and expose an optional project-level limit for new passes in Research settings.
+- [x] Consolidate writing, reference selection, and queued annotations in a single Annotations sidebar, with an unsent count and editing, removal, and sending by investigation from any view.
+- [ ] Isolate researcher browser navigation from the human's selected tabs.
+- [x] Reclassify historical interface notes accidentally sent as research so future research assignments do not inherit them.
+
+The runtime items above were not fixed by the interface cleanup.
+The subsequent September 13 timeout update removes the fixed ten-minute deadline and adds persisted resume requests with browser approval or refusal.
+Paused work stays paused until the human confirms, and the coordinator instructions require waiting for that decision.
+Configured limits still preserve checkpoints and pause at expiry; the separate stale-candidate recovery issue remains open.
+Timeout and confirmation validation: all 50 tests and the build passed, and browser checks covered saved limits after reload, restoring unlimited passes, declining and approving restart requests, and narrow-screen layout.
+The global queue follow-up passed all 51 tests and the build, with browser verification of the count, narrow layout, dispatch, and disappearance when empty.
+The subsequent sidebar revision replaces the separate Add note, Annotate, and Queue toolbar controls with Annotations, containing New annotation and Queued tabs and a Select references toggle.
+All 52 tests and the build passed, including draft preservation across sidebar tabs, closing and reopening, reference selection, and queued submission without closing the sidebar.
+Browser checks confirmed the unified layout, narrow-screen fit, count updates, and sending while retaining the underlying research view.
+The September 13 follow-up added a guarded reclassification operation and applied it to the two misrouted notes, preserving their originals in existing feedback records and recording the moves in investigation history.
+The operation requires a paused investigation, refuses annotations addressed by proposals, and invalidates the prepared worker assignment.
+All 45 tests and the build passed; live HTTP verification confirmed the persisted cleanup without changing the graph, checkpoints, or proposals.

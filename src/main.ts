@@ -303,6 +303,7 @@ async function startApplication() {
     renderDetailsRecord();
     workspace.classList.add("details-open");
     detailsPanel.ariaHidden = "false";
+    detailsPanel.scrollTop = 0;
     window.setTimeout(() => renderer.centerOn(currentFocusId), 360);
   }
 
@@ -311,6 +312,7 @@ async function startApplication() {
     renderDetailsRecord();
     workspace.classList.add("details-open");
     detailsPanel.ariaHidden = "false";
+    detailsPanel.scrollTop = 0;
     window.setTimeout(() => renderer.centerOn(currentFocusId), 360);
   }
 

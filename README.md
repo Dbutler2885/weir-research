@@ -37,10 +37,14 @@ Open http://127.0.0.1:4318.
 The local service stores accepted research, investigation history, and imported sources in `.research/`, including archived original datasets and trial notes.
 Keep a backup of that directory to preserve your work.
 
-Explore the graph normally, then enable Annotate with the toolbar button or Command/Control + I.
+Open Annotations to write an annotation, select references, or manage the queued list in one sidebar.
+Enable Select references inside the sidebar or use Command/Control + I to annotate the current surface.
 Select one or several elements or passages, or use Add question with no selection.
 The composer docks beside the surface, preserves drafts when closed, and supports editing queued annotations and amending sent instructions.
+Its New annotation and Queued tabs preserve the current draft and keep the research surface open; the Annotations button shows the number of unsent annotations.
 Choose Interface feedback to record product observations separately from historical research.
+The destination stays selected between saves; the Feedback button and save confirmation open all saved interface notes.
+Investigations separates Findings, Your annotations, and Activity, with researcher preferences under Research settings.
 Queue annotations or investigate immediately.
 Follow-up annotations on a proposal stay in its investigation and retain the exact revision they address.
 Review individual findings in cards or a continuous view, with evidence and qualifications alongside each decision.
@@ -53,13 +57,51 @@ You may also add a named starting point, such as a place or organization, withou
 Use Organize to preview which nodes to keep, apply the change in place, or undo the latest organization.
 Organization preserves sources and research history, pauses active work, and prevents old results from being applied to the reorganized graph.
 
+## Local PDF processing
+
+Docling is a repository dependency managed by `pyproject.toml` and the committed `uv.lock`.
+Install it separately from the JavaScript dependencies:
+
+```sh
+npm run setup:pdf
+npm run pdf -- "/path/to/document.pdf"
+# Optionally process an inclusive range of PDF pages:
+npm run pdf -- "/path/to/document.pdf" --pages 1 10
+# Match Question Wheel's existing-text-only conversion:
+npm run pdf -- "/path/to/document.pdf" --ocr off
+```
+
+Setup requires Python 3 (`python3` on macOS/Linux, or `py`/`python` on Windows) and downloads the locked packages into `.venv`, using a repository-local uv installation in `.python-tools`.
+It selects Python 3.12, downloading that runtime locally if necessary.
+The first conversion also downloads Docling's model weights into `.research/cache/huggingface`; subsequent conversions reuse them locally.
+Documents are processed on this computer without sending their contents to a parsing API.
+OCR defaults to RapidOCR with the CPU ONNX runtime on every platform because it reliably preserves mixed native-text and scanned pages.
+Use `--ocr-engine apple` to select Apple Vision explicitly on macOS.
+The initial OCR configuration is for English documents.
+Apple dependencies are conditional on macOS, and Linux/Windows install CPU PyTorch wheels without requiring CUDA or a GPU.
+The default `--ocr auto` lets Docling apply OCR to bitmap regions; `--ocr off` disables OCR entirely.
+Conversion uses automatic device selection with two processing threads; `--device cpu` can select CPU processing explicitly.
+
+Each conversion creates a new directory under `.research/sources/`, preserving `original.pdf`, Docling's structured `document.json` with page provenance, readable `document.md`, extracted picture assets, and a `manifest.json` with the original hash, processor version, requested page range, coverage, and errors.
+Existing captures are never overwritten, and there is no fixed 50-page cap.
+Page ranges refer to physical PDF pages, not printed page labels.
+Failed conversions retain their original and failure record; partial conversions are labeled and return a nonzero exit code.
+These bundles are currently a local conversion facility; automatic import into the browser source library and researcher tool access are separate integration work.
+
+Run `npm run test:pdf` to exercise native-text extraction, OCR of a fictional scanned page, source preservation, location metadata, and explicit page coverage.
+This integration check downloads model weights on first use and is separate from the faster `npm run check` suite.
+It exercises the platform default and the portable RapidOCR backend.
+The PDF workflow is configured to run on macOS, Linux, and Windows in GitHub Actions; only macOS has been verified locally.
+
 ## Research engines
 
 The default engine is Manual CLI handoff.
 Investigations also lets you select an installed Codex or Claude CLI using its existing account configuration.
 Selecting an engine enables queued research and sends each assigned investigation's context and scoped sources to that provider.
 Initial CLI installation and sign-in remain prerequisites outside this application.
-The process supervisor runs at most two researchers concurrently, with a ten-minute limit per pass.
+The process supervisor runs at most two researchers concurrently, with no time limit by default.
+Research settings offers an optional limit in whole minutes for new delegated passes in this project; running passes keep the limit they started with.
+Coordinators can request that paused work resume, with a reason shown in the investigation; research waits for the human to choose Resume research or Keep paused.
 Failures pause for inspection; saved checkpoints support an explicit resume or replacement researcher.
 Switching engines affects new assignments, while Replace researcher restarts an active investigation with its saved handoff.
 
@@ -128,3 +170,16 @@ All real research belongs under `.research/`, including datasets, source capture
 The whole directory is ignored automatically; Git tracks the application, instructions, plans, and explicitly fictional test fixtures.
 A fresh checkout contains no real research and needs no private dataset to build or test.
 Keep separate backups of `.research/` because Git does not back it up.
+
+## Guided research review
+
+The coordinator publishes an opening briefing and connected evidence screens, then graph preparation starts while the reader explores the research.
+The original reports remain available in the review history.
+A separate builder writes durable CSV tables and checkpoints; the coordinator reviews its submission and writes a graph tour.
+The browser focuses relevant nodes and connections alongside the tour and evidence.
+Only Apply selected groups changes the accepted graph, preserving qualifications and citations.
+
+The repository instructions route coordinators through `skills/present-research/SKILL.md` and `skills/prepare-research-graph/SKILL.md`.
+Managed builders use the saved Codex or Claude preference; manual assignments use native delegation.
+Graph jobs preserve working files and streamed output under the ignored project directory, and interrupted work requires human confirmation to resume.
+Use `?view=review&investigation=<id>` on a workspace URL to link directly to a review.

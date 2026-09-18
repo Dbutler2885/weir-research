@@ -52,15 +52,13 @@ describe("fictional graph", () => {
       "parent",
     );
   });
-  it("routes every relationship deterministically with parents above children", async () => {
+  it("routes mixed research relationships deterministically", async () => {
     const p = projectAround(model, "alex");
     const l = await layoutFamily(model, p);
     expect(l.nodes).toHaveLength(10);
     expect(l.edges).toHaveLength(10);
     expect(l.edges.every((e) => e.points.length >= 2)).toBe(true);
-    expect(l.nodes.find((n) => n.id === "casey")!.y).toBeLessThan(
-      l.nodes.find((n) => n.id === "alex")!.y,
-    );
+    expect(l.mode).toBe("network");
     expect(l.nodes.find((n) => n.id === "workshop")?.emphasis).toBe(
       "immediate",
     );
@@ -68,6 +66,54 @@ describe("fictional graph", () => {
     expect(await layoutFamily(model, projectAround(model, "fran"))).not.toEqual(
       l,
     );
+  });
+  it("retains generation order for a pure family tree", async () => {
+    const data = dataset();
+    data.contextConnections = [];
+    data.contextEntities = [];
+    const family = new GenealogyModel(data);
+    const layout = await layoutFamily(family, projectAround(family, "alex"));
+    expect(layout.mode).toBeUndefined();
+    expect(layout.nodes.find(node => node.id === "casey")!.y).toBeLessThan(layout.nodes.find(node => node.id === "alex")!.y);
+  });
+  it("spreads a crowded research hub around the focus without overlapping cards", async () => {
+    const data: FamilyDataset = {
+      version: 1, title: "Fictional port", initialFocusId: "port", people: [], unions: [], sources: [],
+      contextEntities: [
+        {id: "port", name: "Example Port", kind: "place"},
+        ...Array.from({length: 13}, (_, i) => ({id: `firm-${i}`, name: `Fictional firm ${i}`, kind: "organization" as const})),
+      ],
+      contextConnections: Array.from({length: 13}, (_, i) => ({id: `location-${i}`, fromId: `firm-${i}`, toId: "port", type: "location", label: "located in"})),
+    };
+    data.contextConnections!.push({id: "founding", fromId: "port", toId: "firm-0", type: "association", label: "established"});
+    for (let i = 0; i < 6; i++) data.contextConnections!.push({id: `trade-${i}`, fromId: `firm-${i}`, toId: `firm-${i + 7}`, type: "association", label: "traded with"});
+    const network = new GenealogyModel(data);
+    const layout = await layoutFamily(network, projectAround(network, "port"));
+    const focus = layout.nodes.find(node => node.id === "port")!;
+    const quadrants = new Set(layout.nodes.filter(node => node !== focus).map(node => `${node.x > focus.x}:${node.y > focus.y}`));
+    expect(quadrants.size).toBe(4);
+    for (const node of layout.nodes) for (const other of layout.nodes) {
+      if (node === other) continue;
+      expect(node.x < other.x + other.width && node.x + node.width > other.x && node.y < other.y + other.height && node.y + node.height > other.y).toBe(false);
+    }
+    expect(layout.edges.find(edge => edge.id === "location-0")!.points[1]).not.toEqual(layout.edges.find(edge => edge.id === "founding")!.points[1]);
+    expect(layout.edges.every(edge => edge.points.every(point => Number.isFinite(point.x) && Number.isFinite(point.y)))).toBe(true);
+    for (const edge of layout.edges) {
+      const samples = Array.from({length: 201}, (_, i) => {
+        const t = i / 200;
+        if (edge.curved) {
+          const [a, c, b] = edge.points;
+          return {x: (1 - t) ** 2 * a!.x + 2 * (1 - t) * t * c!.x + t ** 2 * b!.x, y: (1 - t) ** 2 * a!.y + 2 * (1 - t) * t * c!.y + t ** 2 * b!.y};
+        }
+        const segment = Math.min(edge.points.length - 2, Math.floor(t * (edge.points.length - 1)));
+        const fraction = t * (edge.points.length - 1) - segment;
+        const a = edge.points[segment]!, b = edge.points[segment + 1]!;
+        return {x: a.x + (b.x - a.x) * fraction, y: a.y + (b.y - a.y) * fraction};
+      });
+      const unrelated = layout.nodes.filter(node => node.id !== edge.sourceId && node.id !== edge.targetId);
+      expect(samples.some(point => unrelated.some(node => point.x > node.x && point.x < node.x + node.width && point.y > node.y && point.y < node.y + node.height))).toBe(false);
+    }
+    expect(await layoutFamily(network, projectAround(network, "port"))).toEqual(layout);
   });
   it("renders evidence and supports navigation from the inspector", () => {
     const el = document.createElement("aside");

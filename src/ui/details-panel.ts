@@ -4,6 +4,7 @@ import type {
   ContextConnectionRecord,
   PersonRecord,
   SourceRecord,
+  ResearchClaim,
 } from "../domain/types";
 
 export interface DetailsPanelHandlers {
@@ -70,6 +71,49 @@ function confidenceLabel(confidence: Confidence): string {
     disputed: "Disputed",
     unknown: "Unknown",
   }[confidence];
+}
+
+function appendClaimEvidence(container: HTMLElement, model: GenealogyModel, claim: ResearchClaim): void {
+  const detail = createElement("details", "claim-evidence");
+  detail.append(createElement("summary", "", "Evidence and explanation"));
+  detail.append(createElement("p", "claim-explanation", claim.reasoning));
+  for (const link of claim.evidence) {
+    const evidence = model.dataset.evidence?.find(e => e.id === link.ref);
+    if (!evidence) continue;
+    const source = model.getSource(evidence.sourceId);
+    const passage = createElement("section", "claim-passage");
+    passage.append(createElement("small", "", `${link.role} · ${source.title}`));
+    passage.append(createElement("blockquote", "", evidence.quote));
+    passage.append(createElement("p", "source-meta", evidence.locator));
+    if (evidence.context) {
+      const context = createElement("details");
+      context.append(createElement("summary", "", "Passage context"), createElement("p", "claim-explanation", evidence.context));
+      passage.append(context);
+    }
+    const inspect = createElement("button", "source-inspect-button", "Inspect source");
+    inspect.dataset.inspectSource = source.id;
+    passage.append(inspect);
+    detail.append(passage);
+  }
+  container.append(detail);
+}
+
+function appendResearchClaims(container: HTMLElement, model: GenealogyModel, nodeId: string): void {
+  const claims = (model.dataset.claims || []).filter(c => c.subjectId === nodeId && "value" in c.object);
+  if (!claims.length) return;
+  const section = createElement("section", "detail-section research-claims");
+  section.append(createElement("h3", "detail-kicker", "What the research says"));
+  for (const claim of claims) {
+    const row = createElement("article", "research-claim");
+    row.dataset.claimId = claim.id;
+    row.dataset.researchTarget = JSON.stringify({ table: model.peopleById.has(nodeId) ? "people" : "contextEntities", recordId: nodeId, label: claim.predicate.replaceAll("_", " ") });
+    row.append(createElement("h4", "", claim.predicate.replaceAll("_", " ")));
+    row.append(createElement("p", "claim-value", String("value" in claim.object ? claim.object.value : "")));
+    row.append(createElement("small", "claim-qualification", [claim.qualification, claim.time].filter(Boolean).join(" · ")));
+    appendClaimEvidence(row, model, claim);
+    section.append(row);
+  }
+  container.append(section);
 }
 
 function appendSources(container: HTMLElement, sources: SourceRecord[]): void {
@@ -184,13 +228,13 @@ function appendContextConnections(
       createElement(
         "small",
         "",
-        `${connection.label} · ${confidenceLabel(
-          connection.confidence ?? "established",
-        )}`,
+        `${connection.label} · ${connection.qualification ?? confidenceLabel(connection.confidence ?? "established")}${connection.date ? ` · ${connection.date}` : ""}`,
       ),
     );
     button.append(identity, createElement("span", "relationship-arrow", "→"));
     list.append(button);
+    const claim = model.dataset.claims?.find(c => c.id === connection.id);
+    if (claim) appendClaimEvidence(list, model, claim);
     for (const note of connection.notes ?? []) {
       const paragraph = createElement("p", "connection-note", note);
       paragraph.dataset.researchTarget = JSON.stringify({
@@ -266,7 +310,8 @@ export function renderDetailsPanel(
       person.biography ?? "No narrative biography has been added yet.",
     ),
   );
-  container.append(biographySection);
+  if (person.biography || !model.dataset.claims?.some(c => c.subjectId === personId)) container.append(biographySection);
+  appendResearchClaims(container, model, personId);
 
   const parents = uniquePeople(
     model.parentsOf(personId).map((link) => model.getPerson(link.parentId)),
@@ -422,7 +467,8 @@ export function renderContextDetailsPanel(
       entity.biography ?? "No narrative context has been added yet.",
     ),
   );
-  container.append(biographySection);
+  if (entity.biography || !model.dataset.claims?.some(c => c.subjectId === entityId)) container.append(biographySection);
+  appendResearchClaims(container, model, entityId);
 
   const connections = model.contextConnectionsForEntity(entityId);
   appendContextConnections(container, model, entityId, connections, handlers);

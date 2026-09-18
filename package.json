@@ -4,6 +4,10 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "setup:pdf": "node scripts/setup-docling.mjs",
+    "pdf": "node scripts/docling.mjs",
+    "pdf:import": "node scripts/import-pdf-collection.mjs",
+    "test:pdf": "node scripts/docling.mjs --test",
     "start": "npm run build && node server/main.mjs",
     "serve": "node server/main.mjs",
     "research": "node scripts/research.mjs",

@@ -68,6 +68,11 @@ Coordinator-owned running investigations are requeued with old worker leases fen
 Managed researchers can finish already assigned work while the coordinator is absent; their results wait for its return.
 After a server restart, interrupted managed processes are paused, while completed candidates remain available for synthesis.
 User-paused investigations are never automatically resumed.
+To restart paused work, send `{"action":"request-resume","investigationId":"...","reason":"Why another pass or synthesis from saved evidence would help"}`.
+This asks for confirmation in the browser and leaves research paused; wait for the human's decision before claiming, assigning, or publishing work.
+The investigation index exposes `resumeRequest` with its pending, approved, or declined status.
+The human can choose Resume research or Keep paused, and the decision survives restarts.
+Do not treat elapsed time, silence, or an unlimited time setting as approval, and do not repeat a declined request without a new reason or instruction from the human.
 
 ## Learn the project progressively
 
@@ -142,7 +147,9 @@ Choose native delegation only when the saved preference is manual or the human e
 Actual assignments are recorded under Investigations with their provider and model when known; missing model information remains explicitly unreported.
 For native claims, supply `provider` and `model` only if the runtime establishes them.
 Respect each investigation's source scope when sharing findings.
-At most two managed researchers run concurrently, and each pass has a ten-minute limit.
+At most two managed researchers run concurrently, with no time limit by default.
+The human can set an optional per-pass time limit in Research settings; it applies to new managed passes, including replacement passes, while running passes keep their original limit.
+A configured limit still pauses the investigation at expiry and preserves saved checkpoints; it does not resume an investigation automatically.
 An assignment records the dispatched annotation IDs, phase, and graph request; changed inputs prevent an outdated assignment from starting.
 Selecting a browser engine preference in coordinator mode does not independently launch work.
 Managed workers save checkpoints and return validated candidate proposals to the coordinator.
@@ -188,14 +195,32 @@ For coordinator-owned/native work, omit `candidateId` and provide the reconciled
 Follow `docs/research-agent.md` for full evidence and change schemas.
 Publishing revalidates the current lease, exact before records, source references, and quoted text before creating an immutable proposal revision.
 It does not change accepted research.
-Only the human can keep findings or apply selected graph groups in the browser.
+Next use `skills/present-research/SKILL.md` to publish the guided explanation and automatically queue a separate graph builder.
+The human reads that explanation while graph construction proceeds, then explicitly applies graph groups in the browser.
 
 If a candidate needs another research pass, use `{"action":"revise","investigationId":"...","notes":"What failed and what the next pass must investigate"}`.
 This preserves the candidate, records the correction as a checkpoint, and requeues the investigation for a fresh assignment.
 A paused or superseded candidate cannot be published.
 Use `handoff` for durable project-wide decisions, relationships among investigations, and the next coordinating steps.
 
+## Guided research and graph review
+
+The standard presentation flow is documented in `skills/present-research/SKILL.md` and its runtime reference.
+The separate CSV graph-builder and coordinator-authored tour are documented in `skills/prepare-research-graph/SKILL.md`.
+Use those routes for new work; the kept-finding graph request described in older contracts remains supported for existing reviews.
+The snapshot exposes walkthrough revisions, graph job progress, and returned candidates requiring a tour.
+`inspect-flow` retrieves the preserved explanation, job packet, frozen candidate, and graph reviews for one investigation.
+Graph workers can complete while the coordinator is disconnected; the browser then explains that the coordinator is preparing the tour.
+On restart, interrupted builder jobs pause with their files retained and require human confirmation to resume.
+The browser review persists reading position, supports source inspection and annotations, and previews proposed additions before application.
+Graph application validates the base revision, group dependencies, blocking issues, and new feedback against the reviewed revision.
+
 ## Boundaries
+
+During explicit application maintenance, mistakenly dispatched UI annotations can be reclassified through the user command endpoint, `POST /api/commands`, using `{"type":"reclassify-annotation","investigationId":"...","annotationId":"...","feedbackId":"..."}`.
+This requires a paused investigation with no lease and an existing feedback record whose text and references exactly match the annotation.
+It refuses annotations already addressed by a proposal, preserves the complete original annotation under the feedback record's `origin`, records the move in investigation history, and removes the prepared assignment so the next worker receives a fresh brief.
+Use this only for explicitly authorized routing corrections; it is not a research-worker command or a way to revise sent historical instructions.
 
 The research CLI remains available for independent mode before a coordinator has attached.
 Once coordinator supervision is enabled for a project, worker API publication is disabled so researchers cannot bypass synthesis.

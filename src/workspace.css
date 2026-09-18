@@ -162,36 +162,6 @@ dialog .primary:hover,
   background: var(--sea);
   color: white;
 }
-.investigation-layout {
-  display: grid;
-  grid-template-columns: minmax(210px, 290px) minmax(0, 1fr);
-  gap: 26px;
-  max-width: 1360px;
-  margin: auto;
-  align-items: start;
-}
-.investigation-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  position: sticky;
-  top: 0;
-  max-height: calc(100vh - 220px);
-  overflow: auto;
-}
-.investigation-list .investigation-list-item {
-  display: block;
-  text-align: left;
-  padding: 16px;
-  background: #f9f6ee;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-}
-.investigation-list .selected {
-  border-color: var(--sea);
-  box-shadow: inset 3px 0 var(--sea);
-  background: #edf1e9;
-}
 .investigation-list-item strong {
   display: block;
   font-size: 14px;
@@ -272,12 +242,6 @@ dialog .primary:hover,
 .activity-callout p {
   margin: 6px 0 0;
 }
-.scope-summary {
-  padding: 12px 0 0;
-}
-.scope-summary p {
-  margin-top: 6px;
-}
 .review-section {
   border-top: 1px solid var(--line);
   padding-top: 24px;
@@ -288,35 +252,6 @@ dialog .primary:hover,
   font-size: 12px;
   color: var(--ink-soft);
   margin-left: 7px;
-}
-.annotation-record {
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 16px;
-  margin-top: 12px;
-}
-.annotation-record > div {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  justify-content: space-between;
-}
-.annotation-record small {
-  color: var(--ink-soft);
-  font-size: 10px;
-}
-.annotation-record blockquote {
-  padding: 8px 12px;
-  background: var(--paper);
-  border-left: 2px solid var(--line-strong);
-  margin: 12px 0;
-  color: var(--ink-soft);
-  font-size: 12px;
-  line-height: 1.6;
-  overflow-wrap: anywhere;
-}
-.annotation-record p {
-  margin-bottom: 0;
 }
 .history-section {
   border-top: 1px solid var(--line);
@@ -751,53 +686,12 @@ dialog .muted {
 .preserve-lines {
   white-space: pre-wrap;
 }
-.engine-control {
-  max-width: 1360px;
-  margin: 0 auto 24px;
-  padding: 16px 20px;
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  display: flex;
-  align-items: center;
-  gap: 15px;
-  background: #fdfbf6;
-}
-.engine-control > div {
-  flex: 1;
-}
-.engine-control label {
-  font-size: 12px;
-  font-weight: 700;
-}
-.engine-control p {
-  font-size: 11px;
-  color: var(--ink-soft);
-  margin: 5px 0 0;
-}
-.engine-control select {
-  max-width: 250px;
-  font: inherit;
-  font-size: 12px;
-  padding: 9px;
-  color: var(--ink);
-  border: 1px solid var(--line);
-  border-radius: 5px;
-  background: var(--paper);
-}
 .connection-note {
   font-size: 12px;
   line-height: 1.6;
   padding: 10px 12px;
   border-left: 2px solid var(--gold);
   background: var(--paper-deep);
-}
-@media (max-width: 850px) {
-  .engine-control {
-    flex-wrap: wrap;
-  }
-  .engine-control > div {
-    flex-basis: 100%;
-  }
 }
 .research-annotating .graph-edge {
   pointer-events: stroke;
@@ -812,10 +706,6 @@ dialog .muted {
   }
   .sources-layout {
     grid-template-columns: minmax(0, 1fr) minmax(240px, 290px);
-  }
-  .investigation-layout {
-    grid-template-columns: minmax(180px, 230px) minmax(0, 1fr);
-    gap: 16px;
   }
   .investigation-detail {
     padding: 20px;
@@ -845,16 +735,8 @@ dialog .muted {
   .surface-heading h1 {
     font-size: 29px;
   }
-  .investigation-layout,
   .sources-layout {
     grid-template-columns: minmax(0, 1fr);
-  }
-  .investigation-list {
-    position: static;
-    max-height: 220px;
-  }
-  .investigation-list .investigation-list-item {
-    padding: 12px;
   }
   .investigation-detail {
     padding: 17px;
@@ -908,7 +790,7 @@ dialog .muted {
 .context-node.is-focus .context-card {
   stroke: #235b60;
   stroke-width: 3px;
-  filter: url(#focus-shadow);
+  filter: var(--focus-shadow);
 }
 @media (max-width: 600px) {
   .empty-research {
@@ -1180,13 +1062,7 @@ dialog .muted {
   border: 1px solid var(--line);
   border-radius: 10px;
 }
-.composing .investigation-layout {
-  grid-template-columns: minmax(155px, 210px) minmax(0, 1fr);
-}
 @media (max-width: 1050px) {
-  .composing .investigation-layout {
-    grid-template-columns: minmax(0, 1fr);
-  }
   .workspace-actions .local-indicator {
     display: none;
   }
@@ -1261,15 +1137,4 @@ dialog .muted {
 }
 .related-findings article {
   margin: 16px 0;
-}
-.interface-feedback-list {
-  max-width: 1360px;
-  margin: 20px auto;
-  padding: 16px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-}
-.interface-feedback-list article {
-  padding: 12px 0;
-  border-top: 1px solid var(--line);
 }

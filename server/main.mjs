@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import {
   readFileSync,
   writeFileSync,
+  linkSync,
   existsSync,
   mkdirSync,
   realpathSync,
@@ -16,8 +17,11 @@ import { fileURLToPath } from "node:url";
 import { randomBytes, createHash } from "node:crypto";
 import { WorkspaceStore } from "./store.mjs";
 import { organize } from "./organization.mjs";
+import { graphImport } from "./graph-import.mjs";
 import { Coordinator } from "./coordinator.mjs";
 import { ResearcherPool } from "./researchers.mjs";
+import { GraphBuilderPool } from "./graph-builders.mjs";
+import { flowCommand } from "./review-flow.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const directory = resolve(
@@ -51,6 +55,8 @@ const store = new WorkspaceStore(
 );
 const coordinator = new Coordinator(store);
 const researchers = new ResearcherPool(store, directory, root, { coordinator });
+const graphBuilders = new GraphBuilderPool(store, directory, root);
+process.on("exit", () => graphBuilders.stop());
 process.on("exit", () => researchers.stop());
 const token = randomBytes(32).toString("hex");
 const coordinatorToken = randomBytes(32).toString("hex");
@@ -64,6 +70,8 @@ const userCommands = new Set([
   "edit-annotation",
   "delete-annotation",
   "interface-feedback",
+  "reclassify-annotation",
+  "resume-decision",
   "resolve-access",
   "annotate",
   "dispatch",
@@ -99,18 +107,29 @@ async function body(req) {
   }
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
 }
-function importDocument(next, name, bytes, collectionId) {
+function importDocument(
+  next,
+  name,
+  bytes,
+  collectionId,
+  { text, extraction, maxBytes = 10_000_000, sourcePath } = {},
+) {
   const mime = types[extname(name).toLowerCase()];
   if (!mime) throw new Error("Supported formats: PDF, TXT, Markdown, CSV.");
-  if (bytes.length > 10_000_000)
-    throw new Error(`${name} exceeds the 10 MB limit.`);
+  if (bytes.length > maxBytes)
+    throw new Error(`${name} exceeds the ${Math.floor(maxBytes / 1_000_000)} MB limit.`);
   const sha256 = createHash("sha256").update(bytes).digest("hex");
   const existing = next.documents.find(
     (d) => d.sha256 === sha256 && d.collectionId === collectionId,
   );
-  if (existing) return existing;
+  if (existing) {
+    if (typeof text === "string") existing.text = text;
+    if (extraction) existing.extraction = extraction;
+    return existing;
+  }
   const id = crypto.randomUUID();
-  writeFileSync(join(documentsDir, id), bytes, { mode: 0o600 });
+  if (sourcePath) linkSync(sourcePath, join(documentsDir, id));
+  else writeFileSync(join(documentsDir, id), bytes, { mode: 0o600 });
   const doc = {
     id,
     collectionId,
@@ -119,7 +138,12 @@ function importDocument(next, name, bytes, collectionId) {
     size: bytes.length,
     sha256,
     importedAt: new Date().toISOString(),
-    ...(mime === "text/plain" ? { text: bytes.toString("utf8") } : {}),
+    ...(typeof text === "string"
+      ? { text }
+      : mime === "text/plain"
+        ? { text: bytes.toString("utf8") }
+        : {}),
+    ...(extraction ? { extraction } : {}),
   };
   next.documents.push(doc);
   (next.dataset.sources ||= []).push({
@@ -213,8 +237,13 @@ const server = createServer(async (req, res) => {
         !researchers.findExecutable(data.engine || store.state.engine)
       )
         throw new Error("Requested researcher CLI is not available.");
+      if (["claim-graph", "submit-graph-files"].includes(data.action)) {
+        coordinator.require(data.session);
+        return json(res, 200, graphBuilders.native(data));
+      }
       const result = coordinator.command(data);
       researchers.pump();
+      graphBuilders.pump();
       return json(res, 200, result ?? null);
     }
     if (
@@ -253,6 +282,16 @@ const server = createServer(async (req, res) => {
       });
       return res.end(readFileSync(join(documentsDir, doc.id)));
     }
+    if (req.method === "POST" && url.pathname === "/api/graph-import") {
+      const result = graphImport(store, await body(req));
+      researchers.pump();
+      return json(res, 200, result);
+    }
+    if (req.method === "POST" && url.pathname === "/api/review-flow") {
+      const result = flowCommand(store, await body(req), "human");
+      graphBuilders.pump();
+      return json(res, 200, result);
+    }
     if (req.method === "POST" && url.pathname === "/api/organization") {
       const result = organize(store, await body(req));
       researchers.pump();
@@ -278,6 +317,9 @@ const server = createServer(async (req, res) => {
       researchers.pump();
       return json(res, 200, { result, revision: store.state.revision });
     }
+    if (req.method === "POST" && url.pathname === "/api/research-settings") {
+      return json(res, 200, researchers.configure(await body(req)));
+    }
     if (req.method === "POST" && url.pathname === "/api/engine") {
       const data = await body(req);
       researchers.choose(data.engine);
@@ -295,6 +337,48 @@ const server = createServer(async (req, res) => {
           "imports",
         ),
       );
+      return json(res, 200, { documentId: result.id });
+    }
+    if (req.method === "POST" && url.pathname === "/api/import-processed-pdf") {
+      const data = await body(req);
+      if (
+        typeof data.path !== "string" ||
+        typeof data.text !== "string" ||
+        !data.path.trim()
+      )
+        throw new Error("PDF path and extracted text required.");
+      const path = realpathSync(data.path);
+      if (!statSync(path).isFile() || extname(path).toLowerCase() !== ".pdf")
+        throw new Error("Choose a local PDF file.");
+      const result = store.update((next) => {
+        const collectionPath = realpathSync(data.collectionPath || dirname(path));
+        if (!statSync(collectionPath).isDirectory())
+          throw new Error("Collection path must be a folder.");
+        let collection = next.collections.find((c) => c.path === collectionPath);
+        if (!collection) {
+          collection = {
+            id: crypto.randomUUID(),
+            name: basename(collectionPath),
+            kind: "folder",
+            path: collectionPath,
+            description:
+              "Preserved PDFs with local Docling text extraction and OCR.",
+          };
+          next.collections.push(collection);
+        }
+        return importDocument(
+          next,
+          path,
+          readFileSync(path),
+          collection.id,
+          {
+            text: data.text,
+            extraction: data.extraction,
+            maxBytes: 100_000_000,
+            sourcePath: path,
+          },
+        );
+      });
       return json(res, 200, { documentId: result.id });
     }
     if (req.method === "POST" && url.pathname === "/api/folders") {

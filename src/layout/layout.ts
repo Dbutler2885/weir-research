@@ -6,6 +6,7 @@ import ELK, {
 } from "elkjs/lib/elk.bundled.js";
 import { GenealogyModel } from "../domain/model";
 import type { Confidence, Emphasis, FocusProjection } from "../domain/types";
+import { layoutNetwork } from "./network";
 
 const PERSON_WIDTH = 224;
 const PERSON_HEIGHT = 104;
@@ -27,6 +28,7 @@ export interface LayoutNode {
 }
 
 export interface LayoutEdge {
+  curved?: boolean;
   id: string;
   sourceId: string;
   targetId: string;
@@ -37,6 +39,7 @@ export interface LayoutEdge {
 }
 
 export interface FamilyLayout {
+  mode?: "network";
   focusId: string;
   width: number;
   height: number;
@@ -309,6 +312,18 @@ export async function layoutFamily(
       "context",
       connection.label,
     );
+  }
+
+  if ((model.dataset.contextConnections?.length ?? 0) > 0) {
+    const nodes: LayoutNode[] = [...personNodes, ...unionNodes, ...contextNodes].map(node => ({
+      id: node.id,
+      kind: model.peopleById.has(node.id) ? "person" : model.unionsById.has(node.id) ? "union" : "context",
+      personId: model.peopleById.has(node.id) ? node.id : undefined,
+      unionId: model.unionsById.has(node.id) ? node.id : undefined,
+      contextEntityId: model.contextEntitiesById.has(node.id) ? node.id : undefined,
+      x: 0, y: 0, width: node.width!, height: node.height!, emphasis: "remote",
+    }));
+    return layoutNetwork(projection.focusId, nodes, [...edgeMetadata].map(([id, metadata]) => ({id, ...metadata, points: []})));
   }
 
   const graph: ElkNode = {

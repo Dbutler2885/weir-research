@@ -1,0 +1,454 @@
+/* Research content leads; controls and records have distinct, consistent roles. */
+.research-app .app-header {
+  padding: 14px 28px;
+  box-shadow: none;
+  gap: 24px;
+}
+.research-app .archive-label,
+.research-app .brand-block p {
+  display: none;
+}
+.research-app .brand-block {
+  gap: 12px;
+  flex: 1;
+  overflow: hidden;
+}
+.research-app .brand-block > div {
+  min-width: 0;
+}
+.research-app .brand-block::before {
+  content: "Project";
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+.research-app .brand-block h1 {
+  font: 600 15px/1.4 var(--font-sans, system-ui, sans-serif);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.research-app:not([data-workspace-view="research"]) .header-actions {
+  display: none;
+}
+.research-app[data-workspace-view="research"] .search-control {
+  width: 290px;
+}
+.research-app[data-workspace-view="research"] .search-control > span {
+  display: none;
+}
+.research-app .workspace-nav {
+  padding: 0 24px;
+}
+.research-app .workspace-actions > button {
+  border: 0;
+  background: transparent;
+  padding: 9px 10px;
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 13px;
+}
+.research-app .workspace-actions > button[aria-current] {
+  color: var(--sea-dark);
+  text-decoration: underline;
+  text-underline-offset: 6px;
+}
+.research-app .local-indicator {
+  display: none;
+}
+.research-app .research-surface {
+  padding: 26px 32px 64px;
+}
+.investigation-desk,
+.feedback-page,
+.settings-page {
+  max-width: 1020px;
+  margin: 0 auto;
+}
+.desk-tools {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 22px;
+}
+.desk-tools > button {
+  margin-left: auto;
+}
+.investigation-picker {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  font-size: 14px;
+}
+.investigation-picker select {
+  min-width: 0;
+  max-width: 440px;
+}
+.investigation-desk > .investigation-detail {
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  background: transparent;
+}
+.investigation-heading h1 {
+  font:
+    500 30px/1.35 Georgia,
+    serif;
+  letter-spacing: -0.35px;
+  margin: 0 0 18px;
+  max-width: 880px;
+  overflow-wrap: anywhere;
+}
+.investigation-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  color: var(--ink-soft);
+  font-size: 14px;
+  margin-bottom: 28px;
+}
+.investigation-status button {
+  font-size: 13px;
+  padding: 6px 12px;
+}
+.investigation-sections {
+  display: flex;
+  gap: 26px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 28px;
+}
+.research-surface .investigation-sections button {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 12px 0;
+  border-bottom: 2px solid transparent;
+  font-size: 15px;
+}
+.research-surface .investigation-sections button[aria-current] {
+  border-bottom-color: var(--sea-dark);
+  color: var(--sea-dark);
+  font-weight: 600;
+}
+.investigation-content {
+  max-width: 860px;
+  min-height: 230px;
+}
+.investigation-content h2 {
+  font:
+    600 19px/1.45 system-ui,
+    sans-serif;
+  margin: 0 0 12px;
+}
+.investigation-content p {
+  font-size: 16px;
+  line-height: 1.7;
+}
+.investigation-empty {
+  padding: 16px 0;
+}
+.investigation-empty p {
+  color: var(--ink-soft);
+  max-width: 650px;
+  margin: 0 0 16px;
+}
+.research-surface .text-action {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  color: var(--sea-dark);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  border-radius: 0;
+  font-size: 14px;
+}
+.research-surface .text-action:hover {
+  color: var(--sea);
+  background: transparent;
+}
+.annotation-entry {
+  border-bottom: 1px solid var(--line);
+  padding: 22px 0;
+}
+.annotation-entry:first-child {
+  padding-top: 0;
+}
+.note-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: space-between;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+.annotation-text {
+  white-space: pre-wrap;
+  font-size: 16px;
+  line-height: 1.7;
+  margin: 10px 0 14px;
+  overflow-wrap: anywhere;
+}
+.annotation-references summary,
+.research-notes summary {
+  color: var(--sea-dark);
+  font-size: 14px;
+  cursor: pointer;
+}
+.note-reference {
+  margin: 14px 0 0;
+  padding: 0 0 0 16px;
+  border-left: 2px solid var(--line);
+  color: var(--ink-soft);
+  font-size: 15px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.note-actions {
+  display: flex;
+  gap: 20px;
+  margin-top: 14px;
+}
+.finding-list article {
+  padding: 0 0 24px;
+  margin-bottom: 24px;
+  border-bottom: 1px solid var(--line);
+}
+.finding-meta {
+  font-size: 13px;
+  color: var(--ink-soft);
+  margin-bottom: 10px;
+}
+.activity-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.activity-list li {
+  display: grid;
+  grid-template-columns: 115px minmax(0, 1fr);
+  gap: 24px;
+  padding: 20px 0;
+  border-bottom: 1px solid var(--line);
+}
+.activity-list li:first-child {
+  padding-top: 0;
+}
+.activity-list time {
+  font-size: 13px;
+  color: var(--ink-soft);
+  padding-top: 5px;
+}
+.activity-list p {
+  margin: 0 0 14px;
+}
+.research-notes > div {
+  margin-top: 18px;
+  font-size: 16px;
+  line-height: 1.75;
+  overflow-wrap: anywhere;
+}
+.research-notes h3 {
+  margin-top: 24px;
+  font-size: 16px;
+}
+.simple-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  margin-bottom: 14px;
+}
+.simple-heading h1 {
+  font:
+    500 30px/1.35 Georgia,
+    serif;
+  margin: 0;
+}
+.page-context {
+  color: var(--ink-soft);
+  font-size: 15px;
+  line-height: 1.6;
+  margin-bottom: 28px;
+}
+.settings-page {
+  max-width: 760px;
+}
+.notes-tabs {
+  display: flex;
+  gap: 16px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 20px;
+}
+.notes-tabs button {
+  border: 0;
+  border-radius: 0;
+  background: none;
+  padding: 10px 0;
+  color: var(--ink-soft);
+}
+.notes-tabs button[aria-pressed="true"] {
+  color: var(--sea-dark);
+  box-shadow: 0 2px var(--sea-dark);
+}
+.annotation-dialog #annotation-form[hidden],
+.annotation-dialog .sidebar-queue[hidden] {
+  display: none;
+}
+.annotation-dialog #annotation-mode {
+  margin-top: 12px;
+}
+.annotation-dialog #annotation-mode[aria-pressed="true"] {
+  color: var(--sea-dark);
+  border-color: var(--sea-dark);
+  background: var(--sea-wash, #eaf0e9);
+}
+.sidebar-queue .annotation-entry {
+  padding: 14px 0;
+}
+.sidebar-queue .annotation-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.queue-group {
+  margin: 28px 0;
+  padding-bottom: 28px;
+  border-bottom: 1px solid var(--line);
+}
+.queue-group h2 {
+  font-size: 20px;
+}
+.queue-group > button {
+  margin-top: 18px;
+}
+.settings-page > section {
+  padding: 24px 0;
+  border-bottom: 1px solid var(--line);
+}
+.settings-page h2 {
+  font-size: 18px;
+  margin: 0 0 16px;
+}
+.settings-page label {
+  font-size: 14px;
+}
+.setting-control {
+  display: flex;
+  gap: 14px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.time-limit-value input {
+  width: 85px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+}
+#time-limit-form .page-context {
+  margin: 12px 0 0;
+}
+.resume-approval {
+  border-left: 3px solid var(--sea-dark);
+  padding: 8px 0 8px 20px;
+  margin: 24px 0;
+}
+.resume-approval h2 {
+  font-size: 18px;
+  margin: 0 0 12px;
+}
+.resume-approval > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.settings-page select {
+  min-width: 210px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+}
+.settings-details {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 14px;
+  font-size: 15px;
+}
+.settings-details dt {
+  color: var(--ink-soft);
+}
+.settings-details dd {
+  margin: 0;
+}
+.research-toast {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.research-toast button {
+  border: 1px solid currentColor;
+  background: transparent;
+  color: inherit;
+  padding: 6px 10px;
+  border-radius: 5px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+@media (max-width: 760px) {
+  .research-app .app-header {
+    padding: 12px 16px;
+  }
+  .research-app .workspace-nav {
+    padding: 0 12px 6px;
+  }
+  .research-app .research-surface {
+    padding: 20px 20px 40px;
+  }
+  .research-app .workspace-actions {
+    flex-wrap: wrap;
+  }
+  .investigation-heading h1,
+  .simple-heading h1 {
+    font-size: 25px;
+  }
+  .investigation-sections {
+    gap: 20px;
+  }
+  .research-surface .investigation-sections button {
+    font-size: 14px;
+  }
+  .activity-list li {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  .desk-tools,
+  .simple-heading,
+  .setting-control {
+    flex-wrap: wrap;
+  }
+  .investigation-picker {
+    width: 100%;
+  }
+  .investigation-picker select {
+    width: 100%;
+  }
+}
+.research-app .brand-block h1 {
+  max-width: 65ch;
+}
+.research-app .workspace-actions > [data-organize-project] {
+  display: none;
+}
+.research-app[data-workspace-view="research"]
+  .workspace-actions
+  > [data-organize-project] {
+  display: block;
+}

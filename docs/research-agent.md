@@ -20,7 +20,9 @@ Claim returns the investigation, original annotations, immutable accepted-data s
 Null means no investigation is queued.
 Do not claim that work is running before a researcher has claimed it.
 Alternatively, the user selects an installed Codex or Claude engine in Investigations.
-The local supervisor prepares a scoped task directory and launches up to two researchers, with a ten-minute limit per pass.
+The local supervisor prepares a scoped task directory and launches up to two researchers, with no time limit by default.
+The human may configure a time limit for new managed passes in Research settings.
+Follow the deadline in your pass instructions when one is set, checkpoint regularly, and finish the bounded assignment when complete even without a deadline.
 This uses the existing CLI account and sends the assigned research context and scoped sources to its model service.
 The application does not collect account credentials.
 Managed researchers write `checkpoint.json` and `result.json` in their task directory; the supervisor validates and imports those files through the same domain contract.
@@ -93,7 +95,10 @@ Checkpointing cannot recover unsaved internal agent context, but a replacement w
 ## Return a proposal
 
 Submit a JSON file with `investigationId`, `token`, and `proposal`.
-New research uses two proposal kinds, `findings` and `graph`, each with `title`, `summary`, `ambiguity`, `evidence`, and `changes`.
+New research returns `kind: "findings"`, with `title`, `summary`, `ambiguity`, `evidence`, and `changes`.
+The coordinator preserves this report, presents its research using `skills/present-research/SKILL.md`, then supervises the separate CSV graph builder using `skills/prepare-research-graph/SKILL.md`.
+Reading the walkthrough does not require accepting findings.
+The older graph proposal contract below remains available for legacy reviews.
 For `kind: "findings"`, `changes` is empty and `findings` contains independently reviewable statements with `id`, `statement`, `qualification`, `explanation`, and `evidenceIds`.
 Qualifications are `supported`, `reported`, `disputed`, and `unresolved`.
 Keeping a finding means retaining that qualified account, not declaring its underlying assertion true.
@@ -102,7 +107,7 @@ Use `replaces: {proposalId, findingId}` when correcting a previous finding; the 
 Register newly discovered source records in `sources`, independently of graph acceptance, with stable capture IDs and accurate `access` metadata (`discovered`, `metadata`, `abstract`, or `full-text`).
 Changed source captures need new IDs; do not overwrite previously cited material.
 
-The human requests graph construction from selected kept findings.
+In the legacy proposal route, the human requests graph construction from selected kept findings.
 The queued investigation then has `phase: "graph"` and `graphRequest.refs` containing exact proposal/finding IDs.
 This is a focused representation pass, not a new search assignment.
 Return `kind: "graph"`, `changes`, `groups`, and `omissions` describing findings not represented and why.

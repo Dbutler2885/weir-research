@@ -122,8 +122,12 @@ If another coordinator is live, report that fact and leave its session alone.
 
 ## Research and synthesis
 
-Only dispatched annotations authorize research; the browser’s graph-construction request authorizes a separate representation pass over the selected kept findings.
+Only dispatched annotations authorize research.
+After publishing inspected findings, use `skills/present-research/SKILL.md` to author the guided walkthrough, then `skills/prepare-research-graph/SKILL.md` to supervise graph preparation and write its tour.
+Walkthrough publication immediately queues the separate representation pass while the human reads.
 Saved but unsent annotations are visible context, not assignments.
+Before restarting any paused investigation, ask through `{"action":"request-resume","investigationId":"...","reason":"Why this investigation should resume"}` and wait for the human to confirm in the browser.
+Keep the investigation paused until approval; silence is not consent, and a declined request must not be repeatedly reissued without a new reason or human instruction.
 All follow-ups on a proposal remain attached to that investigation and immutable proposal revision.
 Read across investigations to spot overlapping leads, identity conflicts, and reusable evidence, while preserving each investigation's identity and source scope.
 Record coordinating decisions and the next useful steps in the durable handoff.
@@ -147,10 +151,12 @@ For managed workers, inspect returned candidates before publishing; they are not
 For native workers, collect their findings under a coordinator-owned investigation, save checkpoints, and synthesize a proposal yourself.
 Workers must not edit the live dataset, workspace state files, or imported originals.
 Publish through the coordinator API so validation, revision capture, and stale-data checks remain enforced.
-The human alone keeps findings and applies graph groups in the browser.
+The human reads the walkthrough and alone applies graph groups in the browser.
+Reading does not require accepting individual findings.
 Inspect the investigation phase before assigning a pass.
 Research and synthesis return `kind: "findings"`, with qualified statements and evidence but no graph changes.
-Graph construction returns `kind: "graph"`, using exact kept `graphRequest.refs`, coherent groups with explicit dependencies, and omissions.
+Graph construction uses the separate durable CSV builder job described in `skills/prepare-research-graph/SKILL.md`, with exact evidence references, coherent groups, dependencies, and omissions.
+The older `graphRequest` proposal API remains available for legacy reviews.
 Do not ask one pass to both develop historical conclusions and design their graph representation.
 Keeping a finding preserves its qualification, including reported, disputed, and unresolved accounts.
 Read `docs/research-agent.md` for these contracts before publishing.

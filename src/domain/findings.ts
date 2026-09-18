@@ -277,6 +277,19 @@ export function validateReferences(
       r && typeof r.label === "string" && r.label.length <= 1000,
       "Reference label required.",
     );
+    if (r.walkthroughId || r.graphReviewId) {
+      const flow = state.investigations.map(i => i.reviewFlow).find(f => f && (r.walkthroughId ? f.walkthroughs.some(w => w.id === r.walkthroughId) : f.graphReviews.some(g => g.id === r.graphReviewId)));
+      assert(flow, "Referenced guided review no longer exists.");
+      if (r.walkthroughId) {
+        const w = flow.walkthroughs.find(w => w.id === r.walkthroughId)!;
+        assert(!r.stepId || r.stepId === "opening" || r.stepId === "closing" || w.steps.some(s => s.id === r.stepId), "Walkthrough step does not exist.");
+      }
+      if (r.graphReviewId) {
+        const g = flow.graphReviews.find(g => g.id === r.graphReviewId)!;
+        assert(!r.claimId || g.graph.claims.some(c => c.id === r.claimId), "Claim does not exist in this graph proposal.");
+        assert(!r.groupId || g.graph.groups.some(group => group.id === r.groupId), "Group does not exist in this graph proposal.");
+      }
+    }
     if (r.proposalId) {
       const p = state.investigations
         .flatMap((i) => i.proposals)

@@ -1,4 +1,5 @@
 import { organize } from "./organization.mjs";
+import { flowCommand } from "./review-flow.mjs";
 import { randomUUID } from "node:crypto";
 import { transition } from "../src/domain/research.ts";
 import {
@@ -146,6 +147,7 @@ export class Coordinator {
   }
   command(data) {
     this.require(data.session);
+    if (["publish-walkthrough", "inspect-flow", "assign-graph", "graph-update", "request-graph-resume", "publish-graph-review"].includes(data.action)) return flowCommand(this.store, data);
     if (data.action?.startsWith("organization-"))
       return organize(this.store, data);
     const id = data.investigationId;
@@ -176,6 +178,38 @@ export class Coordinator {
       return { saved: true };
     }
     if (!i) throw new Error("Unknown investigation.");
+    if (data.action === "request-resume") {
+      if (i.status !== "paused")
+        throw new Error("Only paused investigations need resume approval.");
+      if (
+        typeof data.reason !== "string" ||
+        !data.reason.trim() ||
+        data.reason.length > 5000
+      )
+        throw new Error(
+          "Explain why research should resume in up to 5,000 characters.",
+        );
+      if (i.resumeRequest?.status === "pending")
+        return { awaitingApproval: true, requestId: i.resumeRequest.id };
+      const requestId = randomUUID();
+      this.store.update((next) => {
+        const investigation = next.investigations.find(
+          (item) => item.id === id,
+        );
+        const at = new Date().toISOString();
+        investigation.resumeRequest = {
+          id: requestId,
+          reason: data.reason.trim(),
+          at,
+          status: "pending",
+        };
+        investigation.events.push({
+          at,
+          message: `Coordinator requested permission to resume: ${data.reason.trim()}`,
+        });
+      });
+      return { awaitingApproval: true, requestId };
+    }
     if (data.action === "assign" || data.action === "claim") {
       if (i.status !== "queued")
         throw new Error(

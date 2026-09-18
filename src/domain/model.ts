@@ -361,6 +361,15 @@ export class GenealogyModel {
       );
     }
 
+    assertUniqueIds(this.dataset.claims ?? [], "claim");
+    assertUniqueIds(this.dataset.evidence ?? [], "evidence");
+    const evidenceIds = new Set((this.dataset.evidence ?? []).map(e => e.id));
+    for (const evidence of this.dataset.evidence ?? []) this.validateSourceIds([evidence.sourceId], `evidence ${evidence.id}`);
+    for (const claim of this.dataset.claims ?? []) {
+      if (!this.hasNode(claim.subjectId) || ("entityId" in claim.object && !this.hasNode(claim.object.entityId))) throw new Error(`Claim ${claim.id} references an unknown node.`);
+      if (claim.evidence.some(e => !evidenceIds.has(e.ref))) throw new Error(`Claim ${claim.id} references unknown evidence.`);
+    }
+
     for (const entity of this.dataset.contextEntities ?? []) {
       this.validateSourceIds(
         entity.sourceIds ?? [],
