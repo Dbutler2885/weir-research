@@ -135,6 +135,7 @@ Send these through the coordinator `command` interface:
   The returned `investigationId` is the batch; assign or claim it as described below.
 - `{"action":"add-to-batch","investigationId":"...","questions":[{"questionId":"existing","annotationIds":["..."]},{"title":"New heading","annotationIds":["..."]}]}` places later annotations that address an open batch's work.
 - `{"action":"batch-ready","investigationId":"...","text":"..."}` tells the human a batch is ready to review; never leave a finished batch unannounced.
+- `{"action":"retitle","investigationId":"...","title":"...","questions":[{"questionId":"...","title":"..."}]}` rewrites batch and question headings, for example the placeholder headings of converted projects, which repeat the human's own words.
 - `{"action":"request-approval","title":"...","body":"...","investigationId":"..."}` asks before research the human did not request, such as following up an inconsistency.
   After the human approves, add it with `{"title":"...","approvalMessageId":"..."}` as a question without annotations; the body becomes its explanation in Findings.
 

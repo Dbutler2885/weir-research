@@ -1,9 +1,7 @@
 import {
-  investigationView,
   investigationSubject,
   feedbackView,
   settingsView,
-  type InvestigationSection,
 } from "./ui/investigation-view";
 import { findingReview, evidenceCard } from "./ui/finding-review";
 import {
@@ -18,6 +16,8 @@ import { layoutFamily } from "./layout/layout";
 import { GraphRenderer } from "./ui/graph-renderer";
 import { GuidedReview } from "./ui/guided-review";
 import { AnnotationsDrawer, type DrawerTab } from "./ui/annotations-drawer";
+import { findingsPage, type FindingsSection } from "./ui/findings-view";
+import "./findings.css";
 import "./annotations-drawer.css";
 import "./guided-review.css";
 import { mountOrganizationPanel } from "./ui/organization-panel";
@@ -66,7 +66,8 @@ export function mountResearchWorkspace(
   let selectedInvestigation: string | undefined = initial.investigations.some(i => i.id === destination.get('investigation')) ? destination.get('investigation')! : undefined;
   let selectedProposal: string | undefined;
   let readingMode = "cards";
-  let investigationSection: InvestigationSection = "findings";
+  let findingsSection: FindingsSection = "findings";
+  const expandedReports = new Set<string>();
   let cardIndex = 0;
   let previewRenderer: GraphRenderer | undefined;
   let guidedReview: GuidedReview | undefined;
@@ -396,6 +397,33 @@ export function mountResearchWorkspace(
   function empty(title: string, detail: string) {
     return `<div class="workspace-empty"><span class="empty-symbol" aria-hidden="true">⌖</span><h2>${title}</h2><p>${detail}</p><button type="button" data-go-research>Explore the research graph</button></div>`;
   }
+  function renderFindings() {
+    const scroller = surface.querySelector<HTMLElement>(".findings-scroll");
+    const top = scroller?.scrollTop || 0;
+    surface.innerHTML = findingsPage(state, findingsSection, expandedReports);
+    const next = surface.querySelector<HTMLElement>(".findings-scroll");
+    if (next) next.scrollTop = top;
+    markContents();
+  }
+  // Highlight the question being read in the contents.
+  function markContents() {
+    const scroller = surface.querySelector<HTMLElement>(".findings-scroll");
+    if (!scroller) return;
+    const edge = scroller.getBoundingClientRect().top + 80;
+    let current: string | undefined;
+    for (const section of scroller.querySelectorAll<HTMLElement>(".batch-question[id]"))
+      if (section.getBoundingClientRect().top <= edge) current = section.id;
+    surface
+      .querySelectorAll<HTMLElement>(".findings-toc [data-toc]")
+      .forEach((a) => a.classList.toggle("current", a.dataset.toc === current));
+  }
+  surface.addEventListener(
+    "scroll",
+    (event) => {
+      if ((event.target as Element).matches?.(".findings-scroll")) markContents();
+    },
+    true,
+  );
   function renderView() {
     guidedReview?.destroy();
     guidedReview = undefined;
@@ -403,6 +431,11 @@ export function mountResearchWorkspace(
     previewRenderer?.destroy();
     previewRenderer = undefined;
     if (view === "research") return;
+    surface.classList.toggle("is-findings", view === "work");
+    if (view === "work") {
+      renderFindings();
+      return;
+    }
     if (view === "sources") {
       renderSources();
       return;
@@ -426,7 +459,7 @@ export function mountResearchWorkspace(
         items.length > 1
           ? `<label class="investigation-picker">Investigation <select data-investigation-picker>${items.map((i) => `<option value="${i.id}" ${i.id === selectedInvestigation ? "selected" : ""}>${escape(investigationSubject(i))}</option>`).join("")}</select></label>`
           : "";
-      surface.innerHTML = `<div class="investigation-desk"><div class="desk-tools">${picker}<button class="text-action" data-open-settings>Research settings</button></div>${investigation ? `<article class="investigation-detail" data-investigation-id="${investigation.id}">${view === "work" ? investigationView(state, investigation, investigationSection) : reviewDetail(investigation)}</article>` : empty(view === "work" ? "No investigations yet" : "No findings are ready for review yet", view === "work" ? "Add a note to begin an investigation." : "Saved research notes remain in Investigations while findings are being prepared.")}</div>`;
+      surface.innerHTML = `<div class="investigation-desk"><div class="desk-tools">${picker}<button class="text-action" data-open-settings>Research settings</button></div>${investigation ? `<article class="investigation-detail" data-investigation-id="${investigation.id}">${reviewDetail(investigation)}</article>` : empty("No findings are ready for review yet", "Saved research notes remain in Investigations while findings are being prepared.")}</div>`;
       if (view === "review" && investigation?.reviewFlow?.walkthroughs.length) {
         guidedReview = new GuidedReview(surface.querySelector<HTMLElement>("[data-guided-host]")!, state, investigation, {
           command: async data => {
@@ -826,10 +859,32 @@ export function mountResearchWorkspace(
   }
 
   const handleContentClick = (event: Event) => {
+    const link = (event.target as Element).closest<HTMLElement>("[data-toc]");
+    if (link) {
+      event.preventDefault();
+      document
+        .getElementById(link.dataset.toc!)
+        ?.scrollIntoView({ block: "start", behavior: "smooth" });
+      return;
+    }
     const button = (event.target as Element).closest<HTMLButtonElement>(
       "button",
     );
     if (!button) return;
+    // Actions inside a batch card act on that batch.
+    const owner = button.closest<HTMLElement>("[data-investigation-id]")?.dataset
+      .investigationId;
+    if (owner) selectedInvestigation = owner;
+    if (button.hasAttribute("data-open-walkthrough")) {
+      selectedProposal = undefined;
+      setView("review");
+      return;
+    }
+    if (button.dataset.moreFindings) {
+      expandedReports.add(button.dataset.moreFindings);
+      renderFindings();
+      return;
+    }
     if (button.hasAttribute("data-open-settings")) {
       setView("settings");
       return;
@@ -843,8 +898,7 @@ export function mountResearchWorkspace(
       return;
     }
     if (button.dataset.investigationSection) {
-      investigationSection = button.dataset
-        .investigationSection as InvestigationSection;
+      findingsSection = button.dataset.investigationSection as FindingsSection;
       renderView();
       return;
     }

@@ -34,11 +34,21 @@ beforeEach(() => {
     title: "Who founded the fictional workshop?",
   });
   state = transition(state, {
-    type: "annotate",
-    question: "This is the question",
-    target: { label: state.dataset.title, text: state.dataset.title },
-    references: [{ label: state.dataset.title, text: state.dataset.title }],
-    dispatch: true,
+    type: "send",
+    annotation: {
+      question: "This is the question",
+      references: [{ label: "Fictional register entry", text: "Fictional register entry" }],
+    },
+  }).state;
+  state = transition(state, {
+    type: "open-batch",
+    title: "The workshop's founder",
+    questions: [
+      {
+        title: "Who founded the workshop?",
+        annotationIds: [state.conversation![0]!.annotations![0]!.id],
+      },
+    ],
   }).state;
   state = transition(state, {
     type: "pause",
@@ -122,10 +132,10 @@ describe("investigation workspace", () => {
     click(".queue-item [data-remove-queued]");
     await vi.waitFor(() => expect(document.querySelectorAll(".queue-item")).toHaveLength(1));
     click("[data-send-queue]");
-    await vi.waitFor(() => expect(state.conversation).toHaveLength(1));
-    expect(state.conversation![0]!.annotations!.map((a) => a.question)).toEqual(["Check another workshop"]);
+    await vi.waitFor(() => expect(state.conversation).toHaveLength(2));
+    expect(state.conversation!.at(-1)!.annotations!.map((a) => a.question)).toEqual(["Check another workshop"]);
     expect(state.queue).toHaveLength(0);
-    await vi.waitFor(() => expect(document.querySelector(".msg-you")!.textContent).toContain("You sent 1 annotation"));
+    await vi.waitFor(() => expect([...document.querySelectorAll(".msg-you")].at(-1)!.textContent).toContain("You sent 1 annotation"));
     state = transition(state, { type: "reply", text: "I'll look at the register first." }).state;
     state = transition(state, {
       type: "request-approval",
@@ -150,8 +160,8 @@ describe("investigation workspace", () => {
     click('[data-tab="queue"]');
     typeNote("Urgent question");
     click('[data-submit="now"]');
-    await vi.waitFor(() => expect(state.conversation).toHaveLength(1));
-    expect(state.conversation![0]!.annotations![0]!.question).toBe("Urgent question");
+    await vi.waitFor(() => expect(state.conversation).toHaveLength(2));
+    expect(state.conversation!.at(-1)!.annotations![0]!.question).toBe("Urgent question");
     expect(state.queue!.map((a) => a.question)).toEqual(["Still thinking"]);
     await vi.waitFor(() => expect(document.querySelector('[data-tab="conversation"]')!.getAttribute("aria-current")).toBe("page"));
   });
@@ -165,27 +175,16 @@ describe("investigation workspace", () => {
     };
     mount();
     click('[data-view="work"]');
-    expect(document.querySelector(".resume-approval")!.textContent).toContain(
-      i.resumeRequest.reason,
-    );
+    expect(document.querySelector(".batch-request")!.textContent).toContain(i.resumeRequest.reason);
     expect(document.querySelector('[data-command="resume"]')).toBeNull();
-    expect(state.investigations[0]!.status).toBe("paused");
     click('[data-resume-decision="decline"]');
-    await vi.waitFor(() =>
-      expect(state.investigations[0]!.resumeRequest!.status).toBe("declined"),
-    );
+    await vi.waitFor(() => expect(state.investigations[0]!.resumeRequest!.status).toBe("declined"));
     expect(state.investigations[0]!.status).toBe("paused");
-    state.investigations[0]!.resumeRequest = {
-      ...i.resumeRequest,
-      id: "resume-2",
-      status: "pending",
-    };
+    state.investigations[0]!.resumeRequest = { ...i.resumeRequest, id: "resume-2", status: "pending" };
     mount();
     click('[data-view="work"]');
     click('[data-resume-decision="approve"]');
-    await vi.waitFor(() =>
-      expect(state.investigations[0]!.status).toBe("queued"),
-    );
+    await vi.waitFor(() => expect(state.investigations[0]!.status).toBe("queued"));
   });
   it("saves an optional time limit and restores unlimited research", async () => {
     click('[data-view="work"]');
@@ -221,26 +220,50 @@ describe("investigation workspace", () => {
     );
     expect(state.investigations[0]!.status).toBe("paused");
   });
-  it("separates the selected subject from annotation wording and gives notes and history explicit destinations", () => {
+  it("shows project-wide findings by batch and question, with reports and activity", () => {
+    const batch = state.investigations[0]!;
+    batch.executions = [{ at: "2026-01-01T00:00:00.000Z", worker: "Claude Code researcher", provider: "claude", model: "" }];
+    batch.proposals.push({
+      id: "report-1",
+      kind: "findings",
+      revision: 1,
+      title: "The founder of the fictional workshop",
+      summary: "The register names the founder; the tax roll agrees.",
+      ambiguity: "",
+      evidence: [],
+      changes: [],
+      findings: ["one", "two", "three", "four", "five"].map((n) => ({
+        id: `f-${n}`,
+        statement: `Finding ${n}`,
+        qualification: "reported" as const,
+        explanation: `Explanation ${n}`,
+        evidenceIds: [],
+      })),
+      addressedAnnotationIds: batch.annotations.map((a) => a.id),
+      createdAt: "2026-01-02T00:00:00.000Z",
+      status: "pending",
+    });
+    mount();
     click('[data-view="work"]');
-    expect(
-      document.querySelector(".investigation-heading h1")!.textContent,
-    ).toBe(state.dataset.title);
-    expect(document.querySelector(".investigation-list")).toBeNull();
-    expect(document.querySelector("#engine-form")).toBeNull();
-    expect(
-      document.querySelector(".research-surface")!.textContent,
-    ).not.toContain("This is the question");
-    click('[data-investigation-section="annotations"]');
-    expect(document.querySelectorAll(".annotation-entry")).toHaveLength(1);
-    expect(document.querySelector(".annotation-text")!.textContent).toBe(
-      "This is the question",
+    expect(document.querySelector(".investigation-picker")).toBeNull();
+    expect(document.querySelector(".batch-label")!.textContent).toBe("Batch 1 · paused");
+    expect(document.querySelector(".batch-card h2")!.textContent).toBe("The workshop's founder");
+    expect(document.querySelector(".findings-toc")!.textContent).toContain("Who founded the workshop?");
+    const question = document.querySelector(".batch-question")!;
+    expect(question.querySelector("h3")!.textContent).toBe("Who founded the workshop?");
+    expect(question.querySelector(".asked")!.textContent).toContain('On "Fictional register entry" you wrote:');
+    expect(question.querySelector("blockquote")!.textContent).toBe("This is the question");
+    expect(question.querySelector(".report summary")!.textContent).toBe("The founder of the fictional workshop");
+    expect(question.querySelector(".report-by")!.textContent).toContain("Returned by Claude Code researcher");
+    expect(question.querySelector(".report-summary")!.textContent).toBe(
+      "The register names the founder; the tax roll agrees.",
     );
-    expect(document.querySelectorAll(".note-reference")).toHaveLength(1);
+    expect(question.querySelectorAll(".finding-list article")).toHaveLength(3);
+    click("[data-more-findings]");
+    expect(document.querySelectorAll(".batch-question .finding-list article")).toHaveLength(5);
     click('[data-investigation-section="activity"]');
-    expect(document.querySelector(".activity-list")!.textContent).toContain(
-      "paused",
-    );
+    expect(document.querySelector(".activity-list")!.textContent).toContain("paused");
+    expect(document.querySelector(".activity-list")!.textContent).toContain("Batch 1");
   });
   it("keeps repeated feedback saves out of research and remembers the choice", async () => {
     const annotations = state.investigations[0]!.annotations.length;

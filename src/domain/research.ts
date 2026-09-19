@@ -46,6 +46,8 @@ export interface AnnotationTarget {
 }
 export interface Annotation {
   id: string;
+  // Present when the coordinator raised this question after the human approved it.
+  author?: "coordinator";
   target: AnnotationTarget;
   references?: AnnotationTarget[];
   amends?: string;
@@ -275,7 +277,8 @@ export interface ResearchCommand {
     | "open-batch"
     | "add-to-batch"
     | "batch-ready"
-    | "request-approval";
+    | "request-approval"
+    | "retitle";
   investigationId?: string;
   [key: string]: unknown;
 }

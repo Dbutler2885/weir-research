@@ -52,6 +52,7 @@ export const coordinatorConversationCommands = new Set([
   "add-to-batch",
   "batch-ready",
   "request-approval",
+  "retitle",
 ]);
 
 const text = (value: unknown, label: string, max = 50_000): string => {
@@ -132,25 +133,48 @@ function questionsFrom(
       existing.annotationIds.push(...annotationIds);
       continue;
     }
+    const title = text(raw.title, "Question heading", 300);
+    if (annotationIds.length) {
+      (batch.questions ||= []).push({
+        id: id(),
+        title,
+        origin: "human",
+        annotationIds,
+        createdAt: now,
+      });
+      continue;
+    }
     const approval = raw.approvalMessageId
       ? next.conversation?.find((m) => m.id === raw.approvalMessageId)
       : undefined;
-    if (!annotationIds.length)
-      assert(
-        approval?.decision?.status === "approved",
-        "A coordinator question needs research the human approved.",
-      );
+    assert(
+      approval?.decision?.status === "approved",
+      "A coordinator question needs research the human approved.",
+    );
+    assert(
+      !next.investigations.some((i) =>
+        i.questions?.some((q) => q.approvalMessageId === approval.id),
+      ),
+      "This approved research already has a question.",
+    );
+    // The approved request becomes the question's assignment, like a human annotation.
+    const annotation: Annotation = {
+      id: id(),
+      author: "coordinator",
+      target: { label: title },
+      references: [],
+      question: approval.decision!.body,
+      createdAt: now,
+      dispatchedAt: now,
+    };
+    batch.annotations.push(annotation);
     (batch.questions ||= []).push({
       id: id(),
-      title: text(raw.title, "Question heading", 300),
-      origin: annotationIds.length ? "human" : "coordinator",
-      annotationIds,
-      ...(approval
-        ? {
-            explanation: approval.decision!.body,
-            approvalMessageId: approval.id,
-          }
-        : {}),
+      title,
+      origin: "coordinator",
+      annotationIds: [annotation.id],
+      explanation: approval.decision!.body,
+      approvalMessageId: approval.id,
       createdAt: now,
     });
   }
@@ -324,6 +348,20 @@ export function conversationTransition(
       }
       delete batch.readyAt;
       batch.events.push({ at: now, message: "Coordinator added work to this batch." });
+      return { investigationId: batch.id };
+    }
+    case "retitle": {
+      const batch = next.investigations.find(
+        (i) => i.id === command.investigationId,
+      );
+      assert(batch, "Unknown batch.");
+      if (command.title !== undefined)
+        batch.title = text(command.title, "Batch title", 300);
+      for (const raw of (command.questions || []) as Record<string, unknown>[]) {
+        const question = batch.questions?.find((q) => q.id === raw.questionId);
+        assert(question, "Question is not part of this batch.");
+        question.title = text(raw.title, "Question heading", 300);
+      }
       return { investigationId: batch.id };
     }
     case "batch-ready": {
