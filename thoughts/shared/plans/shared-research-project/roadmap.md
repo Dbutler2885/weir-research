@@ -15,11 +15,12 @@ Application planning belongs here; real research and experimental artifacts rema
 3. **Navigable updates.** Explain what was learned or changed and take the human to the exact affected material, with context and a return path.
    A generic announcement that new research is ready is insufficient.
 4. **Walkthroughs as milestones.** Evidence and graph walkthroughs orient the human when requested or useful to the coordinator.
-   They cease to be mandatory stages for every contribution; graph approval ceases to be a universal gate.
+   Walkthroughs cease to be mandatory stages for every contribution.
+   Each graph update comes with a guided tour and is gated behind the human's approval, given step by step within the tour.
    Preserve uncertainty and correction history without making rollback a central product workflow.
-   Findings remains the historical researcher-return record, with sent batches as the outermost grouping, then coordinator-written question headings and assignment scopes, in its table of contents.
-   A sent queue batch establishes the walkthrough boundary; relevant findings remain displayed within the walkthrough as well as in Findings.
-   Generation timing and automatic defaults remain open so the human can prioritize token spending on research.
+   Findings remains the historical researcher-return record, with coordinator-defined batches as the outermost grouping, then coordinator-written question headings and assignment scopes, in its table of contents.
+   The coordinator groups research into batches, each explained by a walkthrough and graph update and closed when its graph review is approved; relevant findings remain displayed within the walkthrough as well as in Findings.
+   Walkthrough and graph generation are offered per batch on request by default, with an option to make either automatic, so the human can prioritize token spending on research.
 
 ## Scope B: research execution and knowledge infrastructure
 
