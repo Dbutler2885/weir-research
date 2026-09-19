@@ -122,10 +122,11 @@ If another coordinator is live, report that fact and leave its session alone.
 
 ## Research and synthesis
 
-Only dispatched annotations authorize research.
+Only sent annotations authorize research; the snapshot's `conversation` index lists those not yet placed in a batch.
+Answer each send in the Annotations conversation and group the work into batches as described in `docs/coordinator.md`.
 After publishing inspected findings, use `skills/present-research/SKILL.md` to author the guided walkthrough, then `skills/prepare-research-graph/SKILL.md` to supervise graph preparation and write its tour.
 Walkthrough publication immediately queues the separate representation pass while the human reads.
-Saved but unsent annotations are visible context, not assignments.
+Queued but unsent annotations are the human's scratch pad, not assignments.
 Before restarting any paused investigation, ask through `{"action":"request-resume","investigationId":"...","reason":"Why this investigation should resume"}` and wait for the human to confirm in the browser.
 Keep the investigation paused until approval; silence is not consent, and a declined request must not be repeatedly reissued without a new reason or human instruction.
 All follow-ups on a proposal remain attached to that investigation and immutable proposal revision.

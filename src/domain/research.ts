@@ -15,6 +15,12 @@ import type { SourceRecord } from "./types.ts";
 import { GenealogyModel } from "./model.ts";
 import type { FamilyDataset } from "./types.ts";
 import type { ReviewFlow } from "./review-flow";
+import {
+  conversationTransition,
+  humanConversationCommands,
+  coordinatorConversationCommands,
+} from "./conversation.ts";
+import type { Message, Question } from "./conversation.ts";
 
 export type Table =
   | "people"
@@ -83,7 +89,13 @@ export interface Proposal {
   status: "pending" | "accepted" | "rejected" | "superseded";
   decidedAt?: string;
 }
+// An investigation record is a batch: the coordinator's grouping of research
+// that one walkthrough and one graph update explain.
 export interface Investigation {
+  number?: number;
+  questions?: Question[];
+  readyAt?: string;
+  closedAt?: string;
   reviewFlow?: ReviewFlow;
   resumeRequest?: {
     id: string;
@@ -155,6 +167,8 @@ export interface ResearchState {
   datasetRevision: number;
   dataset: FamilyDataset;
   investigations: Investigation[];
+  queue?: Annotation[];
+  conversation?: Message[];
   collections: SourceCollection[];
   documents: ResearchDocument[];
   library?: SourceRecord[];
@@ -251,7 +265,17 @@ export interface ResearchCommand {
     | "checkpoint"
     | "propose"
     | "accept"
-    | "reject";
+    | "reject"
+    | "queue-annotation"
+    | "edit-queued"
+    | "remove-queued"
+    | "send"
+    | "decide"
+    | "reply"
+    | "open-batch"
+    | "add-to-batch"
+    | "batch-ready"
+    | "request-approval";
   investigationId?: string;
   [key: string]: unknown;
 }
@@ -262,6 +286,14 @@ export function transition(
 ): { state: ResearchState; result: unknown } {
   const next = structuredClone(state);
   const id = () => crypto.randomUUID();
+  if (
+    humanConversationCommands.has(command.type) ||
+    coordinatorConversationCommands.has(command.type)
+  ) {
+    const result = conversationTransition(next, command, now, id);
+    next.revision++;
+    return { state: next, result };
+  }
   let investigation = next.investigations.find(
     (i) => i.id === command.investigationId,
   );

@@ -3,6 +3,10 @@ import { flowCommand } from "./review-flow.mjs";
 import { randomUUID } from "node:crypto";
 import { transition } from "../src/domain/research.ts";
 import {
+  coordinatorConversationCommands,
+  unassignedAnnotations,
+} from "../src/domain/conversation.ts";
+import {
   projectIndex,
   investigationIndex,
   inspectContext,
@@ -128,6 +132,7 @@ export class Coordinator {
       })),
       preferredEngine: state.engine || "manual",
       coordinator: this.status(),
+      conversation: conversationIndex(state),
     };
   }
   assignment(id) {
@@ -150,6 +155,10 @@ export class Coordinator {
     if (["publish-walkthrough", "inspect-flow", "assign-graph", "graph-update", "request-graph-resume", "publish-graph-review"].includes(data.action)) return flowCommand(this.store, data);
     if (data.action?.startsWith("organization-"))
       return organize(this.store, data);
+    if (coordinatorConversationCommands.has(data.action)) {
+      const { action, session, ...command } = data;
+      return this.store.command({ ...command, type: action });
+    }
     const id = data.investigationId;
     const i = this.store.state.investigations.find((i) => i.id === id);
     if (data.action === "detach") {
@@ -333,4 +342,43 @@ export class Coordinator {
         });
     });
   }
+}
+
+// What the coordinator must act on in the shared conversation.
+function conversationIndex(state) {
+  const messages = state.conversation || [];
+  return {
+    unassignedAnnotations: unassignedAnnotations(state).map((a) => ({
+      id: a.id,
+      question: a.question,
+      references: (a.references || []).map((r) => r.label),
+      sentAt: a.dispatchedAt,
+    })),
+    pendingDecisions: messages
+      .filter((m) => m.decision?.status === "pending")
+      .map((m) => ({ messageId: m.id, title: m.decision.title })),
+    recentDecisions: messages
+      .filter((m) => m.decision && m.decision.status !== "pending")
+      .slice(-10)
+      .map((m) => ({ messageId: m.id, title: m.decision.title, status: m.decision.status })),
+    recentMessages: messages.slice(-12).map((m) => ({
+      id: m.id,
+      at: m.at,
+      author: m.author,
+      text: m.text?.slice(0, 1500),
+      annotationCount: m.annotations?.length || 0,
+      readyBatchId: m.readyBatchId,
+      decision: m.decision && { title: m.decision.title, status: m.decision.status },
+    })),
+    openBatches: state.investigations
+      .filter((i) => i.number && !i.closedAt)
+      .map((i) => ({
+        id: i.id,
+        number: i.number,
+        title: i.title,
+        status: i.status,
+        ready: Boolean(i.readyAt),
+        questions: (i.questions || []).map((q) => ({ id: q.id, title: q.title, origin: q.origin })),
+      })),
+  };
 }

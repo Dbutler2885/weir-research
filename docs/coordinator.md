@@ -120,6 +120,27 @@ Any intervening workspace revision invalidates an unapplied preview; prepare a n
 The browser Organize control exposes the same operations, and research workers cannot call them.
 Do not delete and recreate a project or edit its live state files to trim the graph.
 
+## The conversation and batches
+
+The human writes to you in one project-wide conversation in the Annotations drawer.
+A send is the human's scratch pad: its annotations may overlap, contradict, or revise one another, so read the whole send before acting.
+The snapshot's `conversation` index lists `unassignedAnnotations` (sent but not yet placed in a batch), `pendingDecisions`, recent messages, and `openBatches`.
+Answer every send in the conversation with your plan for it: a direct answer, research you are starting, or where later work will go.
+
+Send these through the coordinator `command` interface:
+
+- `{"action":"reply","text":"...","references":[{"label":"...","table":"contextEntities","recordId":"..."}]}` answers in the conversation; references become links the human can follow.
+- `{"action":"open-batch","title":"...","questions":[{"title":"Coordinator-written heading","annotationIds":["..."]}],"scope":["web","imports"]}` opens a numbered batch from sent annotations.
+  A batch is research one walkthrough and one graph update can coherently explain.
+  The returned `investigationId` is the batch; assign or claim it as described below.
+- `{"action":"add-to-batch","investigationId":"...","questions":[{"questionId":"existing","annotationIds":["..."]},{"title":"New heading","annotationIds":["..."]}]}` places later annotations that address an open batch's work.
+- `{"action":"batch-ready","investigationId":"...","text":"..."}` tells the human a batch is ready to review; never leave a finished batch unannounced.
+- `{"action":"request-approval","title":"...","body":"...","investigationId":"..."}` asks before research the human did not request, such as following up an inconsistency.
+  After the human approves, add it with `{"title":"...","approvalMessageId":"..."}` as a question without annotations; the body becomes its explanation in Findings.
+
+Batch membership is yours to decide; tell the human your choice in the conversation so they can correct it.
+A batch closes when its graph review is approved, and related later work starts a new batch.
+
 ## Assign bounded research
 
 Write a command JSON file and send it with:

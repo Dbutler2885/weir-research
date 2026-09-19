@@ -22,6 +22,7 @@ import { Coordinator } from "./coordinator.mjs";
 import { ResearcherPool } from "./researchers.mjs";
 import { GraphBuilderPool } from "./graph-builders.mjs";
 import { flowCommand } from "./review-flow.mjs";
+import { humanConversationCommands } from "../src/domain/conversation.ts";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const directory = resolve(
@@ -79,6 +80,7 @@ const userCommands = new Set([
   "resume",
   "accept",
   "reject",
+  ...humanConversationCommands,
 ]);
 const types = {
   ".txt": "text/plain",

@@ -76,109 +76,84 @@ afterEach(() => {
   document.body.replaceChildren();
 });
 describe("investigation workspace", () => {
-  it("preserves a draft while browsing the queue and selecting references in one sidebar", async () => {
+  const typeNote = (text: string) => {
+    const note = document.querySelector<HTMLTextAreaElement>("[data-note]")!;
+    note.value = text;
+    note.dispatchEvent(new Event("input", { bubbles: true }));
+  };
+  it("keeps an annotation draft across tabs, page selections and closing the drawer", async () => {
+    const investigations = state.investigations.length;
     click('[data-view="work"]');
     click("[data-add-instruction]");
-    const textarea = document.querySelector<HTMLTextAreaElement>(
-      "#annotation-question",
-    )!;
-    textarea.value = "Compare these records";
-    textarea.dispatchEvent(new Event("input", { bubbles: true }));
-    click('[data-drawer-tab="queue"]');
-    expect(
-      document.querySelector<HTMLElement>("#annotation-form")!.hidden,
-    ).toBe(true);
-    click('[data-drawer-tab="compose"]');
-    expect(textarea.value).toBe("Compare these records");
-    click("#annotation-mode");
+    expect(document.querySelector('[data-tab="conversation"]')!.getAttribute("aria-current")).toBe("page");
+    click('[data-tab="queue"]');
+    typeNote("Compare these records");
+    click('[data-tab="conversation"]');
+    click('[data-tab="queue"]');
+    expect(document.querySelector<HTMLTextAreaElement>("[data-note]")!.value).toBe("Compare these records");
+    click("[data-select]");
     expect(document.body.classList.contains("research-annotating")).toBe(true);
     (window as any).lavishUnifiedFeedback.selectReference({
       text: "Fictional register entry",
       selector: ".investigation-heading",
     });
-    expect(textarea.value).toBe("Compare these records");
-    expect(
-      document.querySelector("#annotation-selection")!.textContent,
-    ).toContain("Fictional register entry");
+    expect(document.querySelector(".note-references")!.textContent).toContain("Fictional register entry");
+    expect(document.querySelector<HTMLTextAreaElement>("[data-note]")!.value).toBe("Compare these records");
     click("[data-close]");
     expect(document.body.classList.contains("research-annotating")).toBe(false);
     click("[data-add-instruction]");
-    expect(textarea.value).toBe("Compare these records");
-    click('#annotation-form button[value="queue"]');
-    await vi.waitFor(() =>
-      expect(state.investigations[0]!.annotations).toHaveLength(2),
-    );
-    await vi.waitFor(() =>
-      expect(
-        document.querySelector<HTMLElement>(".sidebar-queue")!.hidden,
-      ).toBe(false),
-    );
-    expect(
-      document.querySelector<HTMLDialogElement>("#notes-sidebar")!.open,
-    ).toBe(true);
-    expect(
-      document.querySelector(".app-shell")!.getAttribute("data-workspace-view"),
-    ).toBe("work");
+    expect(document.querySelector<HTMLTextAreaElement>("[data-note]")!.value).toBe("Compare these records");
+    click('[data-submit="queue"]');
+    await vi.waitFor(() => expect(state.queue).toHaveLength(1));
+    expect(state.queue![0]!.references![0]!.label).toBe("Fictional register entry");
+    expect(state.investigations).toHaveLength(investigations);
+    await vi.waitFor(() => expect(document.querySelector(".queue-item")!.textContent).toContain("Compare these records"));
+    expect(document.querySelector<HTMLTextAreaElement>("[data-note]")!.value).toBe("");
+    expect(document.querySelector(".app-shell")!.getAttribute("data-workspace-view")).toBe("work");
   });
-  it("keeps the queue in the notes sidebar and dispatches only the selected investigation", async () => {
-    expect(document.querySelector('[data-count="queue"]')!.textContent).toBe(
-      "",
-    );
-    const first = state.investigations[0]!.id;
-    state = transition(state, {
-      type: "annotate",
-      investigationId: first,
-      question: "Check the workshop register",
-      dispatch: false,
-    }).state;
-    const added = transition(state, {
-      type: "annotate",
-      question: "Check another workshop",
-      dispatch: false,
-    });
-    state = added.state;
-    const second = state.investigations[1]!.id;
+  it("sends the queue as one message and shows coordinator replies and decisions", async () => {
+    for (const question of ["Check the workshop register", "Check another workshop"])
+      state = transition(state, { type: "queue-annotation", question, references: [] }).state;
     mount();
-    const queue = document.querySelector<HTMLButtonElement>(
-      "[data-add-instruction]",
-    )!;
-    expect(queue.hidden).toBe(false);
-    expect(
-      document.querySelector(".workspace-nav #annotation-mode"),
-    ).toBeNull();
-    expect(queue.textContent).toContain("2");
-    click('[data-view="sources"]');
+    expect(document.querySelector('[data-count="queue"]')!.textContent).toBe("");
     click("[data-add-instruction]");
-    click('[data-drawer-tab="queue"]');
-    expect(
-      document.querySelector(".app-shell")!.getAttribute("data-workspace-view"),
-    ).toBe("sources");
-    expect(document.querySelectorAll(".queue-group")).toHaveLength(2);
-    click(`[data-investigation-id="${second}"] [data-command="dispatch"]`);
-    await vi.waitFor(() =>
-      expect(
-        state.investigations[1]!.annotations[0]!.dispatchedAt,
-      ).toBeTruthy(),
-    );
-    expect(state.investigations[0]!.status).toBe("paused");
-    expect(
-      state.investigations[0]!.annotations.at(-1)!.dispatchedAt,
-    ).toBeUndefined();
-    await vi.waitFor(() =>
-      expect(document.querySelector('[data-count="queue"]')!.textContent).toBe(
-        "1",
-      ),
-    );
-    click(`[data-investigation-id="${first}"] [data-delete-note]`);
-    await vi.waitFor(() =>
-      expect(document.querySelector('[data-count="queue"]')!.textContent).toBe(
-        "",
-      ),
-    );
-    expect(queue.hidden).toBe(false);
-    expect(document.querySelector(".sidebar-queue")!.textContent).toContain(
-      "No annotations waiting",
-    );
+    click('[data-tab="queue"]');
+    expect(document.querySelectorAll(".queue-item")).toHaveLength(2);
+    click(".queue-item [data-remove-queued]");
+    await vi.waitFor(() => expect(document.querySelectorAll(".queue-item")).toHaveLength(1));
+    click("[data-send-queue]");
+    await vi.waitFor(() => expect(state.conversation).toHaveLength(1));
+    expect(state.conversation![0]!.annotations!.map((a) => a.question)).toEqual(["Check another workshop"]);
+    expect(state.queue).toHaveLength(0);
+    await vi.waitFor(() => expect(document.querySelector(".msg-you")!.textContent).toContain("You sent 1 annotation"));
+    state = transition(state, { type: "reply", text: "I'll look at the register first." }).state;
+    state = transition(state, {
+      type: "request-approval",
+      title: "Read the 1884 register?",
+      body: "Two sources disagree about the closing year.",
+    }).state;
+    mount();
+    const badge = document.querySelector('[data-count="queue"]')!;
+    expect(badge.textContent).toBe("2");
+    expect(badge.classList.contains("alert")).toBe(true);
+    click("[data-add-instruction]");
+    expect(document.querySelector(".msg-decision")!.textContent).toContain("Read the 1884 register?");
+    expect(badge.textContent).toBe("");
+    click('[data-decide="approve"]');
+    await vi.waitFor(() => expect(state.conversation!.at(-1)!.decision!.status).toBe("approved"));
+    await vi.waitFor(() => expect(document.querySelector(".msg-outcome")!.textContent).toContain("You approved"));
+  });
+  it("sends a single annotation immediately and keeps the rest of the queue", async () => {
+    state = transition(state, { type: "queue-annotation", question: "Still thinking", references: [] }).state;
+    mount();
+    click("[data-add-instruction]");
+    click('[data-tab="queue"]');
+    typeNote("Urgent question");
+    click('[data-submit="now"]');
+    await vi.waitFor(() => expect(state.conversation).toHaveLength(1));
+    expect(state.conversation![0]!.annotations![0]!.question).toBe("Urgent question");
+    expect(state.queue!.map((a) => a.question)).toEqual(["Still thinking"]);
+    await vi.waitFor(() => expect(document.querySelector('[data-tab="conversation"]')!.getAttribute("aria-current")).toBe("page"));
   });
   it("keeps a coordinator restart request paused until the human chooses", async () => {
     const i = state.investigations[0]!;
@@ -267,45 +242,23 @@ describe("investigation workspace", () => {
       "paused",
     );
   });
-  it("keeps repeated feedback saves out of research and makes them directly accessible", async () => {
+  it("keeps repeated feedback saves out of research and remembers the choice", async () => {
     const annotations = state.investigations[0]!.annotations.length;
-    const write = async (text: string) => {
-      click("[data-add-instruction]");
-      expect(
-        document.querySelector<HTMLSelectElement>("#annotation-destination")!
-          .value,
-      ).toBe("interface");
-      const input = document.querySelector<HTMLTextAreaElement>(
-        "#annotation-question",
-      )!;
-      input.value = text;
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-      click('.annotation-dialog button[value="now"]');
-      await vi.waitFor(() => expect(input.value).toBe(""));
-      expect(
-        document.querySelector<HTMLDialogElement>(".annotation-dialog")!.open,
-      ).toBe(true);
-    };
     click("[data-add-instruction]");
-    select("#annotation-destination", "interface");
-    click(".annotation-dialog [data-close]");
-    await write("Clarify the status");
-    await write("Simplify the labels");
-    expect(state.interfaceFeedback).toHaveLength(2);
+    click('[data-tab="queue"]');
+    click("[data-feedback]");
+    for (const text of ["Clarify the status", "Simplify the labels"]) {
+      typeNote(text);
+      click('[data-submit="feedback"]');
+      await vi.waitFor(() => expect(document.querySelector<HTMLTextAreaElement>("[data-note]")!.value).toBe(""));
+    }
+    expect(state.interfaceFeedback!.map((f) => f.text)).toEqual(["Clarify the status", "Simplify the labels"]);
+    expect(state.queue || []).toHaveLength(0);
     expect(state.investigations[0]!.annotations).toHaveLength(annotations);
-    expect(state.investigations[0]!.status).toBe("paused");
-    expect(document.querySelector('[data-count="feedback"]')!.textContent).toBe(
-      "2",
-    );
-    click(".research-toast button");
-    expect(document.querySelector(".feedback-page")!.textContent).toContain(
-      "Simplify the labels",
-    );
+    expect(document.querySelector('[data-count="feedback"]')!.textContent).toBe("2");
     mount();
     click("[data-add-instruction]");
-    expect(
-      document.querySelector<HTMLSelectElement>("#annotation-destination")!
-        .value,
-    ).toBe("interface");
+    click('[data-tab="queue"]');
+    expect(document.querySelector<HTMLInputElement>("[data-feedback]")!.checked).toBe(true);
   });
 });

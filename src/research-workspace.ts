@@ -17,6 +17,8 @@ import { projectAround } from "./domain/projection";
 import { layoutFamily } from "./layout/layout";
 import { GraphRenderer } from "./ui/graph-renderer";
 import { GuidedReview } from "./ui/guided-review";
+import { AnnotationsDrawer, type DrawerTab } from "./ui/annotations-drawer";
+import "./annotations-drawer.css";
 import "./guided-review.css";
 import { mountOrganizationPanel } from "./ui/organization-panel";
 import type {
@@ -72,15 +74,9 @@ export function mountResearchWorkspace(
   let selectedSource: string | undefined;
   const selectedGroups = new Map<string, Set<string>>();
   let previewGeneration = 0;
-  let references: AnnotationTarget[] = [];
-  let editingAnnotation: string | undefined;
-  let editingInvestigation: string | undefined;
-  let draftScope: string[] | undefined;
-  let amendingAnnotation: string | undefined;
   let annotate = false;
   let busy = false;
-  let pendingTarget: AnnotationTarget | undefined;
-  let pendingInvestigation: string | undefined;
+  let drawer: AnnotationsDrawer | undefined;
   const shell = document.querySelector<HTMLElement>(".app-shell")!;
   const graph = document.querySelector<HTMLElement>("main.workspace")!;
   shell.classList.add("research-app");
@@ -124,7 +120,6 @@ export function mountResearchWorkspace(
   dialog.id = "notes-sidebar";
   dialog.setAttribute("aria-label", "Annotations");
   dialog.setAttribute("data-lavish-ui", "research-composer");
-  dialog.innerHTML = `<div class="dialog-heading"><h2>Annotations</h2><button type="button" data-close aria-label="Close annotations">×</button></div><nav class="notes-tabs" aria-label="Annotations sidebar"><button type="button" data-drawer-tab="compose">New annotation</button><button type="button" data-drawer-tab="queue">Queued <span data-drawer-count></span></button></nav><form id="annotation-form"><h2 id="annotation-label"></h2><div id="annotation-selection"></div><button type="button" id="annotation-mode" aria-pressed="false" title="Select references (Command or Control + I)">Select references <kbd>⌘ I</kbd></button><p class="muted">Select passages or objects, or write without a reference.</p><label>Destination<select id="annotation-destination"><option value="research">Research investigation</option><option value="interface">Interface feedback</option></select></label><label for="annotation-question">What needs investigating?</label><textarea id="annotation-question" required rows="4" placeholder="Question the evidence, resolve an identity, or follow a connection…"></textarea><details class="annotation-options"><summary>Investigation and sources</summary><div id="annotation-belongs"></div><fieldset id="annotation-scope"><legend>Where to look</legend></fieldset></details><div class="dialog-actions"><button type="submit" name="dispatch" value="queue">Queue annotation</button><button class="primary" type="submit" name="dispatch" value="now">Send now</button></div><p class="form-error" role="alert"></p></form><section class="sidebar-queue" aria-label="Queued annotations" hidden></section>`;
   const composerColumn = document.createElement("aside");
   composerColumn.className = "composer-column";
   composerColumn.setAttribute("aria-label", "Annotation and selected details");
@@ -178,15 +173,11 @@ export function mountResearchWorkspace(
     return result;
   }
   function updateCounts() {
-    const queued = state.investigations.reduce(
-      (count, i) => count + i.annotations.filter((a) => !a.dispatchedAt).length,
-      0,
-    );
-    nav.querySelector('[data-count="queue"]')!.textContent = queued
-      ? String(queued)
-      : "";
-    dialog.querySelector("[data-drawer-count]")!.textContent = `(${queued})`;
-    renderQueue();
+    // Unread coordinator messages stay visible until the conversation is read.
+    const unread = dialog.open && drawer?.currentTab === "conversation" ? 0 : drawer?.unread() || 0;
+    const badge = nav.querySelector<HTMLElement>('[data-count="queue"]')!;
+    badge.textContent = unread ? String(unread) : "";
+    badge.classList.toggle("alert", unread > 0);
     nav.querySelector('[data-count="feedback"]')!.textContent = String(
       state.interfaceFeedback?.length || 0,
     );
@@ -207,6 +198,7 @@ export function mountResearchWorkspace(
     const fresh: ResearchState = await request("/api/state");
     const changed = state.datasetRevision !== fresh.datasetRevision;
     state = fresh;
+    if (dialog.open) drawer?.render();
     updateCounts();
     if (render) notice.hidden = true;
     if (changed) onDataset(state.dataset);
@@ -239,16 +231,14 @@ export function mountResearchWorkspace(
     renderView();
   }
   function setMode(enabled: boolean) {
-    if (enabled) openAnnotation();
     annotate = enabled;
     document.body.classList.toggle("research-annotating", annotate);
-    dialog
-      .querySelector("#annotation-mode")!
-      .setAttribute("aria-pressed", String(annotate));
     window.postMessage(
       { type: "lavish:setAnnotationMode", enabled: annotate },
       window.location.origin,
     );
+    if (enabled) openDrawer("queue");
+    else if (dialog.open && drawer?.currentTab === "queue") drawer.render();
   }
   function resolveTarget(context: any): {
     target: AnnotationTarget;
@@ -300,255 +290,62 @@ export function mountResearchWorkspace(
         ?.dataset.investigationId,
     };
   }
-  const draftKey = `research-draft:${window.location.origin}`;
-  const destinationKey = `research-destination:${window.location.origin}`;
-  dialog.querySelector<HTMLSelectElement>("#annotation-destination")!.value =
-    localStorage.getItem(destinationKey) === "interface"
-      ? "interface"
-      : "research";
-  function saveDraft() {
-    localStorage.setItem(
-      destinationKey,
-      dialog.querySelector<HTMLSelectElement>("#annotation-destination")!.value,
-    );
-    localStorage.setItem(
-      draftKey,
-      JSON.stringify({
-        references,
-        question: dialog.querySelector<HTMLTextAreaElement>("textarea")!.value,
-        investigationId: pendingInvestigation,
-        editingAnnotation,
-        editingInvestigation,
-        scope: draftScope,
-        amendingAnnotation,
-        destination: dialog.querySelector<HTMLSelectElement>(
-          "#annotation-destination",
-        )!.value,
-      }),
-    );
+  function openDrawer(tab?: DrawerTab, reference?: AnnotationTarget) {
+    if (!dialog.open) dialog.show();
+    // Lay the drawer out first so the conversation can scroll to its end.
+    syncComposer();
+    if (reference) drawer!.addReference(reference);
+    else drawer!.show(tab || drawer!.currentTab);
   }
-  function closeComposer() {
-    saveDraft();
+  function closeDrawer() {
     setMode(false);
     dialog.close();
     syncComposer();
+    updateCounts();
   }
-  function clearDraft() {
-    references = [];
-    pendingInvestigation = undefined;
-    pendingTarget = undefined;
-    editingAnnotation = undefined;
-    editingInvestigation = undefined;
-    draftScope = undefined;
-    amendingAnnotation = undefined;
-
-    dialog.querySelector<HTMLTextAreaElement>("textarea")!.value = "";
-    localStorage.removeItem(draftKey);
-  }
-  function renderReferences() {
-    dialog.querySelector("#annotation-selection")!.innerHTML =
-      references
-        .map(
-          (r, n) =>
-            `<div class="reference-chip"><span>${escape(r.text || r.label)}</span><button type="button" data-remove-ref="${n}" aria-label="Remove reference">×</button></div>`,
-        )
-        .join("") || '<p class="muted">No selected references</p>';
-  }
-  function openAnnotation(target?: AnnotationTarget, investigationId?: string) {
-    setDrawerTab("compose");
-    if (
-      !dialog.open &&
-      !references.length &&
-      !dialog.querySelector<HTMLTextAreaElement>("textarea")!.value
-    ) {
-      try {
-        const draft = JSON.parse(localStorage.getItem(draftKey) || "null");
-        if (draft) {
-          references = draft.references || [];
-          pendingInvestigation = draft.investigationId;
-          editingAnnotation = draft.editingAnnotation;
-          editingInvestigation = draft.editingInvestigation;
-          draftScope = draft.scope;
-          amendingAnnotation = draft.amendingAnnotation;
-          dialog.querySelector<HTMLTextAreaElement>("textarea")!.value =
-            draft.question || "";
-          dialog.querySelector<HTMLSelectElement>(
-            "#annotation-destination",
-          )!.value = draft.destination || "research";
-        }
-      } catch {
-        /* Invalid local drafts do not affect saved research. */
-      }
+  // Following a reference keeps a browser history entry, so Back returns here.
+  function navigate(reference: AnnotationTarget) {
+    if (reference.table === "sources" && reference.recordId) {
+      showSource(undefined, undefined, reference.recordId);
+      return;
     }
-    pendingInvestigation ||= investigationId;
-    if (
-      target &&
-      !references.some((r) => JSON.stringify(r) === JSON.stringify(target))
-    )
-      references.push(target);
-    pendingTarget = references[0] || { label: state.dataset.title };
-    dialog.querySelector("#annotation-label")!.textContent = editingAnnotation
-      ? "Edit queued annotation"
-      : amendingAnnotation
-        ? "Amend sent instruction"
-        : "Question or instruction";
-    renderReferences();
-    const belongs = dialog.querySelector("#annotation-belongs")!;
-    belongs.innerHTML = `<label>Investigation<select id="annotation-investigation"><option value="">Start a new investigation</option>${state.investigations.map((i) => `<option value="${i.id}" ${i.id === pendingInvestigation ? "selected" : ""}>${escape(i.title)}</option>`).join("")}</select></label>`;
-    belongs.querySelector("select")!.addEventListener("change", (event) => {
-      pendingInvestigation =
-        (event.target as HTMLSelectElement).value || undefined;
-      renderScope();
-      saveDraft();
-    });
-    renderScope();
-    dialog.querySelector(".form-error")!.textContent = "";
-    if (!dialog.open) dialog.show();
-    syncDestination();
-    syncComposer();
-    saveDraft();
-  }
-  function renderScope() {
-    const existing = state.investigations.find(
-      (i) => i.id === pendingInvestigation,
+    if (reference.recordId) {
+      setView("research");
+      window.location.hash = new URLSearchParams({ node: reference.recordId }).toString();
+      return;
+    }
+    const owner = state.investigations.find(
+      (i) =>
+        i.proposals.some((p) => p.id === reference.proposalId) ||
+        i.reviewFlow?.walkthroughs.some((w) => w.id === reference.walkthroughId) ||
+        i.reviewFlow?.graphReviews.some((r) => r.id === reference.graphReviewId),
     );
-    const scope = existing?.scope || draftScope || ["web", "imports"];
-    dialog.querySelector("#annotation-scope")!.innerHTML =
-      `<legend>Where to look${existing ? " (investigation scope)" : ""}</legend>${state.collections.map((c) => `<label class="scope-option"><input type="checkbox" value="${c.id}" ${scope.includes(c.id) ? "checked" : ""} ${existing ? "disabled" : ""}>${escape(c.name)}</label>`).join("")}`;
+    if (!owner) return;
+    selectedInvestigation = owner.id;
+    setView(reference.walkthroughId || reference.graphReviewId ? "review" : "work");
   }
-  function syncDestination() {
-    const feedback =
-      dialog.querySelector<HTMLSelectElement>("#annotation-destination")!
-        .value === "interface";
-    dialog.querySelector('label[for="annotation-question"]')!.textContent =
-      feedback ? "What should change?" : "What needs investigating?";
-    dialog.querySelector<HTMLElement>(".annotation-options")!.hidden = feedback;
-    dialog.querySelector<HTMLButtonElement>('button[value="queue"]')!.hidden =
-      feedback;
-    dialog.querySelector('button[value="now"]')!.textContent = feedback
-      ? "Save feedback"
-      : "Send now";
-  }
-  dialog.addEventListener("change", () => {
-    draftScope = [
-      ...dialog.querySelectorAll<HTMLInputElement>(
-        "#annotation-scope input:checked",
-      ),
-    ].map((e) => e.value);
-    syncDestination();
-    saveDraft();
+  drawer = new AnnotationsDrawer(dialog, {
+    state: () => state,
+    command: (data) => command(data, false),
+    navigate,
+    batchAction: (batchId) => {
+      selectedInvestigation = batchId;
+      setView("review");
+    },
+    setSelecting: (enabled) => setMode(enabled),
+    selecting: () => annotate,
+    changed: () => updateCounts(),
   });
-  dialog.addEventListener("input", saveDraft);
   dialog.addEventListener("cancel", (event) => {
     event.preventDefault();
-    closeComposer();
+    closeDrawer();
   });
   dialog.addEventListener("click", (event) => {
-    const b = (event.target as Element).closest<HTMLElement>(
-      "[data-remove-ref]",
-    );
-    if (b) {
-      references.splice(Number(b.dataset.removeRef), 1);
-      pendingTarget = references[0] || { label: state.dataset.title };
-      renderReferences();
-      saveDraft();
-    }
-  });
-  dialog
-    .querySelector("[data-close]")!
-    .addEventListener("click", () => closeComposer());
-  dialog.querySelector("form")!.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const submitter = (event as SubmitEvent).submitter as HTMLButtonElement;
-    const dispatch = submitter?.value === "now";
-    const investigationId =
-      pendingInvestigation ||
-      dialog.querySelector<HTMLSelectElement>("#annotation-investigation")
-        ?.value ||
-      undefined;
-    try {
-      const result = await command(
-        {
-          type:
-            dialog.querySelector<HTMLSelectElement>("#annotation-destination")!
-              .value === "interface"
-              ? "interface-feedback"
-              : editingAnnotation
-                ? "edit-annotation"
-                : "annotate",
-          annotationId: editingAnnotation,
-          amends: amendingAnnotation,
-          references,
-          investigationId: editingInvestigation || investigationId,
-          destinationInvestigationId: editingAnnotation
-            ? investigationId || null
-            : undefined,
-          target:
-            pendingTarget?.proposalId &&
-            !state.investigations
-              .find((i) => i.id === investigationId)
-              ?.proposals.some((p) => p.id === pendingTarget!.proposalId)
-              ? { label: state.dataset.title }
-              : pendingTarget,
-          question:
-            dialog.querySelector<HTMLTextAreaElement>("textarea")!.value,
-          dispatch,
-          scope: [
-            ...dialog.querySelectorAll<HTMLInputElement>(
-              "#annotation-scope input:checked",
-            ),
-          ].map((i) => i.value),
-        },
-        false,
-      );
-      if (!result) return;
-      if (
-        editingAnnotation &&
-        dispatch &&
-        dialog.querySelector<HTMLSelectElement>("#annotation-destination")!
-          .value !== "interface"
-      )
-        await command(
-          {
-            type: "dispatch",
-            investigationId: result.investigationId || investigationId,
-          },
-          false,
-        );
-      const interfaceFeedback =
-        dialog.querySelector<HTMLSelectElement>("#annotation-destination")!
-          .value === "interface";
-      clearDraft();
-      openAnnotation();
-      setDrawerTab(!interfaceFeedback && !dispatch ? "queue" : "compose");
-      setMode(false);
-      updateCounts();
-      message(
-        interfaceFeedback
-          ? "Saved to Interface feedback."
-          : dispatch
-            ? "Investigation queued for a researcher. Your accepted graph is unchanged."
-            : "Annotation saved in Your annotations.",
-        interfaceFeedback
-          ? { label: "View feedback", run: () => setView("feedback") }
-          : undefined,
-      );
-      if (view === "work" || view === "feedback") renderView();
-      else if (view === "review" && !interfaceFeedback) {
-        notice.hidden = false;
-        notice.querySelector("span")!.textContent =
-          "Your feedback is saved in this investigation.";
-      }
-    } catch (error) {
-      dialog.querySelector(".form-error")!.textContent = (
-        error as Error
-      ).message;
-    }
+    if ((event.target as Element).closest("[data-close]")) closeDrawer();
   });
   (window as any).lavishUnifiedFeedback = {
     selectReference: (context: any) => {
-      const resolved = resolveTarget(context);
-      openAnnotation(resolved.target, resolved.investigationId);
+      openDrawer("queue", resolveTarget(context).target);
     },
   };
   createArtifactSdk(deriveLavishQueueKey);
@@ -574,13 +371,10 @@ export function mountResearchWorkspace(
       "button",
     );
     if (button?.dataset.view) setView(button.dataset.view);
-    else if (button?.hasAttribute("data-add-instruction"))
-      openAnnotation(
-        undefined,
-        view === "work" || view === "review"
-          ? selectedInvestigation
-          : undefined,
-      );
+    else if (button?.hasAttribute("data-add-instruction")) {
+      if (dialog.open) closeDrawer();
+      else openDrawer();
+    }
   });
   notice
     .querySelector("button")!
@@ -602,41 +396,6 @@ export function mountResearchWorkspace(
   function empty(title: string, detail: string) {
     return `<div class="workspace-empty"><span class="empty-symbol" aria-hidden="true">⌖</span><h2>${title}</h2><p>${detail}</p><button type="button" data-go-research>Explore the research graph</button></div>`;
   }
-  function setDrawerTab(tab: "compose" | "queue") {
-    dialog.querySelector<HTMLElement>("#annotation-form")!.hidden =
-      tab !== "compose";
-    dialog.querySelector<HTMLElement>(".sidebar-queue")!.hidden =
-      tab !== "queue";
-    dialog
-      .querySelectorAll<HTMLElement>("[data-drawer-tab]")
-      .forEach((button) => {
-        button.setAttribute(
-          "aria-pressed",
-          String(button.dataset.drawerTab === tab),
-        );
-      });
-    if (tab === "queue") setMode(false);
-  }
-  function renderQueue() {
-    const groups = state.investigations
-      .map((i) => ({
-        i,
-        notes: i.annotations.filter((a) => !a.dispatchedAt),
-      }))
-      .filter(({ notes }) => notes.length);
-    dialog.querySelector(".sidebar-queue")!.innerHTML =
-      `<div class="queue-list">${groups.length ? groups.map(({ i, notes }) => `<section class="queue-group" data-investigation-id="${escape(i.id)}"><h2>${escape(investigationSubject(i))}</h2>${notes.map((a) => `<article class="annotation-entry"><p class="annotation-text">${escape(a.question)}</p><div class="note-actions"><button class="text-action" data-edit-note="${escape(a.id)}">Edit</button><button class="text-action" data-delete-note="${escape(a.id)}">Remove</button></div></article>`).join("")}<button data-command="dispatch">Send ${notes.length} queued annotation${notes.length === 1 ? "" : "s"}</button></section>`).join("") : '<p class="page-context">No annotations waiting to be sent.</p>'}</div>`;
-  }
-  dialog
-    .querySelectorAll<HTMLButtonElement>("[data-drawer-tab]")
-    .forEach((button) => {
-      button.addEventListener("click", () =>
-        setDrawerTab(button.dataset.drawerTab as "compose" | "queue"),
-      );
-    });
-  dialog
-    .querySelector("#annotation-mode")!
-    .addEventListener("click", () => setMode(!annotate));
   function renderView() {
     guidedReview?.destroy();
     guidedReview = undefined;
@@ -1071,12 +830,6 @@ export function mountResearchWorkspace(
       "button",
     );
     if (!button) return;
-    if (button.closest(".sidebar-queue")) {
-      const investigationId = button.closest<HTMLElement>(
-        "[data-investigation-id]",
-      )?.dataset.investigationId;
-      if (investigationId) selectedInvestigation = investigationId;
-    }
     if (button.hasAttribute("data-open-settings")) {
       setView("settings");
       return;
@@ -1086,12 +839,7 @@ export function mountResearchWorkspace(
       return;
     }
     if (button.hasAttribute("data-new-interface-note")) {
-      openAnnotation();
-      dialog.querySelector<HTMLSelectElement>(
-        "#annotation-destination",
-      )!.value = "interface";
-      syncDestination();
-      saveDraft();
+      openDrawer("queue");
       return;
     }
     if (button.dataset.investigationSection) {
@@ -1108,35 +856,7 @@ export function mountResearchWorkspace(
       return;
     }
     if (button.hasAttribute("data-add-question")) {
-      openAnnotation(undefined, selectedInvestigation);
-      return;
-    }
-    if (button.dataset.editNote) {
-      const a = currentInvestigation()!.annotations.find(
-        (a) => a.id === button.dataset.editNote,
-      )!;
-      clearDraft();
-      dialog.querySelector<HTMLSelectElement>(
-        "#annotation-destination",
-      )!.value = "research";
-      references = a.references?.length ? [...a.references] : [a.target];
-      pendingInvestigation = selectedInvestigation;
-      if (a.dispatchedAt) amendingAnnotation = a.id;
-      else {
-        editingAnnotation = a.id;
-        editingInvestigation = selectedInvestigation;
-      }
-      dialog.querySelector<HTMLTextAreaElement>("textarea")!.value =
-        a.dispatchedAt ? "" : a.question;
-      openAnnotation(undefined, selectedInvestigation);
-      return;
-    }
-    if (button.dataset.deleteNote) {
-      void command({
-        type: "delete-annotation",
-        investigationId: selectedInvestigation,
-        annotationId: button.dataset.deleteNote,
-      }).catch((e) => message(e.message));
+      openDrawer("queue");
       return;
     }
     if (button.dataset.readingMode) {
@@ -1160,17 +880,14 @@ export function mountResearchWorkspace(
       return;
     }
     if (button.dataset.questionFinding || button.dataset.questionGroup) {
-      openAnnotation(
-        {
-          label: button.dataset.questionFinding
-            ? "Question this finding"
-            : "Question this graph representation",
-          proposalId: selectedProposal,
-          findingId: button.dataset.questionFinding,
-          groupId: button.dataset.questionGroup,
-        },
-        selectedInvestigation,
-      );
+      openDrawer("queue", {
+        label: button.dataset.questionFinding
+          ? "Question this finding"
+          : "Question this graph representation",
+        proposalId: selectedProposal,
+        findingId: button.dataset.questionFinding,
+        groupId: button.dataset.questionGroup,
+      });
       return;
     }
     if (button.hasAttribute("data-build-graph")) {
@@ -1223,10 +940,10 @@ export function mountResearchWorkspace(
         .then(() => message("Research state saved."))
         .catch((error) => message(error.message));
     else if (button.hasAttribute("data-followup"))
-      openAnnotation(
-        { label: currentInvestigation()!.title, proposalId: selectedProposal },
-        selectedInvestigation,
-      );
+      openDrawer("queue", {
+        label: currentInvestigation()!.title,
+        proposalId: selectedProposal,
+      });
     else if (button.dataset.rescan) void scanFolder(button.dataset.rescan);
     else if (button.dataset.document) showSource(button.dataset.document);
     else if (button.dataset.evidence) {
@@ -1238,9 +955,6 @@ export function mountResearchWorkspace(
     }
   };
   surface.addEventListener("click", handleContentClick);
-  dialog
-    .querySelector(".sidebar-queue")!
-    .addEventListener("click", handleContentClick);
   surface.addEventListener("change", (event) => {
     const e = event.target as HTMLInputElement;
     if (e.hasAttribute("data-investigation-picker")) {
@@ -1331,7 +1045,7 @@ export function mountResearchWorkspace(
   document
     .querySelector("[data-ask-topic]")
     ?.addEventListener("click", () =>
-      openAnnotation({ label: state.dataset.title, text: state.dataset.title }),
+      openDrawer("queue", { label: state.dataset.title, text: state.dataset.title }),
     );
   document
     .querySelector("[data-open-sources]")
