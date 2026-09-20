@@ -16,6 +16,40 @@ export function selectedGraphGroups(graph: GraphDraft, ids: string[], applied: s
   }
 }
 
+// Declining a change also declines whatever was built on top of it, so the human is
+// never left holding a step that can no longer be finished.
+export function declinedWithDependents(graph: GraphDraft, ids: string[], decided: string[] = []): string[] {
+  const declined = new Set(ids);
+  let growing = true;
+  while (growing) {
+    growing = false;
+    for (const group of graph.groups) {
+      if (declined.has(group.id) || decided.includes(group.id)) continue;
+      if (group.dependsOn.some(d => declined.has(d))) { declined.add(group.id); growing = true; }
+    }
+  }
+  return [...declined];
+}
+
+// The largest subset of a step's undecided groups that can be approved together:
+// every dependency must already be applied or be approved in the same press, and a
+// group with an unresolved blocking question cannot go at all.
+export function approvableTogether(graph: GraphDraft, groupIds: string[], applied: string[], rejected: string[]): string[] {
+  const blocked = (id: string) => graph.issues.some(issue => issue.blocksGroupIds.includes(id));
+  let candidates = groupIds.filter(id => !applied.includes(id) && !rejected.includes(id) && !blocked(id));
+  let shrinking = true;
+  while (shrinking) {
+    shrinking = false;
+    const chosen = new Set(candidates);
+    const next = candidates.filter(id => {
+      const group = graph.groups.find(g => g.id === id);
+      return (group?.dependsOn || []).every(d => applied.includes(d) || chosen.has(d));
+    });
+    if (next.length !== candidates.length) { candidates = next; shrinking = true; }
+  }
+  return candidates;
+}
+
 export function materializeGraph(dataset: FamilyDataset, graph: GraphDraft, evidence: Record<string, ResearchEvidence>, sources: SourceRecord[], ids = graph.groups.map(g => g.id)): FamilyDataset {
   const data = structuredClone(dataset);
   const groups = graph.groups.filter(g => ids.includes(g.id));

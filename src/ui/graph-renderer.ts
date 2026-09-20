@@ -537,26 +537,12 @@ export class GraphRenderer {
       .attr("type", "button")
       .attr("class", "node-info-button")
       .attr("aria-label", `Open biography for ${person.name}`)
-      .attr("title", `Open biography for ${person.name}`)
       .attr("data-lavish-action", "true")
       .text("i")
       .on("click", (event) => {
         event.stopPropagation();
         this.handlers.onOpenDetails(person.id);
       });
-
-    group
-      .append("title")
-      .text(
-        [
-          person.name,
-          person.lifespan,
-          person.descriptor,
-          `Relationship to focus: ${projected?.role ?? "remote"}`,
-        ]
-          .filter(Boolean)
-          .join("\n"),
-      );
   }
 
   private renderUnionNode(
@@ -583,12 +569,6 @@ export class GraphRenderer {
       .attr("cx", node.width / 2)
       .attr("cy", node.height / 2)
       .attr("r", node.width / 2);
-    group
-      .append("title")
-      .text(
-        union.label ??
-          union.partnerIds.map((id) => model.getPerson(id).name).join(" + "),
-      );
   }
 
   private renderContextNode(
@@ -633,7 +613,7 @@ export class GraphRenderer {
       .attr("x", 14)
       .attr("y", 25)
       .attr("width", node.width - 28)
-      .attr("height", 34)
+      .attr("height", node.height - 48)
       .append("xhtml:div")
       .attr("class", "context-name")
       .text(entity.name);
@@ -641,19 +621,11 @@ export class GraphRenderer {
     group
       .append("foreignObject")
       .attr("x", 14)
-      .attr("y", 61)
+      .attr("y", node.height - 21)
       .attr("width", node.width - 28)
       .attr("height", 14)
       .append("xhtml:div")
       .attr("class", "context-descriptor")
       .text(entity.descriptor ?? entity.activeDates ?? "Historical context");
-
-    group
-      .append("title")
-      .text(
-        [entity.name, entity.activeDates, entity.descriptor]
-          .filter(Boolean)
-          .join("\n"),
-      );
   }
 }

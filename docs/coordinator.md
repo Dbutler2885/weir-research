@@ -53,12 +53,18 @@ It excludes the accepted dataset, full annotation and proposal histories, source
 Retrieve those only when needed for the next decision.
 The public browser state contains no worker tokens or private candidate payloads.
 Only one live coordinator can attach to a project.
-Waiting refreshes its 90-second session lease; during active work use snapshot at least once per minute.
+Ownership and liveness are separate.
+A session owns its project for thirty minutes of inactivity, renewed by every command, so long work does not lose it.
+Liveness is the last two minutes: the browser says the coordinator is listening, or that it is working and when it was last seen.
+Another coordinator may take over only when the owner has not been seen for two minutes, and takeover fences the old session as before.
 
 Acknowledgment is explicit and advances only up to a revision actually read by that session.
 Activity is delivered again until acknowledged; merely receiving a response never consumes it.
 The revision is a cursor into the durable workspace state, not a separate destructive event queue.
-A wait returns when that state changes or after 50 seconds, so the agent must continue its tool loop.
+A wait returns when that state changes or after five minutes, so the agent must continue its tool loop.
+A wait that ends quietly returns only the revision.
+A wait woken by activity returns just what changed since the acknowledged cursor: new messages, the investigations that moved, unassigned annotations, pending decisions, and returned candidates.
+A cursor older than the server's kept history returns the full index instead.
 It does not inject messages into a closed conversation or start a new agent turn after the agent has ended.
 The agent instructions require it to remain in this loop while operating the research workspace.
 
@@ -140,7 +146,9 @@ Send these through the coordinator `command` interface:
   After the human approves, add it with `{"title":"...","approvalMessageId":"..."}` as a question without annotations; the body becomes its explanation in Findings.
 
 Batch membership is yours to decide; tell the human your choice in the conversation so they can correct it.
-A batch closes when its graph review is approved, and related later work starts a new batch.
+A batch closes when its graph review is finished, whether its changes were approved or set aside, and related later work starts a new batch.
+The service refuses a graph update for a batch whose review is finished, so open a new batch for annotations that arrive after it.
+That boundary is what makes a batch mean something: one walkthrough and one graph update explain it, and then it is done.
 
 ## Assign bounded research
 
@@ -217,13 +225,32 @@ For coordinator-owned/native work, omit `candidateId` and provide the reconciled
 Follow `docs/research-agent.md` for full evidence and change schemas.
 Publishing revalidates the current lease, exact before records, source references, and quoted text before creating an immutable proposal revision.
 It does not change accepted research.
-Next use `skills/present-research/SKILL.md` to publish the guided explanation and automatically queue a separate graph builder.
-The human reads that explanation while graph construction proceeds, then explicitly applies graph groups in the browser.
+When the batch's research is complete, announce it with `batch-ready`.
+The human then requests a walkthrough, a graph update, or both from Review.
+A fork of the coordinator writes each walkthrough, as described below.
+Supervise graph work with `skills/prepare-research-graph/SKILL.md`.
+The human decides each graph change in the graph review, and completing that review closes the batch.
 
 If a candidate needs another research pass, use `{"action":"revise","investigationId":"...","notes":"What failed and what the next pass must investigate"}`.
 This preserves the candidate, records the correction as a checkpoint, and requeues the investigation for a fresh assignment.
 A paused or superseded candidate cannot be published.
 Use `handoff` for durable project-wide decisions, relationships among investigations, and the next coordinating steps.
+
+### Walkthroughs are written by a fork
+
+Writing a walkthrough takes a while, and the coordinator must stay free to answer the human and supervise research.
+When the snapshot marks a batch `walkthroughRequested`, make sure its inspected findings are published, then fork yourself.
+A fork inherits your reconciliation, preserved ambiguities, and knowledge of what the human asked.
+In Claude Code, fork with the Agent tool and `subagent_type: "fork"`.
+Where the harness cannot fork, start a fresh subagent with the batch ID, its published proposal IDs, and the original questions.
+Write the walkthrough yourself only when the harness has no subagents.
+
+Tell the author that it writes the walkthrough for batch N, loads `skills/present-research/SKILL.md`, and is not the coordinator.
+Load that skill only in the author, not in your own context.
+Record in your handoff that the author is writing, and keep coordinating.
+When it returns, read the draft at `coordinator-work/walkthroughs/batch-<number>.json` in the project directory, check its claims against the findings, and publish it with `publish-walkthrough`.
+If publication is rejected, correct the draft yourself or continue the same author with the error.
+After a restart, a draft file for a still-requested batch is resumable work; check and publish it rather than writing another.
 
 ## Guided research and graph review
 

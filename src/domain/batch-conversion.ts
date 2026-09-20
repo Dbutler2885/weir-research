@@ -41,6 +41,10 @@ export function convertToBatches(source: ResearchState): ResearchState {
     }));
     const ready = walkthroughs[0]?.createdAt || i.proposals.at(-1)?.createdAt;
     if (ready && !["queued", "running"].includes(i.status)) i.readyAt = ready;
+    // Older projects could hold several pending revisions; only the latest stays open.
+    i.reviewFlow?.graphReviews.slice(0, -1).forEach((r) => {
+      if (r.status === "pending") r.status = "superseded";
+    });
     // Closed only when nothing happened after its approved graph review.
     const review = i.reviewFlow?.graphReviews.at(-1);
     const continued =

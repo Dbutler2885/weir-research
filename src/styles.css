@@ -659,7 +659,7 @@ input:focus-visible,
   font-weight: 720;
   line-height: 1.08;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 4;
   pointer-events: none;
 }
 

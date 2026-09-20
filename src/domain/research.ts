@@ -50,7 +50,6 @@ export interface Annotation {
   author?: "coordinator";
   target: AnnotationTarget;
   references?: AnnotationTarget[];
-  amends?: string;
   question: string;
   createdAt: string;
   dispatchedAt?: string;
@@ -98,6 +97,7 @@ export interface Investigation {
   questions?: Question[];
   readyAt?: string;
   closedAt?: string;
+  walkthroughRequestedAt?: string;
   reviewFlow?: ReviewFlow;
   resumeRequest?: {
     id: string;
@@ -187,6 +187,7 @@ export interface ResearchState {
   }[];
   engine?: "manual" | "codex" | "claude";
   researchSettings?: { timeLimitMinutes: number | null };
+  reviewSettings?: { autoWalkthrough: boolean; autoGraph: boolean };
   organization?: {
     history: {
       id: string;
@@ -197,7 +198,10 @@ export interface ResearchState {
   };
   coordinator?: {
     enabled: boolean;
+    // Listening right now, as opposed to attached but busy elsewhere.
     connected: boolean;
+    attached?: boolean;
+    lastSeenSecondsAgo?: number | null;
     name: string | null;
     handoff: string;
     awaitingSynthesis: string[];
@@ -522,7 +526,7 @@ export function transition(
       const a = i.annotations.find((a) => a.id === command.annotationId);
       assert(
         a && !a.dispatchedAt,
-        "Sent annotations are immutable. Add an amendment instead.",
+        "Sent annotations are immutable. Send a new annotation instead.",
       );
       if (command.type === "delete-annotation")
         i.annotations = i.annotations.filter((x) => x.id !== a.id);
@@ -626,19 +630,11 @@ export function transition(
       requireThat(!ref.walkthroughId || !!investigation.reviewFlow?.walkthroughs.some(w => w.id === ref.walkthroughId), "Walkthrough is not part of this investigation.");
       requireThat(!ref.graphReviewId || !!investigation.reviewFlow?.graphReviews.some(r => r.id === ref.graphReviewId), "Graph review is not part of this investigation.");
     }
-    if (command.amends)
-      assert(
-        investigation.annotations.some(
-          (a) => a.id === command.amends && a.dispatchedAt,
-        ),
-        "An amendment must refer to a sent instruction in this investigation.",
-      );
     investigation.annotations.push({
       id: id(),
       target,
       question: command.question,
       references,
-      ...(command.amends ? { amends: String(command.amends) } : {}),
       createdAt: now,
       ...(command.dispatch ? { dispatchedAt: now } : {}),
     });

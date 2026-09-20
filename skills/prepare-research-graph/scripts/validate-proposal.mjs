@@ -20,6 +20,9 @@ export function validateProposal(p, packet) {
   ids(notes,'representation note');
   const existingNodes = new Set(packet.existingGraph.nodes.map(n=>n.id));
   const allNodes = new Set([...nodeIds,...existingNodes]);
+  // An update may group, cover and annotate claims the graph already carries, not only new ones.
+  const existingClaims = new Set((packet.existingGraph.claims || []).map(c=>c.id));
+  const allClaims = new Set([...claimIds,...existingClaims]);
   const evidenceIds = new Set(Object.keys(packet.evidence));
   const refs = (obj, field, allowed) => { for (const id of list(obj,field)) check(allowed.has(id), `${field} references unknown ID: ${id}`); };
   for (const n of nodes) {
@@ -27,7 +30,8 @@ export function validateProposal(p, packet) {
     check(text(n.label), `Node ${n.id} needs a label`);
     check(n.existingId === null || existingNodes.has(n.existingId), `Invalid existingId for ${n.id}`);
     refs(n,'evidenceRefs',evidenceIds);
-    check(n.evidenceRefs?.length > 0, `Node ${n.id} lacks evidence`);
+    // A reused node keeps the evidence it already carries on the graph.
+    check(n.existingId || n.evidenceRefs?.length > 0, `Node ${n.id} lacks evidence`);
   }
   for (const c of claims) {
     check(allNodes.has(c.subjectId), `Unknown subject ${c.subjectId}`);
@@ -48,8 +52,11 @@ export function validateProposal(p, packet) {
   const owners = new Map();
   for(const g of groups) {
     check(text(g.title), `Group ${g.id} needs title`);
-    refs(g,'nodeIds',nodeIds); refs(g,'claimIds',claimIds); refs(g,'dependsOn',groupIds);
-    for(const id of [...(g.nodeIds || []),...(g.claimIds || [])]) { check(!owners.has(id), `Multiple groups own ${id}`); owners.set(id,g.id); }
+    refs(g,'nodeIds',allNodes); refs(g,'claimIds',allClaims); refs(g,'dependsOn',groupIds);
+    // Only records this submission introduces are owned by a group; reused ones may appear in several.
+    for(const id of [...(g.nodeIds || []),...(g.claimIds || [])].filter(id => nodeIds.has(id) || claimIds.has(id))) {
+      check(!owners.has(id), `Multiple groups own ${id}`); owners.set(id,g.id);
+    }
   }
   for(const id of [...nodeIds,...claimIds]) check(owners.has(id), `Ungrouped record ${id}`);
   const visiting = new Set(), done = new Set();
@@ -58,12 +65,13 @@ export function validateProposal(p, packet) {
   const depends = (id,target,seen=new Set()) => {if(seen.has(id))return false;seen.add(id);return (groups.find(g=>g.id===id)?.dependsOn || []).some(d=>d===target || depends(d,target,seen));};
   for(const c of claims) for(const n of [c.subjectId,c.object?.entityId].filter(id=>nodeIds.has(id))) {
     const owner=owners.get(c.id), required=owners.get(n);
+    if (!owner || !required) continue;
     check(owner === required || depends(owner,required), `Group ${owner} needs dependency on ${required} for ${c.id}`);
   }
   const seenCoverage = new Set();
   for(const c of coverage) {
     check(Object.hasOwn(packet.findings,c.findingRef) && !seenCoverage.has(c.findingRef), `Invalid or duplicate finding coverage ${c.findingRef}`);
-    seenCoverage.add(c.findingRef);refs(c,'nodeIds',allNodes);refs(c,'claimIds',claimIds);
+    seenCoverage.add(c.findingRef);refs(c,'nodeIds',allNodes);refs(c,'claimIds',allClaims);
     check((c.nodeIds?.length || c.claimIds?.length) || text(c.omissionReason), `Missing omission reason ${c.findingRef}`);
   }
   for(const id of Object.keys(packet.findings))check(seenCoverage.has(id),`Unaccounted finding ${id}`);
@@ -71,10 +79,10 @@ export function validateProposal(p, packet) {
   for(const i of issues) {
     check(['research','context','representation'].includes(i.kind) && text(i.question) && text(i.provisionalTreatment),`Incomplete issue ${i.id}`);
     check(i.requestedResearch === null || text(i.requestedResearch),`Invalid research request ${i.id}`);
-    refs(i,'nodeIds',allNodes);refs(i,'claimIds',claimIds);refs(i,'evidenceRefs',evidenceIds);refs(i,'blocksGroupIds',groupIds);
+    refs(i,'nodeIds',allNodes);refs(i,'claimIds',allClaims);refs(i,'evidenceRefs',evidenceIds);refs(i,'blocksGroupIds',groupIds);
   }
   for(const n of notes) {
-    refs(n,'nodeIds',allNodes);refs(n,'claimIds',claimIds);refs(n,'issueIds',issueIds);
+    refs(n,'nodeIds',allNodes);refs(n,'claimIds',allClaims);refs(n,'issueIds',issueIds);
     check(text(n.decision) && text(n.reason), `Incomplete representation note ${n.id}`);
     check(list(n,'alternatives').every(text), `Invalid alternatives ${n.id}`);
   }

@@ -325,3 +325,32 @@
 .msg-links .text-link {
   text-align: left;
 }
+.msg.is-focused {
+  outline: 2px solid var(--sea);
+  outline-offset: 6px;
+  border-radius: 8px;
+}
+.coordinator-presence {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  padding: 7px 16px 0;
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+.coordinator-presence .presence-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--sea);
+}
+.coordinator-presence.is-away {
+  color: var(--rust-dark);
+}
+.coordinator-presence.is-busy {
+  color: var(--ink-soft);
+}
+.coordinator-presence.is-busy .presence-dot {
+  background: #c8a44d;
+}

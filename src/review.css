@@ -1,0 +1,215 @@
+/* Review: walkthroughs and graph updates for each batch. */
+.research-app .research-surface.is-review {
+  padding: 0;
+  overflow: hidden;
+}
+.review-page {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+}
+.review-page .findings-head {
+  padding-bottom: 4px;
+}
+.review-scroll {
+  overflow-y: auto;
+  min-height: 0;
+  padding: 22px 36px 48px;
+}
+.review-inner {
+  max-width: 1060px;
+  margin: 0 auto;
+}
+.review-settings {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 26px;
+  margin-bottom: 14px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fdfbf5;
+  font-size: 13px;
+}
+.review-settings-label {
+  font-weight: 650;
+}
+.review-settings .switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-soft);
+  font-weight: 400;
+  cursor: pointer;
+}
+.switch input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+.switch span {
+  position: relative;
+  flex: none;
+  width: 30px;
+  height: 17px;
+  border-radius: 10px;
+  background: #d7d1c4;
+  transition: background 0.15s;
+}
+.switch span::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 20%);
+  transition: transform 0.15s;
+}
+.switch input:checked + span {
+  background: var(--sea);
+}
+.switch input:checked + span::after {
+  transform: translateX(13px);
+}
+.switch input:focus-visible + span {
+  outline: 3px solid rgb(39 113 119 / 42%);
+  outline-offset: 2px;
+}
+.review-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  margin-bottom: 18px;
+  padding: 12px 16px;
+  border: 1px solid #dcb2a2;
+  border-radius: 9px;
+  background: #fbf1ec;
+  font-size: 13.5px;
+}
+.review-banner strong {
+  display: block;
+  margin-bottom: 2px;
+}
+.review-rows {
+  display: grid;
+  gap: 12px;
+}
+.review-empty {
+  color: var(--ink-soft);
+}
+.review-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr) minmax(0, 1fr);
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: #fdfbf5;
+  overflow: hidden;
+}
+.review-row.is-closed {
+  background: #f5f2ea;
+}
+.review-row > div {
+  min-width: 0;
+  padding: 14px 16px;
+}
+.review-row > div + div {
+  border-left: 1px solid var(--line);
+}
+.research-surface .review-row h2 {
+  margin: 6px 0 6px;
+  font-family: Georgia, serif;
+  font-size: 18px;
+  font-weight: 500;
+  line-height: 1.3;
+}
+.review-meta {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--ink-soft);
+}
+.review-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 99px;
+  font-size: 11px;
+  font-weight: 650;
+}
+.review-pill::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.review-pill.is-progress {
+  background: #f5ecd9;
+  color: #8a6526;
+}
+.review-pill.is-ready {
+  background: #e1eeec;
+  color: var(--sea-dark);
+}
+.review-pill.is-closed {
+  background: #ecebe7;
+  color: var(--ink-soft);
+}
+.review-cell-label {
+  margin-bottom: 6px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+.review-cell {
+  margin: 0 0 10px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.review-cell span,
+.review-cell.is-muted {
+  color: var(--ink-soft);
+}
+.review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.review-why {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+.review-open {
+  padding: 18px 36px 0;
+}
+.research-surface .review-back {
+  margin-bottom: 4px;
+}
+@media (max-width: 900px) {
+  .review-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .review-row > div + div {
+    border-left: 0;
+    border-top: 1px solid var(--line);
+  }
+}
+@media (max-width: 640px) {
+  .review-scroll,
+  .review-open {
+    padding-inline: 16px;
+  }
+}

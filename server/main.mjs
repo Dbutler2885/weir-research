@@ -221,8 +221,9 @@ const server = createServer(async (req, res) => {
         const since = Number(data.since);
         if (!Number.isInteger(since) || since < -1)
           throw new Error("Valid revision cursor required.");
+        // Long waits are cheap now that a quiet one answers with its revision alone.
         const deadline =
-          Date.now() + Math.min(50_000, Math.max(0, Number(data.timeout) || 0));
+          Date.now() + Math.min(300_000, Math.max(0, Number(data.timeout) || 0));
         while (
           store.state.revision === since &&
           Date.now() < deadline &&
@@ -232,7 +233,7 @@ const server = createServer(async (req, res) => {
           coordinator.require(data.session);
         }
         if (res.destroyed) return;
-        return json(res, 200, coordinator.snapshot(data.session));
+        return json(res, 200, coordinator.delta(data.session, since));
       }
       if (
         data.action === "assign" &&
@@ -318,6 +319,15 @@ const server = createServer(async (req, res) => {
       const result = store.command(command);
       researchers.pump();
       return json(res, 200, { result, revision: store.state.revision });
+    }
+    if (req.method === "POST" && url.pathname === "/api/review-settings") {
+      const data = await body(req);
+      if (typeof data.autoWalkthrough !== "boolean" || typeof data.autoGraph !== "boolean")
+        throw new Error("Choose on or off for each automatic review.");
+      store.update((next) => {
+        next.reviewSettings = { autoWalkthrough: data.autoWalkthrough, autoGraph: data.autoGraph };
+      });
+      return json(res, 200, store.state.reviewSettings);
     }
     if (req.method === "POST" && url.pathname === "/api/research-settings") {
       return json(res, 200, researchers.configure(await body(req)));
@@ -436,6 +446,12 @@ const server = createServer(async (req, res) => {
       error: error instanceof Error ? error.message : "Request failed.",
     });
   }
+});
+// The remembered port may have been taken by something else since last time.
+server.on("error", (error) => {
+  if (error.code !== "EADDRINUSE" || !port) throw error;
+  port = 0;
+  server.listen(0, "127.0.0.1");
 });
 server.listen(port, "127.0.0.1", () => {
   port = server.address().port;

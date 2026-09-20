@@ -137,6 +137,20 @@ describe("conversion to batches", () => {
     expect(convertToBatches(state).investigations[0]!.closedAt).toBeUndefined();
   });
 
+  it("keeps only the latest pending graph review open", () => {
+    const state = legacy();
+    const pending = (id: string, createdAt: string) =>
+      ({ id, status: "pending", createdAt, appliedGroupIds: [], rejectedGroupIds: [] }) as never;
+    state.investigations[0]!.reviewFlow = {
+      walkthroughs: [],
+      jobs: [],
+      graphReviews: [pending("g1", "2026-01-03T13:00:00.000Z"), pending("g2", "2026-01-03T14:00:00.000Z")],
+    };
+    const later = convertToBatches(state).investigations[1]!;
+    expect(later.reviewFlow!.graphReviews.map((r) => r.status)).toEqual(["superseded", "pending"]);
+    expect(later.closedAt).toBeUndefined();
+  });
+
   it("runs only once", () => {
     const once = convertToBatches(legacy());
     expect(convertToBatches(once)).toEqual(once);

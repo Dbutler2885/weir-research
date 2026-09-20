@@ -52,3 +52,17 @@
 .research-surface .guided-reading h3 { font-size: 1.12rem; margin: 1.8rem 0 .6rem; }
 .guided-reading blockquote { border-left: 3px solid #b29057; padding-left: 20px; margin: 20px 0; line-height: 1.7; white-space: pre-wrap; }
 .guided-graph-sidebar .tour-issue { font-size: .9rem; line-height: 1.5; }
+.tour-decision { margin: 22px 0 8px; padding: 14px 16px; border: 1px solid #d4cbbc; border-radius: 10px; background: #fff; }
+.guided-graph-sidebar .tour-decision h3 { margin: 0 0 8px; font-size: 1rem; }
+.tour-decision ul { list-style: none; margin: 0 0 12px; padding: 0; }
+.tour-decision li { display: flex; flex-direction: column; gap: 2px; padding: 6px 0; border-bottom: 1px solid #ece5d8; font-size: .92rem; }
+.tour-decision li:last-child { border-bottom: 0; }
+.tour-decision-state { color: #53696d; font-size: .85rem; }
+.tour-decision-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.tour-decline label { display: grid; gap: 6px; margin-bottom: 10px; font-size: .9rem; }
+.tour-decline textarea { width: 100%; padding: 8px 10px; border: 1px solid #d4cbbc; border-radius: 8px; font: inherit; font-size: .92rem; }
+.tour-decision [data-guided-error]:empty { display: none; }
+.research-table { margin: 1.2rem 0; overflow-x: auto; }
+.research-table table { width: 100%; border-collapse: collapse; font-size: .95rem; line-height: 1.5; }
+.research-table th, .research-table td { padding: 8px 12px 8px 0; border-bottom: 1px solid #e4dccd; text-align: left; vertical-align: top; }
+.research-table th { border-bottom-color: #d4cbbc; font-weight: 650; white-space: nowrap; }

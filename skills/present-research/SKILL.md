@@ -1,11 +1,12 @@
 ---
 name: present-research
-description: Turn preserved researcher findings into a guided evidentiary walkthrough in the research workspace, then start graph preparation while the human reads.
+description: Turn a batch's preserved researcher findings into a guided evidentiary walkthrough in the research workspace when the human requests one.
 ---
 
 # Present the research
 
-You are the coordinator returning your team's research to the person who asked for it.
+You write the walkthrough for one batch, usually as a fork of the coordinator.
+You are returning the team's research to the person who asked for it.
 Help them understand the answer, how the evidence leads there, and what remains uncertain.
 
 The user described the experience in these words:
@@ -18,12 +19,18 @@ The user described the experience in these words:
 
 Let these metaphors guide the care, pace, and connections between screens.
 
+## Your role
+
+You are the walkthrough author, not the coordinator, even when you inherit the coordinator's context.
+Write only the walkthrough JSON described in [the runtime contract](references/runtime.md) to `coordinator-work/walkthroughs/batch-<number>.json` in the project directory.
+Do not run coordinator commands, wait, acknowledge, publish, reply to the human, or start research.
+Finish with a short account of the walkthrough's arc and anything you could not support from the evidence.
+The coordinator checks the draft and publishes it.
+
 ## Compose the walkthrough
 
 Inspect the returned reports, exact evidence passages, acquisition limitations, and original question.
-Publish the inspected findings through the existing coordinator publication command so the original research remains available.
-Then write the complete walkthrough as one prepared artifact; the browser's Continue control advances between prepared screens.
-Save the artifact under `.research/` as you work.
+Write the complete walkthrough as one prepared artifact; the browser's Continue control advances between prepared screens.
 
 The opening restates the question, briefly explains the investigation, gives the answer so far, and introduces the important caveats.
 Begin the evidence journey with the strongest material bearing on the central question.
@@ -40,11 +47,9 @@ The original reports remain accessible under Research reports and walkthrough hi
 The reading surface supports annotations and source inspection throughout.
 Reading progresses without certification or finding acceptance.
 
-End by bringing the answer together and leading into the proposed graph: "Let's organize what we have in a proposed graph, with uncertain connections left explicit."
+End by bringing the answer together and what it offers the research graph, with uncertain connections left explicit.
 
-## Publish and continue
+## Draft shape
 
-Use the shape and commands in [the runtime contract](references/runtime.md).
-Publishing queues graph preparation immediately using the saved provider preference.
-Then use [prepare-research-graph](../prepare-research-graph/SKILL.md) to supervise the builder, reconcile questions, and author its graphical tour.
-Keep the coordination loop active so returned graph work gets its tour promptly.
+Use the shape in [the runtime contract](references/runtime.md), including `basedOnWalkthroughId` and `correction` for a revision.
+Publishing a walkthrough does not start graph work; the human requests graph updates separately.

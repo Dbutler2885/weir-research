@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import dataset from "./fixtures/workshop.json";
 import { WorkspaceStore } from "../server/store.mjs";
 import { Coordinator } from "../server/coordinator.mjs";
+import { snapshotView } from "../scripts/coordinator-view.mjs";
 const cleanup: string[] = [];
 afterEach(() =>
   cleanup.splice(0).forEach((p) => rmSync(p, { recursive: true, force: true })),
@@ -49,6 +50,78 @@ const proposal = {
   changes: [],
 };
 describe("research coordination", () => {
+  it("answers a quiet wait with its revision alone and a wake with only what changed", () => {
+    const f = fixture();
+    const start = f.coordinator.snapshot(f.secret).revision;
+    // Nothing happened: the coordinator is told the revision and no more.
+    expect(f.coordinator.delta(f.secret, start)).toEqual({ revision: start, unchanged: true });
+    f.store.command({ type: "send", text: "Have a look at the mill ledger." });
+    const woken: any = f.coordinator.delta(f.secret, start);
+    expect(woken.changed.messages.at(-1)).toMatchObject({
+      author: "human",
+      text: "Have a look at the mill ledger.",
+    });
+    expect(woken.changed.investigations).toEqual([]);
+    // A wake stays small; the full index is a separate snapshot.
+    expect(JSON.stringify(woken).length).toBeLessThan(
+      JSON.stringify(f.coordinator.snapshot(f.secret)).length / 4,
+    );
+    const id = f.queue();
+    const afterMessage = woken.revision;
+    const second: any = f.coordinator.delta(f.secret, afterMessage);
+    expect(second.changed.investigations.map((i: any) => i.id)).toEqual([id]);
+    expect(second.changed.messages).toEqual([]);
+    // Findings are counted, not re-sent; inspection retrieves them.
+    expect(second.changed.investigations[0]).not.toHaveProperty("findings");
+    expect(second.changed.investigations[0]).toHaveProperty("findingCount");
+  });
+
+  it("ignores its own replies but wakes when the human decides a request", () => {
+    const f = fixture();
+    const start = f.coordinator.snapshot(f.secret).revision;
+    f.run({ action: "reply", text: "Looking into it now." });
+    expect(f.coordinator.delta(f.secret, start)).toMatchObject({ unchanged: true });
+    const asked: any = f.run({
+      action: "request-approval",
+      title: "Read the 1884 register?",
+      body: "Two sources disagree.",
+    });
+    expect(f.coordinator.delta(f.secret, start)).toMatchObject({ unchanged: true });
+    const afterAsking = f.coordinator.snapshot(f.secret).revision;
+    f.store.command({ type: "decide", messageId: asked.messageId, decision: "approve" });
+    const woken: any = f.coordinator.delta(f.secret, afterAsking);
+    expect(woken.changed.decisions).toEqual([
+      { messageId: asked.messageId, title: "Read the 1884 register?", status: "approved" },
+    ]);
+  });
+
+  it("sends the whole index when the cursor is older than the kept fingerprints", () => {
+    const f = fixture();
+    expect(f.coordinator.delta(f.secret, -1)).toHaveProperty("project");
+  });
+
+  it("keeps a busy coordinator's project while reporting that it is not listening", () => {
+    const f = fixture();
+    f.advance();
+    const status = f.coordinator.status();
+    expect(status).toMatchObject({ attached: true, connected: false, name: "First" });
+    expect(status.lastSeenSecondsAgo).toBeGreaterThanOrEqual(0);
+    // Its own commands still work; only its liveness lapsed.
+    f.run({ action: "handoff", notes: "Still mine." });
+    expect(f.coordinator.status()).toMatchObject({ attached: true, connected: true });
+  });
+
+  it("shows the human's chat messages to the coordinator it wakes", () => {
+    const f = fixture();
+    f.store.command({ type: "send", text: "Can you see this message?" });
+    const snapshot = f.coordinator.snapshot(f.secret);
+    const shown = snapshotView(snapshot, "session.json", "snapshot.json", -1);
+    expect(shown.conversation.recentMessages.at(-1)).toMatchObject({
+      author: "human",
+      text: "Can you see this message?",
+    });
+  });
+
   it("requires human confirmation before a coordinator can resume paused work", () => {
     const f = fixture();
     const id = f.queue();

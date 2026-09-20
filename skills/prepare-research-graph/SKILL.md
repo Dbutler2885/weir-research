@@ -63,7 +63,10 @@ Preserve the raw output and validation results before any revision.
 
 ## Use the integrated application
 
-After publishing the walkthrough, use `inspect-flow` with the investigation ID to inspect jobs, packets, and returned candidates.
+A graph job is queued when the human requests a batch's graph update from Review, or automatically when they have turned that on.
+It represents all of the batch's findings, with its latest walkthrough when one exists.
+Only one graph update runs at a time across the project, and a pending graph review blocks the next.
+Use `inspect-flow` with the batch's investigation ID to inspect jobs, packets, and returned candidates.
 Managed jobs start automatically with the saved provider preference.
 For a manual job, send `claim-graph` with investigationId and jobId; give the returned working directory and its AGENTS.md to a bounded native builder.
 When it signals completion, send `submit-graph-files` with those IDs.
@@ -80,7 +83,7 @@ Send `graph-update` with investigationId, jobId, message, and the relevant dispa
 If the explanation materially changes, include a complete revised walkthrough in that update.
 Workers receive updated packet.json and updates.json and record the consumed sequence in their CSVs.
 An older completed submission is preserved and queued for an update rather than silently published.
-For already published graph work, publish a new walkthrough revision to create a fresh builder job against the current graph.
+Approving a graph review closes its batch; related later work belongs in a new batch with its own graph update.
 
 Use `request-graph-resume` with investigationId, jobId, and reason when graph preparation is paused.
 Wait for browser approval before proceeding.

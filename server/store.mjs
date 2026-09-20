@@ -23,6 +23,43 @@ export class WorkspaceStore {
         "Unsupported or corrupt workspace. Original state has been preserved.",
       );
     if (!existsSync(this.path)) this.save(this.state);
+    this.marks = [];
+    this.mark(this.state);
+  }
+  // A compact fingerprint per revision, so a waiting coordinator can be told
+  // what changed instead of the whole project index.
+  mark(state) {
+    this.marks.push({
+      revision: state.revision,
+      conversation: (state.conversation || []).length,
+      // Deciding a request edits a message in place rather than adding one.
+      decisions: new Map(
+        (state.conversation || []).filter((m) => m.decision).map((m) => [m.id, m.decision.status]),
+      ),
+      candidates: (state.coordination?.candidates || []).length,
+      investigations: new Map(state.investigations.map((i) => [i.id, fingerprint(i)])),
+    });
+    if (this.marks.length > 300) this.marks.shift();
+  }
+  // What changed since a revision, or null when that revision is too old to compare.
+  since(revision) {
+    const mark = this.marks.find((m) => m.revision === revision);
+    if (!mark) return null;
+    const now = this.marks.at(-1);
+    return {
+      investigationIds: this.state.investigations
+        .filter((i) => fingerprint(i) !== mark.investigations.get(i.id))
+        .map((i) => i.id),
+      removedInvestigationIds: [...mark.investigations.keys()].filter(
+        (id) => !this.state.investigations.some((i) => i.id === id),
+      ),
+      conversationFrom: mark.conversation,
+      // Only a request the human answered is news; the coordinator wrote the rest.
+      decisionsChanged: [...mark.decisions].some(
+        ([id, status]) => now.decisions.get(id) !== status,
+      ),
+      candidatesChanged: now.candidates !== mark.candidates,
+    };
   }
   save(next) {
     const temporary = `${this.path}.tmp`;
@@ -35,6 +72,7 @@ export class WorkspaceStore {
     }
     renameSync(temporary, this.path);
     this.state = next;
+    if (this.marks) this.mark(next);
   }
   command(command) {
     const { state, result } = transition(this.state, command);
@@ -79,4 +117,33 @@ export class WorkspaceStore {
     }
     return state;
   }
+}
+
+// Cheap per-investigation stamp: identity and sizes only, never deep content.
+function fingerprint(i) {
+  const flow = i.reviewFlow;
+  return [
+    i.status,
+    i.title,
+    i.phase,
+    i.number,
+    i.readyAt,
+    i.closedAt,
+    i.walkthroughRequestedAt,
+    i.annotations.length,
+    i.annotations.filter((a) => a.dispatchedAt).length,
+    i.proposals.length,
+    i.checkpoints.length,
+    i.events.length,
+    (i.questions || []).length,
+    i.accessRequest?.resolvedAt ?? i.accessRequest?.at,
+    i.resumeRequest?.status,
+    i.lease?.token,
+    i.graphRequest?.at,
+    flow?.walkthroughs.length,
+    flow?.jobs.map((j) => `${j.status}:${j.updates.length}:${j.resumeRequest?.status}`).join(),
+    flow?.graphReviews
+      .map((r) => `${r.status}:${r.appliedGroupIds.length}:${r.rejectedGroupIds.length}`)
+      .join(),
+  ].join("|");
 }

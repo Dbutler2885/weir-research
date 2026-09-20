@@ -107,15 +107,17 @@ The browser's Organize control exposes the same preview, apply, and undo operati
 The current agent is the coordinator; do not launch a second coordinating model underneath yourself.
 Keep this session active while the human uses the browser.
 Use `npm run coordinator -- wait --session <session-file>` as a pending tool call between work items.
-Each wait lasts at most 50 seconds, refreshes the session lease, and returns immediately when the workspace revision changes.
+Each wait lasts up to five minutes and returns immediately when the workspace revision changes.
+A quiet wait answers with its revision alone; a wake carries only what changed, so use `snapshot` when you need the full index again.
 Read the returned project index, retrieve the specific context needed, process dispatched work, then acknowledge the revision you actually processed using `npm run coordinator -- ack <revision> --session <session-file>`.
 Immediately wait again after a timeout or after handling the activity.
 Never acknowledge a later revision you have not examined.
 Do not end the agent turn while presenting yourself as actively listening.
 A closed or ended agent session cannot be woken by this CLI; saved work will be recovered on the next attach.
 
-Use a snapshot command at least once per minute while doing local coordination instead of waiting.
-If the lease expires, attach as a new session and recover; do not keep publishing with the old session.
+You keep your project while working; the browser shows the human that you are working rather than listening.
+Return to waiting promptly so their messages are answered, and after a long absence check the conversation before continuing.
+If your session was taken over or expired, attach as a new session and recover; do not keep publishing with the old session.
 If the connection fails, preserve the handoff, reconnect with workspace open, then attach and recover.
 If the user asks to stop, save the handoff, detach, and end the turn.
 If another coordinator is live, report that fact and leave its session alone.
@@ -124,8 +126,10 @@ If another coordinator is live, report that fact and leave its session alone.
 
 Only sent annotations authorize research; the snapshot's `conversation` index lists those not yet placed in a batch.
 Answer each send in the Annotations conversation and group the work into batches as described in `docs/coordinator.md`.
-After publishing inspected findings, use `skills/present-research/SKILL.md` to author the guided walkthrough, then `skills/prepare-research-graph/SKILL.md` to supervise graph preparation and write its tour.
-Walkthrough publication immediately queues the separate representation pass while the human reads.
+After publishing inspected findings, announce the batch with `batch-ready` when its research is complete.
+When the human requests a walkthrough, fork yourself to write it and keep coordinating, as described in `docs/coordinator.md`; the fork loads `skills/present-research/SKILL.md`, and you publish its draft.
+Supervise a requested graph update with `skills/prepare-research-graph/SKILL.md`.
+Walkthroughs and graph updates are independent, and each waits for the human's request unless they have turned on automatic review.
 Queued but unsent annotations are the human's scratch pad, not assignments.
 Before restarting any paused investigation, ask through `{"action":"request-resume","investigationId":"...","reason":"Why this investigation should resume"}` and wait for the human to confirm in the browser.
 Keep the investigation paused until approval; silence is not consent, and a declined request must not be repeatedly reissued without a new reason or human instruction.

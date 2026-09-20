@@ -28,8 +28,9 @@ The example names and IDs below are fictional placeholders.
 
 `proposalIds` selects immutable published findings within this investigation.
 Each `evidenceRefs` entry combines its proposal ID, a slash, and the exact evidence ID.
-The service supplies immutable walkthrough and job IDs and queues graph work with a complete graph snapshot and the selected original research.
-Omit `engine` to honor the saved preference; `manual` uses native delegation, while `codex` and `claude` use managed file-writing workers.
+The walkthrough author writes the `walkthrough` object to `coordinator-work/walkthroughs/batch-<number>.json`, and the coordinator publishes it.
+The service supplies an immutable walkthrough ID.
+Publishing does not start graph work; the human requests graph updates separately.
 A paused investigation requires the existing browser resume confirmation before publication.
 
 For a revision, supply `basedOnWalkthroughId` with the current walkthrough ID and include `walkthrough.correction` for consequential changes.

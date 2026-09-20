@@ -15,6 +15,8 @@ export interface DrawerHost {
   navigate(reference: AnnotationTarget): void;
   batchAction(batchId: string, action: "walkthrough" | "graph"): void;
   setSelecting(enabled: boolean): void;
+  // True when the workspace service cannot be reached right now.
+  offline?(): boolean;
   selecting(): boolean;
   changed(): void;
 }
@@ -22,6 +24,8 @@ export interface DrawerHost {
 interface Draft {
   references: AnnotationTarget[];
   question: string;
+  // An unsent message to the coordinator, kept if the page reloads.
+  message?: string;
   editing?: string;
   feedback?: boolean;
 }
@@ -43,11 +47,15 @@ const day = (iso: string) =>
 // The project-wide conversation with the coordinator and the unsent queue.
 export class AnnotationsDrawer {
   private tab: DrawerTab = "conversation";
+  private pinned?: string;
+  // The reader's place in the conversation, kept across background updates.
+  private following = true;
+  private readingTop = 0;
+  private resize?: ResizeObserver;
   private draft: Draft;
   private readonly draftKey = `research-draft:${window.location.origin}`;
   private readonly seenKey = `research-seen:${window.location.origin}`;
   private error = "";
-  private messageText = "";
 
   constructor(
     private readonly root: HTMLElement,
@@ -67,9 +75,25 @@ export class AnnotationsDrawer {
 
   show(tab: DrawerTab): void {
     this.tab = tab;
+    this.pinned = undefined;
+    this.following = true;
     this.render();
     if (tab === "queue")
       this.root.querySelector<HTMLTextAreaElement>("[data-note]")?.focus();
+  }
+
+  // Opens the conversation at one message, e.g. from a notification.
+  showMessage(id: string): void {
+    this.tab = "conversation";
+    this.pinned = id;
+    this.render();
+    const message = this.messageElement(id);
+    message?.classList.add("is-focused");
+    setTimeout(() => message?.classList.remove("is-focused"), 2400);
+  }
+
+  private messageElement(id: string): HTMLElement | undefined {
+    return [...this.root.querySelectorAll<HTMLElement>("[data-message-id]")].find((m) => m.dataset.messageId === id);
   }
 
   // A selection in the page becomes a reference of the annotation being written.
@@ -134,9 +158,24 @@ export class AnnotationsDrawer {
     this.root.innerHTML = `<div class="drawer-head"><h2>Annotations</h2><button type="button" class="drawer-close" data-close aria-label="Close annotations">×</button></div>
 <nav class="drawer-tabs" aria-label="Annotations"><button type="button" data-tab="conversation" ${this.tab === "conversation" ? 'aria-current="page"' : ""}>Conversation${unread ? '<span class="unread-dot" aria-label="Unread messages"></span>' : ""}</button><button type="button" data-tab="queue" ${this.tab === "queue" ? 'aria-current="page"' : ""}>Queue${queue.length ? `<span class="tab-count">${queue.length}</span>` : ""}</button></nav>
 ${this.tab === "conversation" ? this.conversation(state) : this.queue(state)}`;
-    if (this.tab === "conversation") {
-      const list = this.root.querySelector<HTMLElement>(".conversation");
-      if (list) list.scrollTop = list.scrollHeight;
+    const list = this.tab === "conversation" ? this.root.querySelector<HTMLElement>(".conversation") : null;
+    const pinned = list && this.pinned ? this.messageElement(this.pinned) : undefined;
+    this.pinned = undefined;
+    if (pinned)
+      list!.scrollTop += pinned.getBoundingClientRect().top - list!.getBoundingClientRect().top - (list!.clientHeight - pinned.offsetHeight) / 2;
+    else if (list) list.scrollTop = this.following ? list.scrollHeight : this.readingTop;
+    // Background updates keep the reader's place unless they were following the latest message.
+    list?.addEventListener("scroll", () => {
+      this.following = list.scrollHeight - list.scrollTop - list.clientHeight < 24;
+      this.readingTop = list.scrollTop;
+    });
+    // The drawer changes height between views; stay on the latest message while following it.
+    this.resize?.disconnect();
+    if (list && typeof ResizeObserver !== "undefined") {
+      this.resize = new ResizeObserver(() => {
+        if (this.following) list.scrollTop = list.scrollHeight;
+      });
+      this.resize.observe(list);
     }
     if (focused) {
       const element = this.root.querySelector<HTMLTextAreaElement>(focused.key);
@@ -158,7 +197,23 @@ ${this.tab === "conversation" ? this.conversation(state) : this.queue(state)}`;
       })
       .join("");
     return `<div class="conversation" aria-label="Conversation with the coordinator">${items || '<p class="conversation-empty">Ask the coordinator anything, or queue annotations from the page and send them together.</p>'}</div>
-<form class="message-form" data-message-form><div class="message-box"><textarea data-message rows="2" placeholder="Message the coordinator…" aria-label="Message the coordinator">${html(this.messageText)}</textarea><button type="submit" class="primary">Send</button></div>${this.error && this.tab === "conversation" ? `<p class="form-error" role="alert">${html(this.error)}</p>` : ""}</form>`;
+${this.presence(state)}<form class="message-form" data-message-form><div class="message-box"><textarea data-message rows="2" placeholder="Message the coordinator…" aria-label="Message the coordinator">${html(this.draft.message || "")}</textarea><button type="submit" class="primary">Send</button></div>${this.error && this.tab === "conversation" ? `<p class="form-error" role="alert">${html(this.error)}</p>` : ""}</form>`;
+  }
+
+  // Whether anyone is listening, said where the human types.
+  private presence(state: ResearchState): string {
+    if (this.host.offline?.())
+      return '<p class="coordinator-presence is-away">The workspace service is not responding. Reload the page to reconnect.</p>';
+    const c = state.coordinator;
+    if (!c?.enabled) return "";
+    const who = html(c.name || "Your coordinator");
+    if (c.connected)
+      return `<p class="coordinator-presence"><span class="presence-dot"></span>${who} is listening.</p>`;
+    if (c.attached)
+      return `<p class="coordinator-presence is-busy"><span class="presence-dot"></span>${who} is working${
+        c.lastSeenSecondsAgo == null ? "" : `, last seen ${elapsed(c.lastSeenSecondsAgo)} ago`
+      }. Messages wait until it checks back.</p>`;
+    return '<p class="coordinator-presence is-away">No coordinator is attached. Messages wait here until one connects.</p>';
   }
 
   private message(state: ResearchState, m: Message): string {
@@ -222,7 +277,8 @@ ${this.tab === "conversation" ? this.conversation(state) : this.queue(state)}`;
   private input(event: Event): void {
     const element = event.target as HTMLElement;
     if (element.matches("[data-message]"))
-      this.messageText = (element as HTMLTextAreaElement).value;
+      this.draft.message = (element as HTMLTextAreaElement).value;
+      this.saveDraft();
     if (element.matches("[data-note]")) {
       this.draft.question = (element as HTMLTextAreaElement).value;
       this.saveDraft();
@@ -263,7 +319,8 @@ ${this.tab === "conversation" ? this.conversation(state) : this.queue(state)}`;
     const text = box?.value.trim();
     if (!text) return;
     if (await this.run(() => this.host.command({ type: "send", text }))) {
-      this.messageText = "";
+      delete this.draft.message;
+      this.saveDraft();
       this.render();
     }
   }
@@ -358,4 +415,10 @@ ${this.tab === "conversation" ? this.conversation(state) : this.queue(state)}`;
       /* Drafts are a convenience; research is saved on the server. */
     }
   }
+}
+
+function elapsed(seconds: number): string {
+  if (seconds < 90) return `${Math.max(1, Math.round(seconds))} seconds`;
+  const minutes = Math.round(seconds / 60);
+  return minutes < 60 ? `${minutes} minutes` : `${Math.round(minutes / 60)} hours`;
 }

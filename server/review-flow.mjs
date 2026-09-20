@@ -1,9 +1,10 @@
 import { randomUUID, createHash } from 'node:crypto';
 import { canonical } from '../src/domain/changes.ts';
 import { sourceLibrary } from '../src/domain/findings.ts';
-import { materializeGraph, selectedGraphGroups } from '../src/domain/graph-draft.ts';
+import { materializeGraph, selectedGraphGroups, declinedWithDependents } from '../src/domain/graph-draft.ts';
 import { validateProposal } from '../skills/prepare-research-graph/scripts/validate-proposal.mjs';
 import { validateTour } from '../skills/prepare-research-graph/scripts/validate-tour.mjs';
+import { graphBlocker, graphWorkFinished } from '../src/domain/review-flow.ts';
 
 const fail = (ok, message) => { if (!ok) throw new Error(message); };
 const text = value => typeof value === 'string' && value.trim() && value.length <= 100_000;
@@ -34,14 +35,18 @@ export function validateWalkthrough(i, input) {
   }
   return registry;
 }
+// A graph update represents a batch's findings; a walkthrough, when one exists, adds its explanation.
 export function graphPacket(state, investigation, walkthrough, updates = []) {
-  const {evidence, findings} = evidenceRegistry(investigation, walkthrough.proposalIds);
+  const proposalIds = walkthrough?.proposalIds || investigation.proposals.filter(p => p.kind === 'findings').map(p => p.id);
+  const {evidence, findings} = evidenceRegistry(investigation, proposalIds);
   const data = state.dataset;
   return {
-    question: walkthrough.question, walkthrough, researchRevision: walkthrough.id,
+    question: walkthrough?.question || [investigation.title, ...(investigation.questions || []).map(q => q.title)].join('\n'),
+    walkthrough: walkthrough || null,
+    researchRevision: walkthrough?.id || `batch:${investigation.id}:${proposalIds.join(',')}`,
     baseGraphRevision: state.datasetRevision, updates: structuredClone(updates), findings, evidence,
     sources: sourceLibrary(state),
-    researcherReturns: investigation.proposals.filter(p => walkthrough.proposalIds.includes(p.id)),
+    researcherReturns: investigation.proposals.filter(p => proposalIds.includes(p.id)),
     existingGraph: {
       complete: true,
       nodes: [...data.people.map(n => ({...n, kind: 'person', label: n.name})), ...(data.contextEntities || []).map(n => ({...n, label: n.name}))],
@@ -52,11 +57,12 @@ export function graphPacket(state, investigation, walkthrough, updates = []) {
     scope: investigation.scope, annotationIds: investigation.annotations.filter(a => a.dispatchedAt).map(a => a.id),
   };
 }
+export { graphBlocker };
 export function flowCommand(store, command, actor = 'coordinator') {
   const i = store.state.investigations.find(i => i.id === command.investigationId);
   fail(i, 'Unknown investigation.');
   const action = command.action;
-  const humanActions = ['graph-job-pause', 'graph-job-resume', 'graph-resume-decision', 'graph-apply', 'graph-set-aside'];
+  const humanActions = ['request-walkthrough', 'request-graph', 'graph-job-pause', 'graph-job-resume', 'graph-resume-decision', 'graph-apply', 'graph-set-aside'];
   fail(actor === 'coordinator' ? !humanActions.includes(action) : humanActions.includes(action), 'This action belongs to the other review role.');
   if (action === 'inspect-flow') return structuredClone(i.reviewFlow || {walkthroughs: [], jobs: [], graphReviews: []});
   if (action === 'publish-walkthrough') {
@@ -64,18 +70,38 @@ export function flowCommand(store, command, actor = 'coordinator') {
     fail(i.status !== 'paused', 'The investigation is paused. Request human approval before continuing.');
     const prior = i.reviewFlow?.walkthroughs.at(-1);
     fail(!prior || command.basedOnWalkthroughId === prior.id, 'A newer walkthrough exists. Inspect it before revising.');
-    const engine = command.engine || store.state.engine || 'manual';
-    fail(['manual','codex','claude'].includes(engine), 'Choose an available graph-builder provider.');
-    const id = randomUUID(), jobId = randomUUID(), at = new Date().toISOString();
+    const id = randomUUID(), at = new Date().toISOString();
     store.update(next => {
       const investigation = next.investigations.find(x => x.id === i.id), flow = flowFor(investigation);
-      const w = {...structuredClone(command.walkthrough), id, createdAt: at, revision: flow.walkthroughs.length + 1};
-      flow.walkthroughs.push(w);
-      for (const job of flow.jobs) if (['queued','running','returned'].includes(job.status)) job.status = 'superseded';
-      flow.jobs.push({id: jobId, walkthroughId: id, status: 'queued', engine, progress: engine === 'manual' ? 'Waiting for the coordinator to assign a graph builder.' : 'Graph preparation is queued.', createdAt: at, attempt: 0, updates: [], consumedUpdateSequence: 0, packet: graphPacket(next, investigation, w), baseDataset: structuredClone(next.dataset)});
-      investigation.events.push({at, message: 'Research walkthrough published; graph preparation queued.'});
+      flow.walkthroughs.push({...structuredClone(command.walkthrough), id, createdAt: at, revision: flow.walkthroughs.length + 1});
+      delete investigation.walkthroughRequestedAt;
+      investigation.events.push({at, message: `Walkthrough revision ${flow.walkthroughs.length} published.`});
     });
-    return {walkthroughId: id, jobId};
+    return {walkthroughId: id};
+  }
+  if (action === 'request-walkthrough') {
+    fail(!i.closedAt, 'This batch is closed.');
+    fail(i.proposals.some(p => p.kind === 'findings'), 'This batch has no findings to explain yet.');
+    store.update(next => {
+      const inv = next.investigations.find(x => x.id === i.id);
+      inv.walkthroughRequestedAt = new Date().toISOString();
+      inv.events.push({at: inv.walkthroughRequestedAt, message: 'Walkthrough requested.'});
+    });
+    return {requested: true};
+  }
+  if (action === 'request-graph') {
+    // A finished graph review ends the batch; later work belongs to a new one.
+    fail(!graphWorkFinished(i), "This batch's graph update is finished. Open a new batch for later work.");
+    fail(i.proposals.some(p => p.kind === 'findings'), 'This batch has no findings to represent yet.');
+    const blocker = graphBlocker(store.state);
+    fail(!blocker, blocker);
+    const jobId = randomUUID(), at = new Date().toISOString(), engine = store.state.engine || 'manual';
+    store.update(next => {
+      const inv = next.investigations.find(x => x.id === i.id), flow = flowFor(inv), w = flow.walkthroughs.at(-1);
+      flow.jobs.push({id: jobId, ...(w ? {walkthroughId: w.id} : {}), status: 'queued', engine, progress: engine === 'manual' ? 'Waiting for the coordinator to assign a graph builder.' : 'Graph preparation is queued.', createdAt: at, attempt: 0, updates: [], consumedUpdateSequence: 0, packet: graphPacket(next, inv, w), baseDataset: structuredClone(next.dataset)});
+      inv.events.push({at, message: 'Graph update requested.'});
+    });
+    return {jobId};
   }
   const flow = i.reviewFlow;
   fail(flow, 'This investigation has no guided review yet.');
@@ -89,12 +115,12 @@ export function flowCommand(store, command, actor = 'coordinator') {
       fail(!['paused','superseded','published'].includes(job.status), 'Create a new walkthrough revision for superseded or published work; paused work requires approval.');
       fail(text(command.message), 'Describe what changed and how it affects representation.');
       fail((command.annotationIds || []).every(id => i.annotations.some(a => a.id === id && a.dispatchedAt)), 'Only dispatched annotations are builder assignments.');
-      if (command.walkthrough) {
-        validateWalkthrough(i, command.walkthrough);
-        fail(flow.walkthroughs.at(-1).id === job.walkthroughId, 'A newer walkthrough exists. Update its graph job instead.');
-      }
+      if (command.walkthrough) validateWalkthrough(i, command.walkthrough);
     } else if (action === 'graph-job-pause') fail(['queued','running','returned'].includes(job.status), 'This graph task is not active.');
     else fail(job.status === 'paused', 'Only paused graph preparation can resume.');
+    // Resuming a builder for a finished batch would rebuild a graph that is already accepted.
+    if (['graph-job-resume', 'graph-update'].includes(action) || (action === 'graph-resume-decision' && command.decision === 'approve'))
+      fail(!graphWorkFinished(i), "This batch's graph update is finished. Open a new batch for later work.");
     if (action === 'request-graph-resume') fail(text(command.reason), 'Explain why graph preparation should resume.');
     if (action === 'graph-resume-decision') fail(job.resumeRequest?.status === 'pending' && ['approve','decline'].includes(command.decision), 'No matching resume request.');
     store.update(next => {
@@ -136,6 +162,7 @@ export function flowCommand(store, command, actor = 'coordinator') {
     const id = randomUUID();
     store.update(next => {
       const f = flowFor(next.investigations.find(x => x.id === i.id)), j = f.jobs.find(x => x.id === job.id);
+      for (const r of f.graphReviews) if (r.status === 'pending') r.status = 'superseded';
       f.graphReviews.push({id, jobId: j.id, walkthroughId: j.walkthroughId, revision: f.graphReviews.length + 1, createdAt: new Date().toISOString(), graphSha256: hash, graph: structuredClone(graph), tour: structuredClone(command.tour), evidence: structuredClone(packet.evidence), sources: structuredClone(packet.sources), baseDataset: structuredClone(next.dataset), expectedGraphRevision: next.datasetRevision, appliedGroupIds: [], rejectedGroupIds: [], status: 'pending', annotationIds: [...new Set([...packet.annotationIds, ...j.updates.flatMap(u => u.annotationIds)])]});
       j.status = 'published'; j.progress = 'Proposed graph and guided tour are ready.';
     });
@@ -150,13 +177,15 @@ export function flowCommand(store, command, actor = 'coordinator') {
     if (action === 'graph-set-aside') {
       store.update(next => {
         const r = next.investigations.find(x => x.id === i.id).reviewFlow.graphReviews.find(r => r.id === review.id);
-        r.rejectedGroupIds.push(...ids);
-        if (r.appliedGroupIds.length + r.rejectedGroupIds.length === r.graph.groups.length) r.status = 'set-aside';
+        r.rejectedGroupIds.push(...declinedWithDependents(r.graph, ids, [...r.appliedGroupIds, ...r.rejectedGroupIds]));
+        if (r.appliedGroupIds.length + r.rejectedGroupIds.length === r.graph.groups.length) {
+          r.status = 'set-aside';
+          closeBatch(next.investigations.find(x => x.id === i.id));
+        }
       });
       return {saved: true};
     }
     fail(review.expectedGraphRevision === store.state.datasetRevision, 'The accepted graph changed. Ask for an updated proposal before applying.');
-    fail(flow.walkthroughs.at(-1).id === review.walkthroughId, 'A newer research explanation is available. Review the updated graph first.');
     selectedGraphGroups(review.graph, ids, review.appliedGroupIds);
     const selected = review.graph.groups.filter(g => ids.includes(g.id));
     const touched = new Set(selected.flatMap(g => [...g.nodeIds, ...g.claimIds]));
@@ -166,12 +195,30 @@ export function flowCommand(store, command, actor = 'coordinator') {
       const r = next.investigations.find(x => x.id === i.id).reviewFlow.graphReviews.find(r => r.id === review.id);
       next.dataset = dataset; next.datasetRevision++;
       r.appliedGroupIds.push(...ids); r.expectedGraphRevision = next.datasetRevision;
-      if (r.appliedGroupIds.length + r.rejectedGroupIds.length === r.graph.groups.length) r.status = 'applied';
+      if (r.appliedGroupIds.length + r.rejectedGroupIds.length === r.graph.groups.length) {
+        r.status = 'applied';
+        closeBatch(next.investigations.find(x => x.id === i.id));
+      }
       (next.graphApplications ||= []).push({id: randomUUID(), at: new Date().toISOString(), investigationId: i.id, graphReviewId: r.id, groupIds: ids, datasetRevision: next.datasetRevision});
     });
     return {applied: ids, datasetRevision: store.state.datasetRevision};
   }
   throw new Error('Unknown guided review action.');
+}
+
+// A batch closes when its graph review is complete; later related work starts a new batch.
+function closeBatch(inv) {
+  inv.closedAt = new Date().toISOString();
+  inv.events.push({at: inv.closedAt, message: 'Graph review completed; batch closed.'});
+}
+
+// Apply the human's automatic review preferences when a batch becomes ready.
+export function autoReview(store, investigationId) {
+  const settings = store.state.reviewSettings || {};
+  const inv = store.state.investigations.find(i => i.id === investigationId);
+  if (!inv || !inv.proposals.some(p => p.kind === 'findings')) return;
+  if (settings.autoWalkthrough && !inv.reviewFlow?.walkthroughs.length) flowCommand(store, {action: 'request-walkthrough', investigationId}, 'human');
+  if (settings.autoGraph && !graphBlocker(store.state)) flowCommand(store, {action: 'request-graph', investigationId}, 'human');
 }
 
 export function receiveGraph(store, investigationId, jobId, graph, packet, submissionDirectory) {

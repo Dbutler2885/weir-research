@@ -523,30 +523,88 @@ dialog textarea {
 }
 .workspace-notice {
   position: fixed;
-  bottom: 18px;
+  bottom: 22px;
   left: 50%;
   transform: translateX(-50%);
-  width: max-content;
-  max-width: calc(100vw - 32px);
-  display: flex;
+  width: min(560px, calc(100vw - 32px));
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   align-items: center;
-  gap: 20px;
-  padding: 12px 16px;
+  gap: 14px;
+  padding: 12px 12px 12px 16px;
   background: var(--sea-dark);
   color: white;
-  border-radius: 8px;
+  border-radius: 10px;
   box-shadow: var(--shadow);
   z-index: 50;
-  font-size: 12px;
+  font-size: 12.5px;
+}
+.workspace-notice[hidden] {
+  display: none;
+}
+.workspace-notice .notice-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #f2b39c;
+  box-shadow: 0 0 0 4px rgb(242 179 156 / 25%);
+}
+.workspace-notice strong {
+  display: block;
+  margin-bottom: 1px;
+  font-size: 13px;
+}
+.workspace-notice span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #d6e6e4;
 }
 .workspace-notice button {
-  background: white;
   border: 0;
-  border-radius: 5px;
-  padding: 7px 10px;
+  border-radius: 6px;
+  padding: 7px 12px;
+  background: white;
   color: var(--sea-dark);
+  font-weight: 650;
   white-space: nowrap;
   cursor: pointer;
+}
+.workspace-notice .notice-dismiss {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+  color: #cfe1df;
+  font-size: 18px;
+  font-weight: 400;
+}
+/* Back to where the human was before following a reference. */
+.return-bar {
+  position: fixed;
+  bottom: 22px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  max-width: calc(100vw - 32px);
+  padding: 8px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--paper-bright);
+  color: var(--sea-dark);
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: var(--shadow);
+  cursor: pointer;
+}
+.return-bar[hidden] {
+  display: none;
+}
+.workspace-notice:not([hidden]) ~ .return-bar {
+  bottom: 90px;
 }
 .research-toast {
   position: fixed;
@@ -751,9 +809,12 @@ dialog .muted {
     margin-top: 20px;
   }
   .workspace-notice {
-    gap: 12px;
-    font-size: 11px;
+    grid-template-columns: auto minmax(0, 1fr) auto;
   }
+  .workspace-notice .notice-dismiss {
+    display: none;
+  }
+
 }
 
 .empty-research {
@@ -1137,4 +1198,38 @@ dialog .muted {
 }
 .related-findings article {
   margin: 16px 0;
+}
+/* Work the workspace is running now, visible from every tab. */
+.running-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.running-indicator[hidden] {
+  display: none;
+}
+.running-indicator::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #c8a44d;
+  animation: research-pulse 1.8s ease-in-out infinite;
+}
+@keyframes research-pulse {
+  50% {
+    opacity: 0.25;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .running-indicator::before {
+    animation: none;
+  }
 }

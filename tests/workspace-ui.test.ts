@@ -7,6 +7,7 @@ import {
 } from "../src/domain/research";
 import empty from "../src/data/empty.json";
 import { mountResearchWorkspace } from "../src/research-workspace";
+import { flowCommand } from "../server/review-flow.mjs";
 vi.mock("../src/vendor/lavish/artifact-sdk.js", () => ({
   createArtifactSdk: vi.fn(),
   deriveLavishQueueKey: vi.fn(),
@@ -63,6 +64,25 @@ beforeEach(() => {
       if (path === "/api/research-settings") {
         state.researchSettings = JSON.parse(options.body);
         return { ok: true, json: async () => state.researchSettings };
+      }
+      if (path === "/api/review-flow") {
+        const store = {
+          get state() {
+            return state;
+          },
+          update(fn: (next: ResearchState) => void) {
+            const next = structuredClone(state);
+            fn(next);
+            next.revision++;
+            state = next;
+          },
+        };
+        const result = flowCommand(store, JSON.parse(options.body), "human");
+        return { ok: true, json: async () => result };
+      }
+      if (path === "/api/review-settings") {
+        state.reviewSettings = JSON.parse(options.body);
+        return { ok: true, json: async () => state.reviewSettings };
       }
       if (path === "/api/commands") {
         const result = transition(state, JSON.parse(options.body));
@@ -152,6 +172,125 @@ describe("investigation workspace", () => {
     click('[data-decide="approve"]');
     await vi.waitFor(() => expect(state.conversation!.at(-1)!.decision!.status).toBe("approved"));
     await vi.waitFor(() => expect(document.querySelector(".msg-outcome")!.textContent).toContain("You approved"));
+  });
+  const poll = async () => {
+    const tick = vi.mocked(window.setInterval).mock.calls.at(-1)![0] as () => Promise<void>;
+    await tick();
+  };
+  it("announces coordinator messages and opens the conversation at them", async () => {
+    state = transition(state, { type: "reply", text: "The register is open." }).state;
+    state = transition(state, {
+      type: "request-approval",
+      title: "Read the 1884 register?",
+      body: "Two sources disagree about the closing year.",
+    }).state;
+    await poll();
+    const notice = document.querySelector<HTMLElement>(".workspace-notice")!;
+    await vi.waitFor(() => expect(notice.hidden).toBe(false));
+    expect(notice.querySelector("strong")!.textContent).toBe("Your coordinator needs a decision");
+    expect(notice.querySelector("span")!.textContent).toBe("Read the 1884 register?");
+    click("[data-notice-open]");
+    expect(notice.hidden).toBe(true);
+    expect(document.querySelector('[data-tab="conversation"]')!.getAttribute("aria-current")).toBe("page");
+    expect(document.querySelector(".msg-decision")!.classList.contains("is-focused")).toBe(true);
+    click("[data-close]");
+    state = transition(state, { type: "reply", text: "Both registers agree.\nDetails follow." }).state;
+    await poll();
+    await vi.waitFor(() => expect(notice.hidden).toBe(false));
+    expect(notice.querySelector("strong")!.textContent).toBe("Your coordinator replied");
+    expect(notice.querySelector("span")!.textContent).toBe("Both registers agree.");
+    click("[data-notice-dismiss]");
+    expect(notice.hidden).toBe(true);
+    // Dismissing keeps the message unread.
+    expect(document.querySelector('[data-count="queue"]')!.textContent).toBe("1");
+  });
+  it("says in the conversation whether a coordinator is listening", async () => {
+    state.coordinator = { enabled: true, connected: false, name: null, handoff: "", awaitingSynthesis: [] };
+    mount();
+    click("[data-add-instruction]");
+    expect(document.querySelector(".coordinator-presence")!.textContent).toContain("No coordinator is attached");
+    state.coordinator = { enabled: true, connected: true, name: "Research coordinator", handoff: "", awaitingSynthesis: [] };
+    await poll();
+    await vi.waitFor(() =>
+      expect(document.querySelector(".coordinator-presence")!.textContent).toContain("Research coordinator is listening"),
+    );
+  });
+  it("shows research running now from every tab", async () => {
+    expect(document.querySelector<HTMLElement>("[data-running]")!.hidden).toBe(true);
+    state.investigations[0]!.reviewFlow = {
+      walkthroughs: [],
+      graphReviews: [],
+      jobs: [{ id: "j1", status: "running", progress: "Building a connected graph.", engine: "claude", updates: [], attempt: 0, createdAt: "2026-01-01T00:00:00.000Z", consumedUpdateSequence: 0 }],
+    } as never;
+    mount();
+    const indicator = document.querySelector<HTMLElement>("[data-running]")!;
+    expect(indicator.hidden).toBe(false);
+    expect(indicator.textContent).toBe("1 graph update building");
+    indicator.click();
+    expect(document.querySelector(".app-shell")!.getAttribute("data-workspace-view")).toBe("work");
+    expect(document.querySelector('[data-investigation-section="activity"]')!.getAttribute("aria-current")).toBe("page");
+  });
+  it("says the service is unreachable and keeps the typed message", async () => {
+    click("[data-add-instruction]");
+    const box = document.querySelector<HTMLTextAreaElement>("[data-message]")!;
+    box.value = "Let us work inside this project";
+    box.dispatchEvent(new Event("input", { bubbles: true }));
+    vi.mocked(fetch).mockRejectedValue(new TypeError("Failed to fetch"));
+    click("[data-message-form] button[type=submit]");
+    await vi.waitFor(() =>
+      expect(document.querySelector(".form-error")!.textContent).toContain(
+        "workspace service is not responding",
+      ),
+    );
+    expect(document.querySelector(".coordinator-presence")!.textContent).toContain(
+      "not responding",
+    );
+    // The message survives, so a reload does not lose what was typed.
+    expect(document.querySelector<HTMLTextAreaElement>("[data-message]")!.value).toBe(
+      "Let us work inside this project",
+    );
+    expect(JSON.parse(localStorage.getItem(`research-draft:${window.location.origin}`)!).message).toBe(
+      "Let us work inside this project",
+    );
+  });
+  it("distinguishes a coordinator that is working from one that is listening", async () => {
+    state.coordinator = {
+      enabled: true,
+      connected: false,
+      attached: true,
+      lastSeenSecondsAgo: 240,
+      name: "Research coordinator",
+      handoff: "",
+      awaitingSynthesis: [],
+    };
+    mount();
+    click("[data-add-instruction]");
+    expect(document.querySelector(".coordinator-presence")!.textContent).toContain(
+      "Research coordinator is working, last seen 4 minutes ago",
+    );
+  });
+  it("returns to the previous place after following a reference from a message", async () => {
+    state = transition(state, {
+      type: "reply",
+      text: "See the workshop record.",
+      references: [{ label: "The workshop", table: "contextEntities", recordId: "fictional-workshop" }],
+    }).state;
+    mount();
+    click('[data-view="work"]');
+    click("[data-add-instruction]");
+    click(".msg-links [data-reference]");
+    expect(document.querySelector(".app-shell")!.getAttribute("data-workspace-view")).toBe("research");
+    const back = document.querySelector<HTMLButtonElement>(".return-bar")!;
+    expect(back.hidden).toBe(false);
+    expect(back.textContent).toBe("← Back to Investigations");
+    // A hash change on the way there does not count as returning.
+    window.dispatchEvent(new PopStateEvent("popstate", { state: null }));
+    expect(back.hidden).toBe(false);
+    window.dispatchEvent(new PopStateEvent("popstate", { state: history.state }));
+    expect(document.querySelector(".app-shell")!.getAttribute("data-workspace-view")).toBe("research");
+    history.back();
+    await vi.waitFor(() => expect(document.querySelector(".app-shell")!.getAttribute("data-workspace-view")).toBe("work"));
+    expect(back.hidden).toBe(true);
   });
   it("sends a single annotation immediately and keeps the rest of the queue", async () => {
     state = transition(state, { type: "queue-annotation", question: "Still thinking", references: [] }).state;
@@ -264,6 +403,41 @@ describe("investigation workspace", () => {
     click('[data-investigation-section="activity"]');
     expect(document.querySelector(".activity-list")!.textContent).toContain("paused");
     expect(document.querySelector(".activity-list")!.textContent).toContain("Batch 1");
+  });
+  it("lists batches in Review and requests a walkthrough and one graph update at a time", async () => {
+    const batch = state.investigations[0]!;
+    batch.status = "review";
+    batch.readyAt = "2026-01-02T00:00:00.000Z";
+    batch.proposals.push({
+      id: "report-1",
+      kind: "findings",
+      revision: 1,
+      title: "The founder",
+      summary: "The register names the founder.",
+      ambiguity: "",
+      evidence: [],
+      changes: [],
+      findings: [{ id: "f", statement: "A founder is named.", qualification: "reported", explanation: "", evidenceIds: [] }],
+      addressedAnnotationIds: batch.annotations.map((a) => a.id),
+      createdAt: "2026-01-02T00:00:00.000Z",
+      status: "pending",
+    });
+    mount();
+    click('[data-view="review"]');
+    const row = () => document.querySelector(".review-row")!;
+    expect(row().textContent).toContain("Ready for review");
+    expect(row().textContent).toContain("Batch 1 · The workshop's founder");
+    click('[data-review-request="walkthrough"]');
+    await vi.waitFor(() => expect(state.investigations[0]!.walkthroughRequestedAt).toBeTruthy());
+    await vi.waitFor(() => expect(row().textContent).toContain("Your coordinator is writing it."));
+    click('[data-review-request="graph"]');
+    await vi.waitFor(() => expect(state.investigations[0]!.reviewFlow!.jobs).toHaveLength(1));
+    await vi.waitFor(() => expect(row().textContent).toContain("Waiting for the coordinator to assign a graph builder."));
+    expect(document.querySelector('[data-review-request="graph"]')).toBeNull();
+    const toggle = document.querySelector<HTMLInputElement>('[data-auto="autoWalkthrough"]')!;
+    toggle.checked = true;
+    toggle.dispatchEvent(new Event("change", { bubbles: true }));
+    await vi.waitFor(() => expect(state.reviewSettings).toEqual({ autoWalkthrough: true, autoGraph: false }));
   });
   it("keeps repeated feedback saves out of research and remembers the choice", async () => {
     const annotations = state.investigations[0]!.annotations.length;

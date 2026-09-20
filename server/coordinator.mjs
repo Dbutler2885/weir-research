@@ -1,5 +1,5 @@
 import { organize } from "./organization.mjs";
-import { flowCommand } from "./review-flow.mjs";
+import { flowCommand, autoReview } from "./review-flow.mjs";
 import { randomUUID } from "node:crypto";
 import { transition } from "../src/domain/research.ts";
 import {
@@ -15,21 +15,34 @@ import {
 
 // Durable research state belongs to the store; session liveness belongs to this server.
 export class Coordinator {
-  constructor(store, { now = Date.now, ttl = 90_000 } = {}) {
+  // Ownership of the project and being live are separate: a coordinator busy
+  // writing for ten minutes still owns its project, but is not listening.
+  constructor(store, { now = Date.now, ttl = 120_000, ownership = 1_800_000 } = {}) {
     this.store = store;
     this.now = now;
     this.ttl = ttl;
+    this.ownership = ownership;
     this.session = null;
+  }
+  owner() {
+    return this.session && this.session.owned > this.now() ? this.session : null;
+  }
+  live() {
+    const owner = this.owner();
+    return owner && owner.seen + this.ttl > this.now() ? owner : null;
   }
   get enabled() {
     return Boolean(this.store.state.coordination?.enabled);
   }
   status() {
-    const live = this.session && this.session.expires > this.now();
+    const owner = this.owner();
+    const live = this.live();
     return {
       enabled: this.enabled,
       connected: Boolean(live),
-      name: live ? this.session.name : null,
+      attached: Boolean(owner),
+      name: owner ? owner.name : null,
+      lastSeenSecondsAgo: owner ? Math.round((this.now() - owner.seen) / 1000) : null,
       handoff: (this.store.state.coordination?.handoff || "").slice(0, 6000),
       handoffTruncated:
         (this.store.state.coordination?.handoff?.length || 0) > 6000,
@@ -57,16 +70,13 @@ export class Coordinator {
       throw new Error(
         "Coordinator name and a private session key are required.",
       );
-    if (
-      this.session &&
-      this.session.expires > this.now() &&
-      this.session.secret !== secret
-    )
+    const live = this.live();
+    if (live && live.secret !== secret)
       throw new Error(
-        `Another coordinator is connected: ${this.session.name}. Close or detach that session before taking over.`,
+        `Another coordinator is connected: ${live.name}. Close or detach that session before taking over.`,
       );
     const recovering = !this.session || this.session.secret !== secret;
-    this.session = { name, secret, expires: this.now() + this.ttl };
+    this.session = { name, secret, seen: this.now(), owned: this.now() + this.ownership };
     if (recovering) {
       for (const i of [...this.store.state.investigations]) {
         if (
@@ -101,15 +111,56 @@ export class Coordinator {
     });
   }
   require(secret) {
-    if (
-      !this.session ||
-      this.session.secret !== secret ||
-      this.session.expires <= this.now()
-    )
+    if (!this.owner() || this.session.secret !== secret)
       throw new Error(
         "Coordinator session expired or was replaced. Attach and recover before continuing.",
       );
-    this.session.expires = this.now() + this.ttl;
+    this.session.seen = this.now();
+    this.session.owned = this.now() + this.ownership;
+  }
+  // A waking coordinator needs what changed, not the whole project index again.
+  delta(secret, since) {
+    this.require(secret);
+    const changed = this.store.since(since);
+    // A cursor older than the kept fingerprints cannot be compared; send the index.
+    if (!changed) return this.snapshot(secret);
+    const state = this.store.state;
+    // Its own replies are not news to the coordinator.
+    const messages = (state.conversation || [])
+      .slice(changed.conversationFrom)
+      .filter((m) => m.author !== "coordinator");
+    // A wake says which batches moved and how; their findings stay one inspect away.
+    const investigations = state.investigations
+      .filter((i) => changed.investigationIds.includes(i.id))
+      .map((i) => {
+        const { findings, ...rest } = investigationIndex(i);
+        return { ...rest, findingCount: findings.length };
+      });
+    if (
+      !messages.length &&
+      !investigations.length &&
+      !changed.removedInvestigationIds.length &&
+      !changed.decisionsChanged &&
+      !changed.candidatesChanged
+    )
+      return { revision: state.revision, unchanged: true };
+    const conversation = conversationIndex(state);
+    return {
+      revision: state.revision,
+      changed: {
+        messages: messages.map(messageIndex),
+        investigations,
+        ...(changed.removedInvestigationIds.length
+          ? { removedInvestigationIds: changed.removedInvestigationIds }
+          : {}),
+        unassignedAnnotations: conversation.unassignedAnnotations,
+        pendingDecisions: conversation.pendingDecisions,
+        ...(changed.decisionsChanged ? { decisions: conversation.recentDecisions } : {}),
+        ...(changed.candidatesChanged
+          ? { candidates: this.candidates().map((c) => ({ id: c.id, investigationId: c.investigationId, title: c.proposal.title })) }
+          : {}),
+      },
+    };
   }
   snapshot(secret) {
     this.require(secret);
@@ -157,7 +208,9 @@ export class Coordinator {
       return organize(this.store, data);
     if (coordinatorConversationCommands.has(data.action)) {
       const { action, session, ...command } = data;
-      return this.store.command({ ...command, type: action });
+      const result = this.store.command({ ...command, type: action });
+      if (action === "batch-ready") autoReview(this.store, data.investigationId);
+      return result;
     }
     const id = data.investigationId;
     const i = this.store.state.investigations.find((i) => i.id === id);
@@ -344,6 +397,18 @@ export class Coordinator {
   }
 }
 
+function messageIndex(m) {
+  return {
+    id: m.id,
+    at: m.at,
+    author: m.author,
+    text: m.text?.slice(0, 1500),
+    annotations: (m.annotations || []).map((a) => ({ id: a.id, question: a.question })),
+    readyBatchId: m.readyBatchId,
+    decision: m.decision && { title: m.decision.title, status: m.decision.status },
+  };
+}
+
 // What the coordinator must act on in the shared conversation.
 function conversationIndex(state) {
   const messages = state.conversation || [];
@@ -361,15 +426,7 @@ function conversationIndex(state) {
       .filter((m) => m.decision && m.decision.status !== "pending")
       .slice(-10)
       .map((m) => ({ messageId: m.id, title: m.decision.title, status: m.decision.status })),
-    recentMessages: messages.slice(-12).map((m) => ({
-      id: m.id,
-      at: m.at,
-      author: m.author,
-      text: m.text?.slice(0, 1500),
-      annotationCount: m.annotations?.length || 0,
-      readyBatchId: m.readyBatchId,
-      decision: m.decision && { title: m.decision.title, status: m.decision.status },
-    })),
+    recentMessages: messages.slice(-12).map(messageIndex),
     openBatches: state.investigations
       .filter((i) => i.number && !i.closedAt)
       .map((i) => ({
@@ -378,6 +435,7 @@ function conversationIndex(state) {
         title: i.title,
         status: i.status,
         ready: Boolean(i.readyAt),
+        walkthroughRequested: Boolean(i.walkthroughRequestedAt),
         questions: (i.questions || []).map((q) => ({ id: q.id, title: q.title, origin: q.origin })),
       })),
   };

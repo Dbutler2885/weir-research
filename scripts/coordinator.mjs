@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { project, read, save } from "./workspace-lib.mjs";
+import { snapshotView } from "./coordinator-view.mjs";
 const args = process.argv.slice(2);
 function option(name) {
   const at = args.indexOf(name);
@@ -60,7 +61,7 @@ try {
     if (action === "attach") data.name = session.name;
     else if (action === "wait") {
       data.since = session.cursor;
-      data.timeout = 50_000;
+      data.timeout = 300_000;
     } else if (action === "handoff" || action === "map")
       data.notes = readFileSync(values[0], "utf8");
     else if (action === "search") {
@@ -82,35 +83,36 @@ try {
         Authorization: `Bearer ${connection.token}`,
       },
       body: JSON.stringify(data),
-      signal: AbortSignal.timeout(55_000),
+      signal: AbortSignal.timeout(310_000),
     });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error);
-    if (result && "project" in result && "revision" in result) {
-      const snapshotFile = `${file}.snapshot.json`;
-      save(snapshotFile, result);
+    if (result && ("unchanged" in result || "changed" in result)) {
       session.lastRead = result.revision;
       save(file, session);
       console.log(
         JSON.stringify(
           {
-            sessionFile: file,
-            snapshotFile,
             revision: result.revision,
             acknowledged: session.cursor,
-            coordinator: result.coordinator,
-            project: result.project,
-            investigations: result.investigations,
-            investigationCount: result.investigationCount,
-            indexHint: result.indexHint,
-            candidates: result.candidates,
-            instruction:
-              "Read the snapshot, act on dispatched work and returned findings, save a handoff, then acknowledge the last processed revision and wait again. Unacknowledged activity is replayed.",
+            ...(result.unchanged
+              ? { status: "No change. Wait again." }
+              : {
+                  changed: result.changed,
+                  instruction:
+                    "Act on these changes, answer messages in the conversation, then acknowledge this revision and wait again. Use snapshot for the full project index.",
+                }),
           },
           null,
           2,
         ),
       );
+    } else if (result && "project" in result && "revision" in result) {
+      const snapshotFile = `${file}.snapshot.json`;
+      save(snapshotFile, result);
+      session.lastRead = result.revision;
+      save(file, session);
+      console.log(JSON.stringify(snapshotView(result, file, snapshotFile, session.cursor), null, 2));
     } else {
       // Claims contain a private lease and a large brief; keep them on disk for deliberate delegation.
       if (result?.investigation?.lease) {

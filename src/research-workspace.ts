@@ -3,20 +3,14 @@ import {
   feedbackView,
   settingsView,
 } from "./ui/investigation-view";
-import { findingReview, evidenceCard } from "./ui/finding-review";
-import {
-  sourceLibrary,
-  graphSelection,
-  registeredSources,
-} from "./domain/findings";
-import { applyChanges } from "./domain/research";
-import { GenealogyModel } from "./domain/model";
-import { projectAround } from "./domain/projection";
-import { layoutFamily } from "./layout/layout";
-import { GraphRenderer } from "./ui/graph-renderer";
+import { evidenceCard } from "./ui/finding-review";
+import { sourceLibrary } from "./domain/findings";
 import { GuidedReview } from "./ui/guided-review";
 import { AnnotationsDrawer, type DrawerTab } from "./ui/annotations-drawer";
+import type { Message } from "./domain/conversation";
 import { findingsPage, type FindingsSection } from "./ui/findings-view";
+import { reviewPage } from "./ui/review-view";
+import "./review.css";
 import "./findings.css";
 import "./annotations-drawer.css";
 import "./guided-review.css";
@@ -64,17 +58,11 @@ export function mountResearchWorkspace(
   const destination = new URLSearchParams(location.search);
   let view = ['review','work','sources'].includes(destination.get('view') || '') ? destination.get('view')! : 'research';
   let selectedInvestigation: string | undefined = initial.investigations.some(i => i.id === destination.get('investigation')) ? destination.get('investigation')! : undefined;
-  let selectedProposal: string | undefined;
-  let readingMode = "cards";
   let findingsSection: FindingsSection = "findings";
+  let reviewTarget: { batchId: string; start: "reading" | "graph" } | undefined;
   const expandedReports = new Set<string>();
-  let cardIndex = 0;
-  let previewRenderer: GraphRenderer | undefined;
   let guidedReview: GuidedReview | undefined;
-  let activityDestination: string | undefined;
   let selectedSource: string | undefined;
-  const selectedGroups = new Map<string, Set<string>>();
-  let previewGeneration = 0;
   let annotate = false;
   let busy = false;
   let drawer: AnnotationsDrawer | undefined;
@@ -99,7 +87,7 @@ export function mountResearchWorkspace(
     )
     .join(
       "",
-    )}</div><div class="workspace-actions"><button type="button" data-view="feedback" class="feedback-destination">Feedback <span data-count="feedback"></span></button><span class="local-indicator" title="Saved on this computer">Saved</span><button type="button" data-organize-project>Organize</button><button type="button" data-add-instruction aria-expanded="false" aria-controls="notes-sidebar">Annotations <span data-count="queue" title="Queued annotations"></span></button></div>`;
+    )}</div><div class="workspace-actions"><button type="button" data-view="feedback" class="feedback-destination">Feedback <span data-count="feedback"></span></button><button type="button" class="running-indicator" data-running hidden></button><span class="local-indicator" title="Saved on this computer">Saved</span><button type="button" data-organize-project>Organize</button><button type="button" data-add-instruction aria-expanded="false" aria-controls="notes-sidebar">Annotations <span data-count="queue" title="Queued annotations"></span></button></div>`;
   shell.insertBefore(nav, graph);
   const surface = document.createElement("section");
   surface.className = "research-surface";
@@ -108,9 +96,31 @@ export function mountResearchWorkspace(
   const notice = document.createElement("div");
   notice.className = "workspace-notice";
   notice.hidden = true;
+  notice.setAttribute("role", "status");
   notice.innerHTML =
-    '<span>New research activity is available.</span><button type="button">Load updates</button>';
+    '<i class="notice-dot"></i><div><strong></strong><span></span></div><button type="button" data-notice-open>Open</button><button type="button" class="notice-dismiss" data-notice-dismiss aria-label="Dismiss">×</button>';
   shell.append(notice);
+  let noticeOpen: (() => void) | undefined;
+  let noticeMessage: string | undefined;
+  function showNotice(title: string, detail: string, action: string, open: () => void, messageId?: string) {
+    notice.querySelector("strong")!.textContent = title;
+    notice.querySelector("span")!.textContent = detail;
+    notice.querySelector("[data-notice-open]")!.textContent = action;
+    noticeOpen = open;
+    noticeMessage = messageId;
+    notice.hidden = false;
+  }
+  // Dismissing keeps the message unread in the conversation.
+  function hideNotice() {
+    notice.hidden = true;
+    noticeOpen = undefined;
+    noticeMessage = undefined;
+  }
+  const returnBar = document.createElement("button");
+  returnBar.type = "button";
+  returnBar.className = "return-bar";
+  returnBar.hidden = true;
+  shell.append(returnBar);
   const toast = document.createElement("div");
   toast.className = "research-toast";
   toast.setAttribute("role", "status");
@@ -157,21 +167,56 @@ export function mountResearchWorkspace(
       toast.hidden = true;
     }, 6000);
   }
+  // True while the workspace service cannot be reached, so the UI can say so.
+  let offline = false;
+  function setOffline(next: boolean) {
+    if (offline === next) return;
+    offline = next;
+    nav.querySelector(".local-indicator")!.textContent = next
+      ? "Workspace connection interrupted"
+      : "Saved on this computer";
+    if (dialog.open) drawer?.render();
+  }
   async function request(path: string, data?: unknown): Promise<any> {
-    const response = await fetch(
-      path,
-      data === undefined
-        ? {}
-        : {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(data),
-          },
-    );
+    let response: Response;
+    try {
+      response = await fetch(
+        path,
+        data === undefined
+          ? {}
+          : {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(data),
+            },
+      );
+    } catch {
+      setOffline(true);
+      throw new Error(
+        "The workspace service is not responding. It may have restarted; reload the page to reconnect.",
+      );
+    }
+    setOffline(false);
     const result = await response.json();
     if (!response.ok)
       throw new Error(result.error || "Unable to save research.");
     return result;
+  }
+  // Research the workspace is running right now, said where every tab can see it.
+  function updateRunning() {
+    const running = state.investigations.filter((i) => ["queued", "running"].includes(i.status)).length;
+    const builders = state.investigations.flatMap((i) => i.reviewFlow?.jobs || [])
+      .filter((j) => ["queued", "running", "returned"].includes(j.status)).length;
+    const writing = state.investigations.filter((i) => i.walkthroughRequestedAt).length;
+    const parts = [
+      running ? `${running} ${running === 1 ? "researcher" : "researchers"} working` : "",
+      builders ? `${builders} graph ${builders === 1 ? "update" : "updates"} building` : "",
+      writing ? `${writing} ${writing === 1 ? "walkthrough" : "walkthroughs"} being written` : "",
+    ].filter(Boolean);
+    const indicator = nav.querySelector<HTMLButtonElement>("[data-running]")!;
+    indicator.textContent = parts.join(" · ");
+    indicator.hidden = !parts.length;
+    indicator.title = "Open Investigations activity";
   }
   function updateCounts() {
     // Unread coordinator messages stay visible until the conversation is read.
@@ -185,8 +230,12 @@ export function mountResearchWorkspace(
     const work = state.investigations.filter((i) =>
       ["draft", "queued", "running", "paused"].includes(i.status),
     ).length;
-    const review = state.investigations.filter((i) =>
-      i.reviewFlow?.walkthroughs.length || i.proposals.some((p) => p.status === "pending"),
+    // Batches waiting on the human: ready ones and pending graph reviews.
+    const review = state.investigations.filter(
+      (i) =>
+        i.number &&
+        !i.closedAt &&
+        (i.readyAt || i.reviewFlow?.graphReviews.some((r) => r.status === "pending")),
     ).length;
     nav.querySelector('[data-count="work"]')!.textContent = work
       ? String(work)
@@ -194,6 +243,7 @@ export function mountResearchWorkspace(
     nav.querySelector('[data-count="review"]')!.textContent = review
       ? String(review)
       : "";
+    updateRunning();
   }
   async function refresh(render = true) {
     const fresh: ResearchState = await request("/api/state");
@@ -201,7 +251,7 @@ export function mountResearchWorkspace(
     state = fresh;
     if (dialog.open) drawer?.render();
     updateCounts();
-    if (render) notice.hidden = true;
+    if (render && !noticeMessage) hideNotice();
     if (changed) onDataset(state.dataset);
     if (render) renderView();
   }
@@ -304,36 +354,104 @@ export function mountResearchWorkspace(
     syncComposer();
     updateCounts();
   }
+  // Where the human was before following a reference, so they can return to it.
+  interface Place {
+    view: string;
+    investigation?: string;
+    review?: typeof reviewTarget;
+    source?: string;
+    section: FindingsSection;
+    hash: string;
+    scroll: [string, number][];
+    label: string;
+    token: string;
+  }
+  let returnPlace: Place | undefined;
+  const viewLabels: Record<string, string> = {
+    research: "the graph",
+    work: "Investigations",
+    review: "Review",
+    sources: "Sources",
+    feedback: "Feedback",
+    settings: "Research settings",
+  };
+  function here(): Place {
+    const scroll: [string, number][] = [];
+    if (surface.scrollTop) scroll.push(["", surface.scrollTop]);
+    surface.querySelectorAll<HTMLElement>("[class]").forEach((e) => {
+      if (e.scrollTop) scroll.push([`.${e.classList[0]}`, e.scrollTop]);
+    });
+    const review = view === "review" && reviewTarget;
+    return {
+      view,
+      investigation: selectedInvestigation,
+      review: reviewTarget,
+      source: selectedSource,
+      section: findingsSection,
+      hash: location.hash,
+      scroll,
+      label: review
+        ? `the ${review.start === "graph" ? "graph review" : "walkthrough"}`
+        : viewLabels[view] || "where you were",
+      token: crypto.randomUUID(),
+    };
+  }
+  function restore(place: Place) {
+    returnPlace = undefined;
+    returnBar.hidden = true;
+    selectedInvestigation = place.investigation;
+    reviewTarget = place.review;
+    selectedSource = place.source;
+    findingsSection = place.section;
+    if (place.view === "research" && location.hash !== place.hash)
+      history.replaceState(history.state, "", place.hash || location.pathname + location.search);
+    setView(place.view);
+    requestAnimationFrame(() => {
+      for (const [selector, top] of place.scroll) {
+        const element = selector ? surface.querySelector<HTMLElement>(selector) : surface;
+        if (element) element.scrollTop = top;
+      }
+    });
+  }
+  returnBar.addEventListener("click", () => history.back());
+  // Only arriving back at the entry the human left restores it; hash changes also fire popstate.
+  window.addEventListener("popstate", (event) => {
+    if (returnPlace && event.state?.returnToken === returnPlace.token) restore(returnPlace);
+  });
   // Following a reference keeps a browser history entry, so Back returns here.
   function navigate(reference: AnnotationTarget) {
-    if (reference.table === "sources" && reference.recordId) {
-      showSource(undefined, undefined, reference.recordId);
-      return;
-    }
-    if (reference.recordId) {
-      setView("research");
-      window.location.hash = new URLSearchParams({ node: reference.recordId }).toString();
-      return;
-    }
     const owner = state.investigations.find(
       (i) =>
         i.proposals.some((p) => p.id === reference.proposalId) ||
         i.reviewFlow?.walkthroughs.some((w) => w.id === reference.walkthroughId) ||
         i.reviewFlow?.graphReviews.some((r) => r.id === reference.graphReviewId),
     );
-    if (!owner) return;
-    selectedInvestigation = owner.id;
-    setView(reference.walkthroughId || reference.graphReviewId ? "review" : "work");
+    const source = reference.table === "sources" ? reference.recordId : undefined;
+    if (!source && !reference.recordId && !owner) return;
+    returnPlace = here();
+    history.replaceState({ ...history.state, returnToken: returnPlace.token }, "");
+    returnBar.textContent = `← Back to ${returnPlace.label}`;
+    returnBar.hidden = false;
+    if (source) {
+      history.pushState(null, "", location.href);
+      showSource(undefined, undefined, source);
+    } else if (reference.recordId) {
+      setView("research");
+      window.location.hash = new URLSearchParams({ node: reference.recordId }).toString();
+    } else {
+      history.pushState(null, "", location.href);
+      if (reference.walkthroughId || reference.graphReviewId)
+        openReview(owner!.id, reference.graphReviewId ? "graph" : "reading");
+      else openReport(reference.proposalId);
+    }
   }
   drawer = new AnnotationsDrawer(dialog, {
     state: () => state,
     command: (data) => command(data, false),
     navigate,
-    batchAction: (batchId) => {
-      selectedInvestigation = batchId;
-      setView("review");
-    },
+    batchAction: (batchId, kind) => void requestReview(batchId, kind),
     setSelecting: (enabled) => setMode(enabled),
+    offline: () => offline,
     selecting: () => annotate,
     changed: () => updateCounts(),
   });
@@ -371,32 +489,54 @@ export function mountResearchWorkspace(
     const button = (event.target as Element).closest<HTMLButtonElement>(
       "button",
     );
-    if (button?.dataset.view) setView(button.dataset.view);
-    else if (button?.hasAttribute("data-add-instruction")) {
+    if (button?.hasAttribute("data-running")) {
+      findingsSection = "activity";
+      setView("work");
+      return;
+    }
+    if (button?.dataset.view) {
+      // Choosing a tab starts somewhere new; the earlier place no longer applies.
+      returnPlace = undefined;
+      returnBar.hidden = true;
+      setView(button.dataset.view);
+    } else if (button?.hasAttribute("data-add-instruction")) {
       if (dialog.open) closeDrawer();
       else openDrawer();
     }
   });
-  notice
-    .querySelector("button")!
-    .addEventListener(
-      "click",
-      () => {
-        if (activityDestination) {
-          selectedInvestigation = activityDestination;
-          selectedProposal = undefined;
-          setView(state.investigations.find(i => i.id === activityDestination)?.reviewFlow?.walkthroughs.length ? "review" : "work");
-          notice.hidden = true;
-        } else void refresh().catch((error) => message(error.message));
-      },
-    );
+  notice.querySelector("[data-notice-open]")!.addEventListener("click", () => {
+    const open = noticeOpen;
+    hideNotice();
+    open?.();
+  });
+  notice.querySelector("[data-notice-dismiss]")!.addEventListener("click", hideNotice);
+  function openActivity(batchId: string) {
+    const flow = state.investigations.find((i) => i.id === batchId)?.reviewFlow;
+    if (flow?.graphReviews.at(-1)?.status === "pending") openReview(batchId, "graph");
+    else if (flow?.walkthroughs.length) openReview(batchId, "reading");
+    else {
+      selectedInvestigation = batchId;
+      setView("work");
+    }
+  }
+  // Announces a new coordinator message and opens the conversation at it.
+  function announce(m: Message) {
+    const batch = m.readyBatchId && state.investigations.find((i) => i.id === m.readyBatchId);
+    const title = m.decision?.status === "pending"
+      ? "Your coordinator needs a decision"
+      : batch ? `Batch ${batch.number} is ready for review` : "Your coordinator replied";
+    const detail = m.decision?.title || (m.text || "").split("\n")[0] || (batch ? batch.title : "");
+    showNotice(title, detail, "Open", () => {
+      openDrawer("conversation");
+      drawer!.showMessage(m.id);
+      updateCounts();
+    }, m.id);
+  }
 
   function heading(kicker: string, title: string, description: string) {
     return `<header class="surface-heading"><span class="eyebrow">${kicker}</span><h1>${title}</h1><p>${description}</p></header>`;
   }
-  function empty(title: string, detail: string) {
-    return `<div class="workspace-empty"><span class="empty-symbol" aria-hidden="true">⌖</span><h2>${title}</h2><p>${detail}</p><button type="button" data-go-research>Explore the research graph</button></div>`;
-  }
+
   function renderFindings() {
     const scroller = surface.querySelector<HTMLElement>(".findings-scroll");
     const top = scroller?.scrollTop || 0;
@@ -424,14 +564,73 @@ export function mountResearchWorkspace(
     },
     true,
   );
+  // Review lists batches; opening one shows its walkthrough or graph review in place.
+  function renderReview() {
+    const batch = reviewTarget && state.investigations.find((i) => i.id === reviewTarget!.batchId);
+    if (!batch?.reviewFlow || !reviewTarget) {
+      reviewTarget = undefined;
+      surface.classList.add("is-review");
+      surface.innerHTML = reviewPage(state);
+      return;
+    }
+    surface.innerHTML = `<div class="review-open" data-investigation-id="${escape(batch.id)}"><button type="button" class="text-action review-back" data-review-back>← Review</button><div data-guided-host></div></div>`;
+    guidedReview = new GuidedReview(surface.querySelector<HTMLElement>("[data-guided-host]")!, state, batch, {
+      start: reviewTarget.start,
+      command: async (data) => {
+        await request("/api/review-flow", data);
+        await refresh();
+      },
+      source: (id, quote) => showSource(undefined, quote, id),
+      error: (text) => message(text),
+      decline: async (note, reference) => {
+        await request("/api/commands", {
+          type: "send",
+          annotation: { question: note, references: [reference] },
+        });
+        await refresh(false);
+        message("Declined. Your note went to the coordinator as new work.");
+      },
+    });
+  }
+  // Every report stays available in Findings; open it there.
+  function openReport(proposalId?: string) {
+    findingsSection = "findings";
+    setView("work");
+    const report = surface.querySelector<HTMLDetailsElement>(
+      `.report[data-proposal-id="${CSS.escape(proposalId || "")}"]`,
+    );
+    if (report) {
+      report.open = true;
+      report.scrollIntoView({ block: "start" });
+    }
+  }
+  function openReview(batchId: string, start: "reading" | "graph") {
+    reviewTarget = { batchId, start };
+    selectedInvestigation = batchId;
+    setView("review");
+  }
+  async function requestReview(batchId: string, kind: "walkthrough" | "graph") {
+    try {
+      await request("/api/review-flow", {
+        action: kind === "walkthrough" ? "request-walkthrough" : "request-graph",
+        investigationId: batchId,
+      });
+      await refresh();
+      message(
+        kind === "walkthrough"
+          ? "Walkthrough requested. Your coordinator will write it."
+          : "Graph update requested. Its review will appear in Review.",
+      );
+    } catch (error) {
+      message((error as Error).message);
+    }
+  }
   function renderView() {
     guidedReview?.destroy();
     guidedReview = undefined;
-    previewGeneration++;
-    previewRenderer?.destroy();
-    previewRenderer = undefined;
     if (view === "research") return;
     surface.classList.toggle("is-findings", view === "work");
+    surface.classList.remove("is-review");
     if (view === "work") {
       renderFindings();
       return;
@@ -444,33 +643,12 @@ export function mountResearchWorkspace(
       surface.innerHTML = feedbackView(state);
       return;
     }
-    const items = [...state.investigations]
-      .reverse()
-      .filter((i) => view !== "review" || i.proposals.length > 0 || i.reviewFlow?.walkthroughs.length);
-    if (!items.some((i) => i.id === selectedInvestigation)) {
-      selectedInvestigation = items[0]?.id;
-      selectedProposal = undefined;
+    if (view === "review") {
+      renderReview();
+      return;
     }
-    const investigation = currentInvestigation();
     if (view === "settings")
-      surface.innerHTML = settingsView(state, investigation);
-    else {
-      const picker =
-        items.length > 1
-          ? `<label class="investigation-picker">Investigation <select data-investigation-picker>${items.map((i) => `<option value="${i.id}" ${i.id === selectedInvestigation ? "selected" : ""}>${escape(investigationSubject(i))}</option>`).join("")}</select></label>`
-          : "";
-      surface.innerHTML = `<div class="investigation-desk"><div class="desk-tools">${picker}<button class="text-action" data-open-settings>Research settings</button></div>${investigation ? `<article class="investigation-detail" data-investigation-id="${investigation.id}">${reviewDetail(investigation)}</article>` : empty("No findings are ready for review yet", "Saved research notes remain in Investigations while findings are being prepared.")}</div>`;
-      if (view === "review" && investigation?.reviewFlow?.walkthroughs.length) {
-        guidedReview = new GuidedReview(surface.querySelector<HTMLElement>("[data-guided-host]")!, state, investigation, {
-          command: async data => {
-            await request("/api/review-flow", data);
-            await refresh();
-          },
-          source: (id, quote) => showSource(undefined, quote, id),
-          error: text => message(text),
-        });
-      }
-    }
+      surface.innerHTML = settingsView(state, currentInvestigation());
     surface
       .querySelector("#research-time-limit-mode")
       ?.addEventListener("change", () => {
@@ -528,64 +706,6 @@ export function mountResearchWorkspace(
           message((error as Error).message);
         }
       });
-  }
-  function recordFields(record: Record<string, unknown> | null): string {
-    if (!record) return '<p class="muted">Not present</p>';
-    const name = (id: unknown) =>
-      [
-        ...state.dataset.people,
-        ...(state.dataset.contextEntities ?? []),
-        ...(state.dataset.sources ?? []),
-      ].find((r) => r.id === id);
-    const display = (value: unknown): string => {
-      const record = name(value);
-      if (record) return "name" in record ? record.name : record.title;
-      return typeof value === "object" ? JSON.stringify(value) : String(value);
-    };
-    const labels: Record<string, string> = {
-      fromId: "From",
-      toId: "To",
-      parentId: "Parent",
-      childId: "Child",
-      sourceIds: "Sources",
-      partnerIds: "Partners",
-      childIds: "Children",
-      researchNotes: "Research notes",
-    };
-    return `<dl class="record-fields">${Object.entries(record)
-      .filter(([key]) => key !== "id")
-      .map(
-        ([key, value]) =>
-          `<div><dt>${escape(labels[key] || key.replace(/([A-Z])/g, " $1"))}</dt><dd>${escape(Array.isArray(value) ? value.map(display).join(" · ") : display(value))}</dd></div>`,
-      )
-      .join("")}</dl>`;
-  }
-  function reviewDetail(i: Investigation): string {
-    if (i.reviewFlow?.walkthroughs.length) return '<div data-guided-host></div>';
-    const p =
-      i.proposals.find((p) => p.id === selectedProposal) ||
-      i.proposals.filter((p) => p.status === "pending").at(-1) ||
-      i.proposals.at(-1)!;
-    if (!p) return empty("Research is being prepared", "The coordinator will publish an explanation here when the evidence is ready.");
-    selectedProposal = p.id;
-    if (p.kind)
-      return findingReview(
-        state,
-        i,
-        p,
-        readingMode,
-        cardIndex,
-        selectedGroups.get(p.id),
-      );
-    const outstanding = i.annotations.some(
-      (a) => !p.addressedAnnotationIds.includes(a.id),
-    );
-    const sourceTitle = (id: string) =>
-      state.dataset.sources?.find((s) => s.id === id)?.title ||
-      p.changes.find((c) => c.table === "sources" && c.recordId === id)?.after
-        ?.title ||
-      id;
-    return `<div data-proposal-id="${p.id}" ${targetAttribute({ label: p.title, proposalId: p.id })}><div class="detail-topline"><span class="status-badge status-${p.status}">${escape(p.status)}</span><span class="muted">Revision ${p.revision} · ${date(p.createdAt)}</span></div><div class="origin-question"><span class="eyebrow">Your investigation</span><p>${escape(i.annotations[0]?.question)}</p></div><h2>${escape(p.title)}</h2><p class="proposal-summary">${escape(p.summary)}</p><div class="revision-choices" aria-label="Proposal revisions">${i.proposals.map((version) => `<button type="button" data-proposal="${version.id}" aria-pressed="${version.id === p.id}">Revision ${version.revision}</button>`).join("")}</div>${outstanding ? '<div class="activity-callout">New feedback belongs to this investigation. Open Annotations, then Queued, to send queued annotations, then review the revised proposal before accepting.</div>' : ""}<section class="review-section"><span class="eyebrow">Evidence and interpretation</span><h3>What the sources actually support</h3>${p.evidence.map((e) => `<article class="evidence-card" ${targetAttribute({ label: `Evidence: ${sourceTitle(e.sourceId)}`, proposalId: p.id })}><div class="detail-topline"><span class="status-badge">${escape(e.stance)}</span><span class="muted">${escape(e.locator)}</span></div><h4>${escape(sourceTitle(e.sourceId))}</h4><blockquote>${escape(e.quote)}</blockquote><div class="interpretation" ${targetAttribute({ label: "Interpretation of evidence", proposalId: p.id })}><span class="eyebrow">Interpretation</span><p>${escape(e.interpretation)}</p></div><details><summary>Surrounding context</summary><p class="preserve-lines">${escape(e.context)}</p></details><button type="button" data-evidence="${escape(e.id)}">View source in context ↗</button></article>`).join("") || '<p class="muted">No source passages were found. This outcome records an open question.</p>'}</section>${p.ambiguity ? `<section class="ambiguity-card" ${targetAttribute({ label: "Remaining ambiguity", proposalId: p.id })}><span class="eyebrow">Still open</span><h3>Uncertainty worth preserving</h3><p class="preserve-lines">${escape(p.ambiguity)}</p></section>` : ""}<section class="review-section"><span class="eyebrow">Proposed model changes</span><h3>${p.changes.length ? `${p.changes.length} change${p.changes.length === 1 ? "" : "s"} to review together` : "Preserve an unresolved outcome"}</h3>${p.changes.map((c) => `<article class="change-card" ${targetAttribute({ table: c.table, recordId: c.recordId, label: String(c.after?.name || c.after?.label || c.before?.name || c.recordId), proposalId: p.id })}><h4>${escape(c.after?.name || c.after?.label || c.before?.name || c.recordId)}</h4><p>${escape(c.reason)}</p><div class="change-comparison"><section><span class="eyebrow">Accepted now</span>${recordFields(c.before)}</section><section><span class="eyebrow">Proposed</span>${recordFields(c.after)}</section></div></article>`).join("")}</section><footer class="review-decision">${p.status === "pending" ? `<p>${p.changes.length ? "Accepting applies these exact changes together and preserves this review." : "Recording this outcome preserves the ambiguity without changing the graph."}</p><div><button class="primary" data-command="accept" ${outstanding || i.status !== "review" ? "disabled" : ""}>${p.changes.length ? "Accept proposal" : "Record unresolved outcome"}</button><button data-command="reject" ${outstanding || i.status !== "review" ? "disabled" : ""}>Reject proposal</button><button data-followup>Request further research</button></div>` : `<p>${p.status === "accepted" ? "Accepted and preserved in the research history." : p.status === "superseded" ? "A later research pass superseded this proposal. It remains available for inspection." : "Rejected. The accepted research was unchanged."}</p><button data-followup>Continue this investigation</button>`}</footer></div>`;
   }
   function renderSources() {
     if (selectedSource) {
@@ -652,12 +772,7 @@ export function mountResearchWorkspace(
     );
     if (b?.dataset.inspectSource)
       showSource(undefined, undefined, b.dataset.inspectSource);
-    if (b?.dataset.relatedReview) {
-      selectedInvestigation = b.dataset.relatedReview;
-      selectedProposal = b.dataset.relatedProposal;
-      cardIndex = 0;
-      setView("review");
-    }
+    if (b?.dataset.relatedReview) openReport(b.dataset.relatedProposal);
   });
   window.addEventListener("research:inspect", (event) => {
     const id = (event as CustomEvent).detail.id;
@@ -761,103 +876,6 @@ export function mountResearchWorkspace(
     surface.querySelectorAll("[data-evidence]").forEach((b) => b.remove());
     surface.querySelector("mark")?.scrollIntoView({ block: "center" });
   }
-  async function previewGroups() {
-    const i = currentInvestigation()!;
-    const p = i.proposals.find((p) => p.id === selectedProposal)!;
-    const ids = [...(selectedGroups.get(p.id) || [])];
-    const changes = graphSelection(state, i, p, ids);
-    const dataset = applyChanges(
-      { ...state.dataset, sources: registeredSources(state) },
-      changes,
-    );
-    const host = surface.querySelector<HTMLElement>("#graph-review-preview")!;
-    previewRenderer?.destroy();
-    const generation = ++previewGeneration;
-    host.innerHTML = `<h3>Proposed graph</h3><p>Outlined nodes and edges are changed by this selection. Your accepted graph remains unchanged.</p>${changes
-      .filter((c) => !c.after)
-      .map(
-        (c) =>
-          `<p class="removal-note">Remove: ${escape(c.before?.name || c.before?.label || c.recordId)}</p>`,
-      )
-      .join(
-        "",
-      )}<div class="proposal-graph"></div><div class="preview-details"></div><button class="primary" data-apply-preview>${ids.length ? `Apply these ${ids.length} groups` : "Record outcome without graph changes"}</button>`;
-    const model = new GenealogyModel(dataset);
-    const focus =
-      dataset.initialFocusId ||
-      dataset.people[0]?.id ||
-      dataset.contextEntities?.[0]?.id;
-    const container = host.querySelector<HTMLElement>(".proposal-graph")!;
-    const inspect = (id: string) => {
-      const c = changes.find((c) => c.recordId === id);
-      const r = [...dataset.people, ...(dataset.contextEntities || [])].find(
-        (r) => r.id === id,
-      );
-      const group = p.groups!.find((g) =>
-        g.changeIndexes.some((n) => p.changes[n]!.recordId === id),
-      );
-      host.querySelector(".preview-details")!.innerHTML =
-        `<section ${targetAttribute({ label: r?.name || id, recordId: id, proposalId: p.id, groupId: group?.id })}><h4>${escape(r?.name || id)}</h4>${recordFields((r as unknown as Record<string, unknown>) || null)}${c ? `<p>${escape(c.reason)}</p>` : ""}</section>`;
-    };
-    const renderer = new GraphRenderer(
-      container,
-      {
-        onFocus: inspect,
-        onOpenDetails: inspect,
-        onOpenContextEntity: inspect,
-      },
-      true,
-    );
-    previewRenderer = renderer;
-    if (focus) {
-      const projection = projectAround(model, focus);
-      const layout = await layoutFamily(model, projection);
-      if (generation !== previewGeneration) return;
-      renderer.render(layout, projection, model);
-      renderer.fitAll(false);
-    }
-    const changedIds = new Set(changes.map((c) => c.recordId));
-    container
-      .querySelectorAll<HTMLElement>(
-        "[data-person-id],[data-context-entity-id],[data-connection-id]",
-      )
-      .forEach((el) => {
-        const id =
-          el.dataset.personId ||
-          el.dataset.contextEntityId ||
-          el.dataset.connectionId;
-        if (id && changedIds.has(id)) el.classList.add("proposed-change");
-        const group = p.groups!.find((g) =>
-          g.changeIndexes.some((n) => p.changes[n]!.recordId === id),
-        );
-        if (group)
-          el.setAttribute(
-            "data-research-target",
-            JSON.stringify({
-              label: group.title,
-              recordId: id,
-              proposalId: p.id,
-              groupId: group.id,
-            }),
-          );
-      });
-    host
-      .querySelector("[data-apply-preview]")!
-      .addEventListener("click", () => {
-        void command({
-          type: "apply-groups",
-          investigationId: i.id,
-          proposalId: p.id,
-          groupIds: ids,
-        })
-          .then(() => {
-            selectedGroups.delete(p.id);
-            message("Selected graph groups applied.");
-          })
-          .catch((e) => message(e.message));
-      });
-  }
-
   const handleContentClick = (event: Event) => {
     const link = (event.target as Element).closest<HTMLElement>("[data-toc]");
     if (link) {
@@ -875,9 +893,21 @@ export function mountResearchWorkspace(
     const owner = button.closest<HTMLElement>("[data-investigation-id]")?.dataset
       .investigationId;
     if (owner) selectedInvestigation = owner;
-    if (button.hasAttribute("data-open-walkthrough")) {
-      selectedProposal = undefined;
-      setView("review");
+    if (button.hasAttribute("data-open-walkthrough") && owner) {
+      openReview(owner, "reading");
+      return;
+    }
+    if (button.dataset.reviewOpen && owner) {
+      openReview(owner, button.dataset.reviewOpen as "reading" | "graph");
+      return;
+    }
+    if (button.dataset.reviewRequest && owner) {
+      void requestReview(owner, button.dataset.reviewRequest as "walkthrough" | "graph");
+      return;
+    }
+    if (button.hasAttribute("data-review-back")) {
+      reviewTarget = undefined;
+      renderView();
       return;
     }
     if (button.dataset.moreFindings) {
@@ -903,64 +933,11 @@ export function mountResearchWorkspace(
       return;
     }
     if (button.dataset.sourceReview) {
-      selectedInvestigation = button.dataset.sourceReview;
-      selectedProposal = button.dataset.sourceProposal;
-      cardIndex = 0;
-      setView("review");
+      openReport(button.dataset.sourceProposal);
       return;
     }
     if (button.hasAttribute("data-add-question")) {
       openDrawer("queue");
-      return;
-    }
-    if (button.dataset.readingMode) {
-      readingMode = button.dataset.readingMode;
-      renderView();
-      return;
-    }
-    if (button.dataset.cardStep) {
-      cardIndex = Math.max(0, cardIndex + Number(button.dataset.cardStep));
-      renderView();
-      return;
-    }
-    if (button.dataset.keepFinding || button.dataset.deferFinding) {
-      void command({
-        type: "finding-decision",
-        investigationId: selectedInvestigation,
-        proposalId: selectedProposal,
-        findingId: button.dataset.keepFinding || button.dataset.deferFinding,
-        decision: button.dataset.keepFinding ? "kept" : "deferred",
-      }).catch((e) => message(e.message));
-      return;
-    }
-    if (button.dataset.questionFinding || button.dataset.questionGroup) {
-      openDrawer("queue", {
-        label: button.dataset.questionFinding
-          ? "Question this finding"
-          : "Question this graph representation",
-        proposalId: selectedProposal,
-        findingId: button.dataset.questionFinding,
-        groupId: button.dataset.questionGroup,
-      });
-      return;
-    }
-    if (button.hasAttribute("data-build-graph")) {
-      const refs = [
-        ...surface.querySelectorAll<HTMLInputElement>(
-          "[data-build-ref]:checked",
-        ),
-      ].map((e) => JSON.parse(e.dataset.buildRef!));
-      void command({
-        type: "build-graph",
-        investigationId: selectedInvestigation,
-        refs,
-      })
-        .then(() => setView("work"))
-        .catch((e) => message(e.message));
-      return;
-    }
-    if (button.hasAttribute("data-preview-groups")) {
-      void previewGroups().catch((e) => message(e.message));
       return;
     }
     if (button.dataset.openSource) {
@@ -972,65 +949,34 @@ export function mountResearchWorkspace(
       setView("sources");
       return;
     }
-    if (button.dataset.selectInvestigation) {
-      selectedInvestigation = button.dataset.selectInvestigation;
-      selectedProposal = undefined;
-      cardIndex = 0;
-      renderView();
-    } else if (button.hasAttribute("data-go-research")) setView("research");
-    else if (button.hasAttribute("data-open-review")) setView("review");
-    else if (button.dataset.proposal) {
-      selectedProposal = button.dataset.proposal;
-      cardIndex = 0;
-      renderView();
-    } else if (button.dataset.command)
+    if (button.hasAttribute("data-go-research")) setView("research");
+    else if (button.hasAttribute("data-open-review") && selectedInvestigation)
+      openReview(selectedInvestigation, "reading");
+    else if (button.dataset.command)
       void command({
         type: button.dataset.command as ResearchCommand["type"],
         investigationId: selectedInvestigation,
-        proposalId: selectedProposal,
         requestId: button.dataset.resumeRequest,
         decision: button.dataset.resumeDecision,
       })
         .then(() => message("Research state saved."))
         .catch((error) => message(error.message));
-    else if (button.hasAttribute("data-followup"))
-      openDrawer("queue", {
-        label: currentInvestigation()!.title,
-        proposalId: selectedProposal,
-      });
     else if (button.dataset.rescan) void scanFolder(button.dataset.rescan);
     else if (button.dataset.document) showSource(button.dataset.document);
-    else if (button.dataset.evidence) {
-      const p = currentInvestigation()!.proposals.find(
-        (p) => p.id === selectedProposal,
-      )!;
-      const e = p.evidence.find((e) => e.id === button.dataset.evidence)!;
-      showSource(e.documentId, e.quote, e.sourceId, p);
-    }
   };
   surface.addEventListener("click", handleContentClick);
   surface.addEventListener("change", (event) => {
     const e = event.target as HTMLInputElement;
-    if (e.hasAttribute("data-investigation-picker")) {
-      selectedInvestigation = e.value;
-      selectedProposal = undefined;
-      cardIndex = 0;
-      renderView();
+    if (e.dataset.auto) {
+      const read = (key: string) =>
+        surface.querySelector<HTMLInputElement>(`[data-auto="${key}"]`)!.checked;
+      void request("/api/review-settings", {
+        autoWalkthrough: read("autoWalkthrough"),
+        autoGraph: read("autoGraph"),
+      })
+        .then(() => refresh())
+        .catch((error) => message(error.message));
       return;
-    }
-    if (e.dataset.graphGroup && selectedProposal) {
-      const ids = selectedGroups.get(selectedProposal) || new Set<string>();
-      if (e.checked) ids.add(e.dataset.graphGroup);
-      else ids.delete(e.dataset.graphGroup);
-      selectedGroups.set(selectedProposal, ids);
-      previewGeneration++;
-      previewRenderer?.destroy();
-      previewRenderer = undefined;
-      surface.querySelector("#graph-review-preview")?.replaceChildren();
-    }
-    if (e.hasAttribute("data-card-jump")) {
-      cardIndex = Number(e.value);
-      renderView();
     }
   });
   // Refresh activity without replacing an open walkthrough or its reading position.
@@ -1040,10 +986,11 @@ export function mountResearchWorkspace(
     polling = true;
     try {
       const revision = await request("/api/revision");
-      nav.querySelector(".local-indicator")!.textContent =
-        "Saved on this computer";
       if (revision.coordinator) {
+        // Attaching or dropping does not change the revision, so refresh the drawer here.
+        const wasConnected = state.coordinator?.connected;
         state.coordinator = revision.coordinator;
+        if (dialog.open && wasConnected !== revision.coordinator.connected) drawer?.render();
         const status = surface.querySelector("[data-coordinator-status]");
         const description = surface.querySelector(
           "[data-coordinator-description]",
@@ -1071,21 +1018,26 @@ export function mountResearchWorkspace(
             || i.reviewFlow?.jobs.at(-1)?.status !== prior?.reviewFlow?.jobs.at(-1)?.status
             || i.proposals.length !== prior?.proposals.length;
         });
-        if (changed && !(guidedReview && current?.id === changed.id)) {
-          activityDestination = changed.id;
+        const seen = new Set((previous.conversation || []).map((m) => m.id));
+        const arrived = (state.conversation || []).filter((m) => m.author === "coordinator" && !seen.has(m.id));
+        const reading = dialog.open && drawer?.currentTab === "conversation";
+        const shown = noticeMessage ? state.conversation?.find((m) => m.id === noticeMessage) : undefined;
+        if (shown?.decision && shown.decision.status !== "pending") hideNotice();
+        if (arrived.length && !reading)
+          announce(arrived.find((m) => m.decision?.status === "pending") || arrived.at(-1)!);
+        else if (changed && !noticeMessage && !(guidedReview && current?.id === changed.id)) {
           const job = changed.reviewFlow?.jobs.at(-1);
-          notice.querySelector("span")!.textContent = changed.reviewFlow?.graphReviews.at(-1)
-            ? `Proposed graph ready: ${investigationSubject(changed)}`
-            : job?.status === "paused" ? `Graph preparation paused: ${investigationSubject(changed)}`
-            : changed.reviewFlow?.walkthroughs.length ? `Research walkthrough ready: ${investigationSubject(changed)}`
-            : `Research activity: ${investigationSubject(changed)}`;
-          notice.querySelector("button")!.textContent = changed.reviewFlow?.walkthroughs.length ? "Open review" : "Open investigation";
-          notice.hidden = false;
+          const subject = investigationSubject(changed);
+          const [title, action] = changed.reviewFlow?.graphReviews.at(-1)?.status === "pending"
+            ? ["A graph update is ready for review", "Open review"]
+            : job?.status === "paused" ? ["Graph preparation paused", "Open review"]
+            : changed.reviewFlow?.walkthroughs.length ? ["A walkthrough is ready", "Open walkthrough"]
+            : ["New research returned", "Open findings"];
+          showNotice(title, subject, action, () => openActivity(changed.id));
         }
       }
     } catch {
-      nav.querySelector(".local-indicator")!.textContent =
-        "Workspace connection interrupted";
+      setOffline(true);
     } finally {
       polling = false;
     }

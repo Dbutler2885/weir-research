@@ -7,12 +7,11 @@ import ELK, {
 import { GenealogyModel } from "../domain/model";
 import type { Confidence, Emphasis, FocusProjection } from "../domain/types";
 import { layoutNetwork } from "./network";
+import { CONTEXT_WIDTH, contextSize } from "./node-size";
 
 const PERSON_WIDTH = 224;
 const PERSON_HEIGHT = 104;
 const UNION_SIZE = 20;
-const CONTEXT_WIDTH = 208;
-const CONTEXT_HEIGHT = 82;
 
 export interface LayoutNode {
   id: string;
@@ -246,8 +245,7 @@ export async function layoutFamily(
     )
     .map((entity) => ({
       id: entity.id,
-      width: CONTEXT_WIDTH,
-      height: CONTEXT_HEIGHT,
+      ...contextSize(entity.name),
       layoutOptions: {
         "elk.priority": String(
           Math.max(1, 96 - contextPriority(model, projection, entity.id)),
@@ -362,7 +360,11 @@ export async function layoutFamily(
         (isPerson ? PERSON_WIDTH : isUnion ? UNION_SIZE : CONTEXT_WIDTH),
       height:
         node.height ??
-        (isPerson ? PERSON_HEIGHT : isUnion ? UNION_SIZE : CONTEXT_HEIGHT),
+        (isPerson
+          ? PERSON_HEIGHT
+          : isUnion
+            ? UNION_SIZE
+            : contextSize(model.contextEntitiesById.get(node.id)!.name).height),
       emphasis: isPerson
         ? (projection.people.get(node.id)?.emphasis ?? "remote")
         : isUnion
