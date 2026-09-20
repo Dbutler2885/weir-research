@@ -161,3 +161,63 @@ describe("the graph as editable tables", () => {
     expect(() => parseCsv('a\n"unterminated\n')).toThrow("Unterminated");
   });
 });
+
+// A family graph, which is what this application is for: two people, a marriage,
+// a child and a direct parent link. All invented.
+function family(): FamilyDataset {
+  return {
+    version: 1,
+    title: "The Example Family",
+    initialFocusId: "person-anna",
+    people: [
+      { id: "person-anna", name: "Anna Example", sourceIds: ["src-register"] },
+      { id: "person-jonas", name: "Jonas Example", sourceIds: [] },
+      { id: "person-child", name: "Ruth Example", sourceIds: [] },
+    ],
+    unions: [
+      {
+        id: "union-anna-jonas",
+        partnerIds: ["person-anna", "person-jonas"],
+        childIds: ["person-child"],
+        type: "marriage",
+        date: "1881",
+        place: "Example Bay",
+        confidence: "established",
+        sourceIds: ["src-register"],
+        notes: ["The register gives no banns.", "A second note, with a comma."],
+      },
+    ],
+    directParentage: [
+      { id: "parent-anna-ruth", parentId: "person-anna", childId: "person-child", type: "birth", confidence: "established", sourceIds: ["src-register"] },
+    ],
+    contextEntities: [],
+    contextConnections: [],
+    sources: [{ id: "src-register", title: "Invented Parish Register" }],
+    claims: [],
+    evidence: [],
+  } as unknown as FamilyDataset;
+}
+
+describe("family structure", () => {
+  it("carries marriages, children and parent links through a round trip", () => {
+    const before = family();
+    const after = graphFromCsv(graphToCsv(before));
+    expect(canonical(after.unions)).toBe(canonical(before.unions));
+    expect(canonical(after.directParentage)).toBe(canonical(before.directParentage));
+    expect(after.unions[0]!.notes).toEqual(before.unions[0]!.notes);
+  });
+
+  it("refuses a union or parent link that names a person who is not there", () => {
+    const strayPartner = graphToCsv(family());
+    strayPartner["unions.csv"] += "union-stray,marriage,,,,,person-anna|person-missing,,\n";
+    expect(() => graphFromCsv(strayPartner)).toThrow("names a person who is not there");
+
+    const strayParent = graphToCsv(family());
+    strayParent["parentage.csv"] += "parent-stray,person-missing,person-child,birth,,,\n";
+    expect(() => graphFromCsv(strayParent)).toThrow("names a person who is not there");
+
+    const strayNote = graphToCsv(family());
+    strayNote["union-notes.csv"] += "union-missing,A note about nothing.\n";
+    expect(() => graphFromCsv(strayNote)).toThrow("union that is not there");
+  });
+});

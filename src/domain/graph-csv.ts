@@ -20,6 +20,9 @@ export const graphTables = [
   "graph.csv",
   "nodes.csv",
   "node-sources.csv",
+  "unions.csv",
+  "union-notes.csv",
+  "parentage.csv",
   "claims.csv",
   "claim-evidence.csv",
   "evidence.csv",
@@ -32,6 +35,9 @@ const headers = {
   "graph.csv": ["version", "title", "initialFocusId"],
   "nodes.csv": ["id", "kind", "name"],
   "node-sources.csv": ["nodeId", "sourceId"],
+  "unions.csv": ["id", "type", "label", "date", "place", "confidence", "partnerIds", "childIds", "sourceIds"],
+  "union-notes.csv": ["unionId", "note"],
+  "parentage.csv": ["id", "parentId", "childId", "type", "confidence", "label", "sourceIds"],
   "claims.csv": ["id", "subjectId", "predicate", "objectType", "objectValue", "qualification", "time", "reasoning"],
   "claim-evidence.csv": ["claimId", "evidenceRef", "role"],
   "evidence.csv": ["id", "sourceId", "locator", "quote", "context", "interpretation", "stance"],
@@ -91,6 +97,9 @@ function table<N extends GraphTable>(name: N, files: Partial<GraphFiles>): RowOf
 }
 
 const blank = (value: string) => (value.length ? value : undefined);
+// ID lists travel in one cell; an ID cannot contain the separator.
+const joinIds = (ids: readonly string[] | undefined) => (ids || []).join("|");
+const splitIds = (value: string) => (value.length ? value.split("|") : []);
 
 export function graphToCsv(dataset: FamilyDataset): GraphFiles {
   const nodes = [
@@ -103,6 +112,25 @@ export function graphToCsv(dataset: FamilyDataset): GraphFiles {
     "nodes.csv": [row([...headers["nodes.csv"]]), ...nodes.map((n) => row([n.id, n.kind, n.name]))].join("\n") + "\n",
     "node-sources.csv":
       [row([...headers["node-sources.csv"]]), ...nodes.flatMap((n) => (n.sourceIds || []).map((s) => row([n.id, s])))].join("\n") + "\n",
+    "unions.csv":
+      [
+        row([...headers["unions.csv"]]),
+        ...(dataset.unions || []).map((u) =>
+          row([u.id, u.type, u.label, u.date, u.place, u.confidence, joinIds(u.partnerIds), joinIds(u.childIds), joinIds(u.sourceIds)]),
+        ),
+      ].join("\n") + "\n",
+    "union-notes.csv":
+      [
+        row([...headers["union-notes.csv"]]),
+        ...(dataset.unions || []).flatMap((u) => (u.notes || []).map((note) => row([u.id, note]))),
+      ].join("\n") + "\n",
+    "parentage.csv":
+      [
+        row([...headers["parentage.csv"]]),
+        ...(dataset.directParentage || []).map((p) =>
+          row([p.id, p.parentId, p.childId, p.type, p.confidence, p.label, joinIds(p.sourceIds)]),
+        ),
+      ].join("\n") + "\n",
     "claims.csv":
       [
         row([...headers["claims.csv"]]),
@@ -175,6 +203,39 @@ export function graphFromCsv(files: Partial<GraphFiles>): FamilyDataset {
     else contextEntities.push({ ...record, kind: node.kind } as ContextEntityRecord);
   }
   for (const id of nodeSources.keys()) if (!seen.has(id)) throw new Error(`node-sources.csv names a node that is not there: ${id}`);
+
+  const unionNotes = new Map<string, string[]>();
+  for (const note of table("union-notes.csv", files))
+    unionNotes.set(note.unionId, [...(unionNotes.get(note.unionId) || []), note.note]);
+  const member = (id: string, where: string) => {
+    if (!seen.has(id)) throw new Error(`${where} names a person who is not there: ${id}`);
+    return id;
+  };
+  const unions = table("unions.csv", files).map((u) => ({
+    id: u.id,
+    partnerIds: splitIds(u.partnerIds).map((id) => member(id, `Union ${u.id}`)),
+    ...(splitIds(u.childIds).length ? { childIds: splitIds(u.childIds).map((id) => member(id, `Union ${u.id}`)) } : {}),
+    ...(blank(u.type) ? { type: u.type } : {}),
+    ...(blank(u.label) ? { label: u.label } : {}),
+    ...(blank(u.date) ? { date: u.date } : {}),
+    ...(blank(u.place) ? { place: u.place } : {}),
+    ...(blank(u.confidence) ? { confidence: u.confidence } : {}),
+    ...(splitIds(u.sourceIds).length ? { sourceIds: splitIds(u.sourceIds) } : {}),
+    ...(unionNotes.get(u.id) ? { notes: unionNotes.get(u.id) } : {}),
+  }));
+  const unionIds = new Set(unions.map((u) => u.id));
+  for (const id of unionNotes.keys())
+    if (!unionIds.has(id)) throw new Error(`union-notes.csv names a union that is not there: ${id}`);
+
+  const directParentage = table("parentage.csv", files).map((p) => ({
+    id: p.id,
+    parentId: member(p.parentId, `Parentage ${p.id}`),
+    childId: member(p.childId, `Parentage ${p.id}`),
+    ...(blank(p.type) ? { type: p.type } : {}),
+    ...(blank(p.confidence) ? { confidence: p.confidence } : {}),
+    ...(blank(p.label) ? { label: p.label } : {}),
+    ...(splitIds(p.sourceIds).length ? { sourceIds: splitIds(p.sourceIds) } : {}),
+  }));
 
   const links = new Map<string, { ref: string; role: string }[]>();
   for (const link of table("claim-evidence.csv", files))
@@ -260,8 +321,8 @@ export function graphFromCsv(files: Partial<GraphFiles>): FamilyDataset {
     title: meta.title,
     initialFocusId: blank(meta.initialFocusId) ?? null,
     people,
-    unions: [],
-    directParentage: [],
+    unions,
+    directParentage,
     contextEntities,
     contextConnections,
     sources,
