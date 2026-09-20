@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { graphToCsv, graphFromCsv, parseCsv } from "../src/domain/graph-csv.ts";
+import { canonical } from "../src/domain/changes.ts";
 import type { FamilyDataset } from "../src/domain/types";
 
 // Explicitly fictional: an invented bay, a made-up works, and an imaginary town.
@@ -43,7 +44,7 @@ function dataset(): FamilyDataset {
         id: "c-pack-count",
         subjectId: "works-north",
         predicate: "packed_cases",
-        object: { value: "4,000" },
+        object: { value: 4000 },
         qualification: "inferred",
         time: null,
         reasoning: "Derived from the ledger totals.",
@@ -67,6 +68,7 @@ describe("the graph as editable tables", () => {
   it("survives a round trip unchanged", () => {
     const before = dataset();
     const after = graphFromCsv(graphToCsv(before));
+    expect(canonical(after.claims)).toBe(canonical(before.claims));
     expect(after.people).toEqual(before.people);
     expect(after.contextEntities).toEqual(before.contextEntities);
     expect(after.claims).toEqual(before.claims);
@@ -80,7 +82,7 @@ describe("the graph as editable tables", () => {
     const after = graphFromCsv(graphToCsv(dataset()));
     expect(after.people[0]!.name).toBe('Anna "Nan" Example');
     expect(after.claims!.find((c) => c.id === "c-anna-operated")!.reasoning).toContain("\na second line.");
-    expect(after.claims!.find((c) => c.id === "c-pack-count")!.object).toEqual({ value: "4,000" });
+    expect(after.claims!.find((c) => c.id === "c-pack-count")!.object).toEqual({ value: 4000 });
   });
 
   it("rebuilds relationships from the claims rather than storing them", () => {
@@ -131,6 +133,23 @@ describe("the graph as editable tables", () => {
     const wrongHeader = graphToCsv(dataset());
     wrongHeader["nodes.csv"] = "id,kind\nplace-bay,place\n";
     expect(() => graphFromCsv(wrongHeader)).toThrow("expected header");
+  });
+
+  it("keeps a numeric value a number, and a numeric-looking string a string", () => {
+    const before = dataset();
+    before.claims!.push({
+      id: "c-lot-label",
+      subjectId: "works-north",
+      predicate: "lot_number",
+      object: { value: "007" },
+      qualification: "reported",
+      time: null,
+      reasoning: "The ledger writes the lot with its leading zeros.",
+      evidence: [],
+    } as never);
+    const after = graphFromCsv(graphToCsv(before));
+    expect(after.claims!.find((c) => c.id === "c-pack-count")!.object).toEqual({ value: 4000 });
+    expect(after.claims!.find((c) => c.id === "c-lot-label")!.object).toEqual({ value: "007" });
   });
 
   it("reads quoted fields the way a spreadsheet writes them", () => {

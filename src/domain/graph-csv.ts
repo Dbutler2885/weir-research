@@ -111,7 +111,7 @@ export function graphToCsv(dataset: FamilyDataset): GraphFiles {
             c.id,
             c.subjectId,
             c.predicate,
-            "entityId" in c.object ? "entity" : "value",
+            "entityId" in c.object ? "entity" : typeof c.object.value === "number" ? "number" : "text",
             "entityId" in c.object ? c.object.entityId : c.object.value,
             c.qualification,
             c.time,
@@ -186,15 +186,20 @@ export function graphFromCsv(files: Partial<GraphFiles>): FamilyDataset {
     if (claimIds.has(claim.id)) throw new Error(`Duplicate claim: ${claim.id}`);
     claimIds.add(claim.id);
     if (!seen.has(claim.subjectId)) throw new Error(`Claim ${claim.id} has an unknown subject: ${claim.subjectId}`);
-    if (claim.objectType !== "entity" && claim.objectType !== "value")
-      throw new Error(`Claim ${claim.id} needs an objectType of entity or value`);
+    if (!["entity", "text", "number"].includes(claim.objectType))
+      throw new Error(`Claim ${claim.id} needs an objectType of entity, text or number`);
+    if (claim.objectType === "number" && !Number.isFinite(Number(claim.objectValue)))
+      throw new Error(`Claim ${claim.id} is marked number but its value is not one: ${claim.objectValue}`);
     if (claim.objectType === "entity" && !seen.has(claim.objectValue))
       throw new Error(`Claim ${claim.id} points at an unknown node: ${claim.objectValue}`);
     claims.push({
       id: claim.id,
       subjectId: claim.subjectId,
       predicate: claim.predicate,
-      object: claim.objectType === "entity" ? { entityId: claim.objectValue } : { value: claim.objectValue },
+      object:
+        claim.objectType === "entity"
+          ? { entityId: claim.objectValue }
+          : { value: claim.objectType === "number" ? Number(claim.objectValue) : claim.objectValue },
       qualification: claim.qualification,
       time: claim.time.length ? claim.time : null,
       reasoning: claim.reasoning,
