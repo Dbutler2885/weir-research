@@ -18,7 +18,7 @@ export function previewGraphImport(store, { graph, packet, focusId }) {
   const data = structuredClone(store.state.dataset);
   const existing = new Set([...data.people, ...(data.contextEntities || [])].map(n => n.id));
   if (graph.nodes.some(n => n.existingId || existing.has(n.id))) throw new Error('This importer supports new nodes only; reconcile existing identities first.');
-  const claimIds = new Set([...(data.claims || []), ...(data.contextConnections || [])].map(c => c.id));
+  const claimIds = new Set((data.claims || []).map(c => c.id));
   if (graph.claims.some(c => claimIds.has(c.id))) throw new Error('An imported claim ID already exists.');
   const nodeIds = new Set(graph.nodes.map(n => n.id));
   if (graph.claims.some(c => nodeIds.has(c.id))) throw new Error('Node and claim IDs must be distinct.');
@@ -43,13 +43,6 @@ export function previewGraphImport(store, { graph, packet, focusId }) {
     if (node.kind === 'person') data.people.push(record);
     else data.contextEntities.push({ ...record, kind: node.kind });
   }
-  data.contextConnections ||= [];
-  for (const claim of graph.claims.filter(c => c.object.entityId)) data.contextConnections.push({
-    id: claim.id, fromId: claim.subjectId, toId: claim.object.entityId,
-    type: relationshipType(claim.predicate), label: claim.predicate.replaceAll('_', ' '),
-    ...(claim.time ? { date: claim.time } : {}), confidence: confidence[claim.qualification],
-    qualification: claim.qualification, sourceIds: sourceIds(claim.evidence.map(e => e.ref)),
-  });
   data.claims = [...(data.claims || []), ...graph.claims];
   data.initialFocusId = focusId || data.initialFocusId || graph.nodes[0]?.id || null;
   new GenealogyModel(data);

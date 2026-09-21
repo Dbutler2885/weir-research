@@ -90,20 +90,14 @@ export function materializeGraph(dataset: FamilyDataset, graph: GraphDraft, evid
     else data.contextEntities.push({...record, kind: node.kind as NonNullable<FamilyDataset['contextEntities']>[number]['kind']});
     existing.set(node.id, {...record, kind: node.kind});
   }
-  data.contextConnections ||= [];
   data.claims ||= [];
-  const taken = new Set([...data.claims, ...data.contextConnections].map(c => c.id));
+  const taken = new Set(data.claims.map(c => c.id));
   for (const claim of graph.claims.filter(c => claimIds.has(c.id))) {
     if (taken.has(claim.id) || existing.has(claim.id)) throw new Error(`Claim ID already exists: ${claim.id}`);
     const subjectId = mapped(claim.subjectId);
     const object = 'entityId' in claim.object ? {entityId: mapped(claim.object.entityId)} : claim.object;
     const sourceIds = addEvidence(claim.evidence.map(e => e.ref));
     data.claims.push({...structuredClone(claim), subjectId, object});
-    if ('entityId' in object) data.contextConnections.push({
-      id: claim.id, fromId: subjectId, toId: object.entityId,
-      type: types[claim.predicate as keyof typeof types] || 'association', label: claim.predicate.replaceAll('_', ' '),
-      ...(claim.time ? {date: claim.time} : {}), confidence: confidence[claim.qualification], qualification: claim.qualification, sourceIds,
-    });
     taken.add(claim.id);
   }
   data.sources = [...sourceMap.values()];

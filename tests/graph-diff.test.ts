@@ -1,85 +1,126 @@
 import { describe, expect, it } from "vitest";
 import { diffGraphs, describeDiff } from "../src/domain/graph-diff.ts";
-import type { FamilyDataset } from "../src/domain/types";
+import { graphFromTables, graphToTables } from "../src/domain/graph-csv.ts";
+import type { FamilyDataset, ResearchClaim } from "../src/domain/types";
 
-// Explicitly fictional: an invented bay and two made-up works.
-const claim = (id: string, subjectId: string, predicate: string, object: object, qualification = "supported") =>
-  ({ id, subjectId, predicate, object, qualification, time: null, reasoning: "From the invented ledger.", evidence: [] }) as never;
+// Explicitly fictional: an invented bay and three made-up works.
+const edge = (id: string, from: string, name: string, object: ResearchClaim["object"], qualification: ResearchClaim["qualification"] = "supported"): ResearchClaim => ({
+  id, subjectId: from, predicate: name, object, qualification, time: null, reasoning: "From the invented ledger.", evidence: [],
+});
 
 function graph(): FamilyDataset {
   return {
-    version: 1,
+    version: 2,
     title: "Example Bay",
     initialFocusId: "works-north",
     people: [],
-    unions: [],
-    directParentage: [],
     contextEntities: [
-      { id: "place-bay", name: "Example Bay", kind: "place", sourceIds: [] },
-      { id: "works-north", name: "North Works", kind: "facility", sourceIds: [] },
-      { id: "works-old", name: "The Old Works", kind: "facility", sourceIds: [] },
+      { id: "place-bay", name: "Example Bay", kind: "place" },
+      { id: "street-water", name: "Water Street", kind: "place" },
+      { id: "works-north", name: "North Works", kind: "facility" },
+      { id: "works-south", name: "South Works", kind: "facility" },
+      { id: "works-old", name: "The Old Works", kind: "facility" },
     ],
-    contextConnections: [],
-    sources: [],
+    sources: [{ id: "src-ledger", title: "Invented ledger" }],
+    evidence: [{ id: "ev-1", sourceId: "src-ledger", quote: "", context: "", locator: "p. 1", interpretation: "" }],
     claims: [
-      claim("c-north-in-bay", "works-north", "located_in", { entityId: "place-bay" }),
-      claim("c-old-in-bay", "works-old", "located_in", { entityId: "place-bay" }),
-      claim("c-old-built", "works-old", "built", { value: 1880 }),
+      edge("c-north-in-bay", "works-north", "located_in", { entityId: "place-bay" }),
+      edge("c-old-in-bay", "works-old", "located_in", { entityId: "place-bay" }),
+      edge("c-old-built", "works-old", "built", { value: 1880 }),
+      edge("c-old-same", "works-old", "same_site_as", { entityId: "works-north" }),
     ],
-    evidence: [],
-  } as FamilyDataset;
+  };
+}
+
+// The old works turns out to be North Works: its row goes and its edges move.
+function merged(): FamilyDataset {
+  const after = graph();
+  after.contextEntities = after.contextEntities!.filter((e) => e.id !== "works-old");
+  after.claims = after.claims!
+    .filter((c) => c.id !== "c-old-same")
+    .map((c) => (c.subjectId === "works-old" ? { ...c, subjectId: "works-north" } : c));
+  return after;
 }
 
 describe("what a draft changes", () => {
-  it("reports an untouched copy as unchanged", () => {
-    const diff = diffGraphs(graph(), graph());
-    expect(diff.unchanged).toBe(true);
-    expect(describeDiff(diff)).toBe("No changes.");
+  it("reports an untouched copy, and a round trip through the tables, as unchanged", () => {
+    expect(describeDiff(diffGraphs(graph(), graph()))).toBe("No changes.");
+    expect(diffGraphs(graph(), graphFromTables(graphToTables(graph()), graph())).unchanged).toBe(true);
   });
 
-  it("sees an added node and an added claim", () => {
-    const after = graph();
-    after.contextEntities!.push({ id: "works-south", name: "South Works", kind: "facility", sourceIds: [] });
-    after.claims!.push(claim("c-south-in-bay", "works-south", "located_in", { entityId: "place-bay" }));
-    const diff = diffGraphs(graph(), after);
-    expect(diff.addedNodes.map((n) => n.id)).toEqual(["works-south"]);
-    expect(diff.addedClaims.map((c) => c.id)).toEqual(["c-south-in-bay"]);
-    expect(describeDiff(diff)).toBe("1 new node, 1 new claim.");
+  it("reads a vanished node whose edges all moved to one node as a merge", () => {
+    const diff = diffGraphs(graph(), merged());
+    expect(diff.merges).toEqual([{ into: { id: "works-north", kind: "facility", name: "North Works" }, gone: [{ id: "works-old", kind: "facility", name: "The Old Works" }] }]);
+    expect(diff.removedNodes).toEqual([]);
+    expect(diff.movedEdges.map((e) => [e.id, e.wasFrom, e.from])).toEqual([
+      ["c-old-in-bay", "works-old", "works-north"],
+      ["c-old-built", "works-old", "works-north"],
+    ]);
+    expect(diff.rewordedEdges).toEqual([]);
+    expect(diff.removedEdges.map((e) => e.id)).toEqual(["c-old-same"]);
+    expect(describeDiff(diff)).toBe("2 nodes merged into one, 2 edges moved, 1 edge removed.");
   });
 
-  it("reads a vanished node whose claims moved as a merge, not a deletion", () => {
+  it("reports a node whose edges went to two places once, as a removal naming both", () => {
     const after = graph();
     after.contextEntities = after.contextEntities!.filter((e) => e.id !== "works-old");
-    after.claims = after.claims!
-      .map((c) => (c.subjectId === "works-old" ? { ...c, subjectId: "works-north" } : c))
-      .filter((c) => !("entityId" in c.object && c.object.entityId === c.subjectId));
+    after.claims = [
+      edge("c-north-in-bay", "works-north", "located_in", { entityId: "place-bay" }),
+      edge("c-old-in-bay", "works-south", "located_in", { entityId: "place-bay" }),
+      edge("c-old-built", "works-north", "built", { value: 1880 }),
+    ];
     const diff = diffGraphs(graph(), after);
-    expect(diff.merges).toHaveLength(1);
-    expect(diff.merges[0]!.gone.map((n) => n.id)).toEqual(["works-old"]);
-    expect(diff.merges[0]!.into.id).toBe("works-north");
-    // The merge accounts for it, so it is not also listed as a removal.
-    expect(diff.removedNodes).toEqual([]);
-    expect(describeDiff(diff)).toContain("2 nodes merged into one");
+    expect(diff.merges).toEqual([]);
+    expect(diff.removedNodes).toEqual([
+      { id: "works-old", kind: "facility", name: "The Old Works", edgesMovedTo: [{ id: "works-south", kind: "facility", name: "South Works" }, { id: "works-north", kind: "facility", name: "North Works" }] },
+    ]);
+    expect(describeDiff(diff)).toBe("1 node removed, 2 edges moved, 1 edge removed.");
   });
 
-  it("reports a genuine deletion as a removal", () => {
+  it("reports a genuine deletion as a removal with nowhere to go", () => {
     const after = graph();
     after.contextEntities = after.contextEntities!.filter((e) => e.id !== "works-old");
     after.claims = after.claims!.filter((c) => c.subjectId !== "works-old");
     const diff = diffGraphs(graph(), after);
-    expect(diff.merges).toEqual([]);
-    expect(diff.removedNodes.map((n) => n.id)).toEqual(["works-old"]);
-    expect(diff.removedClaims.map((c) => c.id)).toEqual(["c-old-in-bay", "c-old-built"]);
+    expect(diff.removedNodes).toEqual([{ id: "works-old", kind: "facility", name: "The Old Works", edgesMovedTo: [] }]);
+    expect(diff.removedEdges.map((e) => e.id)).toEqual(["c-old-in-bay", "c-old-built", "c-old-same"]);
   });
 
-  it("separates a rename, a rewording and a requalification", () => {
+  it("separates renames, node edits, rewordings, requalifications and citation changes", () => {
     const after = graph();
-    after.contextEntities![1]!.name = "North Works, Example Bay";
+    after.contextEntities![2]!.name = "North Works, Example Bay";
+    after.contextEntities![3]!.descriptor = "A cannery";
     after.claims![0]!.reasoning = "Reworded after a second reading.";
-    (after.claims![1] as { qualification: string }).qualification = "reported";
+    after.claims![1]!.qualification = "reported";
+    after.claims![2]!.evidence = [{ ref: "ev-1", role: "supports" }];
     const diff = diffGraphs(graph(), after);
     expect(diff.renamedNodes.map((n) => [n.id, n.wasName])).toEqual([["works-north", "North Works"]]);
-    expect(diff.changedClaims.map((c) => c.id)).toEqual(["c-north-in-bay"]);
-    expect(diff.requalifiedClaims.map((c) => [c.id, c.wasQualification])).toEqual([["c-old-in-bay", "supported"]]);
+    expect(diff.editedNodes.map((n) => [n.id, n.fields])).toEqual([["works-south", ["descriptor"]]]);
+    expect(diff.rewordedEdges.map((e) => e.id)).toEqual(["c-north-in-bay"]);
+    expect(diff.requalifiedEdges.map((e) => [e.id, e.wasQualification])).toEqual([["c-old-in-bay", "supported"]]);
+    expect(diff.recitedEdges.map((e) => e.id)).toEqual(["c-old-built"]);
+  });
+
+  it("lists evidence a draft cites that accepting will copy in", () => {
+    const after = graph();
+    after.claims!.push({ ...edge("c-new", "works-south", "built", { value: 1890 }), evidence: [{ ref: "report-1/ev-2", role: "supports" }] });
+    const diff = diffGraphs(graph(), after);
+    expect(diff.evidenceToCopy).toEqual(["report-1/ev-2"]);
+    expect(describeDiff(diff)).toBe("1 new edge, 1 evidence record added from the research.");
+  });
+
+  it("never calls a draft unchanged when any editable cell changed", () => {
+    const base = graphToTables(graph());
+    // One edit per editable column: a node's name, descriptor, biography, dates and
+    // sources, and every column of an edge after its id.
+    const node = base["nodes.csv"].split("\n")[3]!.split(",");
+    const nodeEdits: Record<number, string> = { 2: "Renamed", 3: "A descriptor", 4: "A biography", 5: "1880-1900", 10: "src-ledger" };
+    const edgeRow = base["edges.csv"].split("\n")[1]!.split(",");
+    const edgeEdits: Record<number, string> = { 1: "works-south", 2: "renamed", 4: "street-water", 5: "reported", 6: "1890", 7: "Other reasoning.", 8: "ev-1", 9: "ev-1", 10: "ev-1", 11: "src-ledger" };
+    const drafts = [
+      ...Object.entries(nodeEdits).map(([column, value]) => ({ ...base, "nodes.csv": base["nodes.csv"].replace(node.join(","), node.map((cell, i) => (i === Number(column) ? value : cell)).join(",")) })),
+      ...Object.entries(edgeEdits).map(([column, value]) => ({ ...base, "edges.csv": base["edges.csv"].replace(edgeRow.join(","), edgeRow.map((cell, i) => (i === Number(column) ? value : cell)).join(",")) })),
+    ];
+    for (const files of drafts) expect(diffGraphs(graph(), graphFromTables(files, graph())).unchanged).toBe(false);
   });
 });

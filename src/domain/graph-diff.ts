@@ -3,6 +3,8 @@
 // The builder edits a copy of the graph and does not declare its changes, so the diff
 // is computed here by comparing the draft to the accepted graph. A builder cannot
 // misreport what it did, forget to mention a deletion, or claim a change it did not make.
+// This is the only place that decides what counts as a merge, so the panel, the tour
+// and the review all describe the same change.
 import { canonical } from "./changes.ts";
 import type { FamilyDataset, ResearchClaim } from "./types";
 
@@ -14,150 +16,155 @@ export interface NodeChange {
 export interface RenamedNode extends NodeChange {
   wasName: string;
 }
+export interface EditedNode extends NodeChange {
+  fields: string[];
+}
+// A node that is gone. When its edges moved to other nodes, they are named here.
+export interface RemovedNode extends NodeChange {
+  edgesMovedTo: NodeChange[];
+}
 export interface MergedNodes {
-  // The nodes that are gone and the node their claims now point at.
+  // The nodes that are gone and the one node all of their moved edges now use.
   gone: NodeChange[];
   into: NodeChange;
 }
-export interface ClaimChange {
+export interface EdgeChange {
   id: string;
-  subjectId: string;
-  predicate: string;
+  from: string;
+  name: string;
+  target: string;
   qualification: string;
 }
-export interface RequalifiedClaim extends ClaimChange {
+export interface MovedEdge extends EdgeChange {
+  wasFrom: string;
+  wasTarget: string;
+}
+export interface RequalifiedEdge extends EdgeChange {
   wasQualification: string;
 }
 export interface GraphDiff {
   addedNodes: NodeChange[];
-  removedNodes: NodeChange[];
+  removedNodes: RemovedNode[];
   renamedNodes: RenamedNode[];
+  editedNodes: EditedNode[];
   merges: MergedNodes[];
-  addedClaims: ClaimChange[];
-  removedClaims: ClaimChange[];
-  changedClaims: ClaimChange[];
-  requalifiedClaims: RequalifiedClaim[];
-  addedEvidence: string[];
-  removedEvidence: string[];
-  addedSources: string[];
-  removedSources: string[];
+  addedEdges: EdgeChange[];
+  removedEdges: EdgeChange[];
+  movedEdges: MovedEdge[];
+  requalifiedEdges: RequalifiedEdge[];
+  rewordedEdges: EdgeChange[];
+  recitedEdges: EdgeChange[];
+  // Evidence the draft cites that the graph does not hold yet; accepting copies it in.
+  evidenceToCopy: string[];
   unchanged: boolean;
 }
 
-type Node = { id: string; kind: string; name: string };
+type Node = NodeChange & { record: Record<string, unknown> };
 
 function nodesOf(dataset: FamilyDataset): Map<string, Node> {
   const entries: Node[] = [
-    ...dataset.people.map((p) => ({ id: p.id, kind: "person", name: p.name })),
-    ...(dataset.contextEntities || []).map((e) => ({ id: e.id, kind: e.kind as string, name: e.name })),
+    ...dataset.people.map((p) => ({ id: p.id, kind: "person", name: p.name, record: p as unknown as Record<string, unknown> })),
+    ...(dataset.contextEntities || []).map((e) => ({ id: e.id, kind: e.kind as string, name: e.name, record: e as unknown as Record<string, unknown> })),
   ];
   return new Map(entries.map((n) => [n.id, n]));
 }
 
-const claimsOf = (dataset: FamilyDataset) => new Map((dataset.claims || []).map((c) => [c.id, c]));
-
-const brief = (claim: ResearchClaim): ClaimChange => ({
+const plain = ({ id, kind, name }: NodeChange): NodeChange => ({ id, kind, name });
+const edgesOf = (dataset: FamilyDataset) => new Map((dataset.claims || []).map((c) => [c.id, c]));
+const targetOf = (claim: ResearchClaim) => ("entityId" in claim.object ? claim.object.entityId : String(claim.object.value));
+const brief = (claim: ResearchClaim): EdgeChange => ({
   id: claim.id,
-  subjectId: claim.subjectId,
-  predicate: claim.predicate,
-  qualification: claim.qualification as string,
+  from: claim.subjectId,
+  name: claim.predicate,
+  target: targetOf(claim),
+  qualification: claim.qualification,
 });
-
-const targetsOf = (claim: ResearchClaim): string[] =>
-  [claim.subjectId, "entityId" in claim.object ? (claim.object as { entityId: string }).entityId : undefined].filter(
-    Boolean,
-  ) as string[];
+// A missing list and an empty one are the same record.
+const same = (a: unknown, b: unknown) =>
+  canonical(Array.isArray(a) && !a.length ? undefined : a) === canonical(Array.isArray(b) && !b.length ? undefined : b);
+const citations = (claim: ResearchClaim) => ({
+  evidence: ["supports", "challenges", "context"].map((role) => claim.evidence.filter((e) => e.role === role).map((e) => e.ref).sort()),
+  sources: [...(claim.sourceIds || [])].sort(),
+});
+const ends = (claim: ResearchClaim) => [claim.subjectId, "entityId" in claim.object ? claim.object.entityId : undefined];
 
 export function diffGraphs(before: FamilyDataset, after: FamilyDataset): GraphDiff {
   const was = nodesOf(before);
   const now = nodesOf(after);
   const addedNodes: NodeChange[] = [];
-  const removedNodes: NodeChange[] = [];
   const renamedNodes: RenamedNode[] = [];
+  const editedNodes: EditedNode[] = [];
   for (const [id, node] of now) {
     const prior = was.get(id);
-    if (!prior) { addedNodes.push(node); continue; }
-    if (prior.name !== node.name) renamedNodes.push({ ...node, wasName: prior.name });
+    if (!prior) { addedNodes.push(plain(node)); continue; }
+    if (prior.name !== node.name) renamedNodes.push({ ...plain(node), wasName: prior.name });
+    const fields = [...new Set([...Object.keys(prior.record), ...Object.keys(node.record)])].filter(
+      (key) => key !== "id" && key !== "name" && !same(prior.record[key], node.record[key]),
+    );
+    if (fields.length || prior.kind !== node.kind) editedNodes.push({ ...plain(node), fields: prior.kind !== node.kind ? ["kind", ...fields] : fields });
   }
-  for (const [id, node] of was) if (!now.has(id)) removedNodes.push(node);
+  const gone = [...was.values()].filter((n) => !now.has(n.id));
 
-  const priorClaims = claimsOf(before);
-  const draftClaims = claimsOf(after);
-  const addedClaims: ClaimChange[] = [];
-  const removedClaims: ClaimChange[] = [];
-  const changedClaims: ClaimChange[] = [];
-  const requalifiedClaims: RequalifiedClaim[] = [];
-  for (const [id, claim] of draftClaims) {
-    const prior = priorClaims.get(id);
-    if (!prior) { addedClaims.push(brief(claim)); continue; }
-    if (canonical(prior as unknown as Record<string, unknown>) === canonical(claim as unknown as Record<string, unknown>)) continue;
-    if (prior.qualification !== claim.qualification)
-      requalifiedClaims.push({ ...brief(claim), wasQualification: prior.qualification as string });
-    else changedClaims.push(brief(claim));
+  const priorEdges = edgesOf(before);
+  const draftEdges = edgesOf(after);
+  const addedEdges: EdgeChange[] = [];
+  const removedEdges: EdgeChange[] = [];
+  const movedEdges: MovedEdge[] = [];
+  const requalifiedEdges: RequalifiedEdge[] = [];
+  const rewordedEdges: EdgeChange[] = [];
+  const recitedEdges: EdgeChange[] = [];
+  // Where each vanished node's edges went.
+  const destinations = new Map<string, Set<string>>();
+  for (const [id, edge] of draftEdges) {
+    const prior = priorEdges.get(id);
+    if (!prior) { addedEdges.push(brief(edge)); continue; }
+    const [fromWas, toWas] = ends(prior);
+    const [fromNow, toNow] = ends(edge);
+    if (fromWas !== fromNow || toWas !== toNow) {
+      movedEdges.push({ ...brief(edge), wasFrom: prior.subjectId, wasTarget: targetOf(prior) });
+      for (const [old, current] of [[fromWas, fromNow], [toWas, toNow]])
+        if (old && current && old !== current && !now.has(old) && now.has(current))
+          destinations.set(old, (destinations.get(old) || new Set()).add(current));
+    } else if (prior.qualification !== edge.qualification)
+      requalifiedEdges.push({ ...brief(edge), wasQualification: prior.qualification });
+    else if (["predicate", "object", "time", "reasoning"].some((key) => !same(prior[key as keyof ResearchClaim], edge[key as keyof ResearchClaim])))
+      rewordedEdges.push(brief(edge));
+    else if (!same(citations(prior), citations(edge))) recitedEdges.push(brief(edge));
   }
-  for (const [id, claim] of priorClaims) if (!draftClaims.has(id)) removedClaims.push(brief(claim));
+  for (const [id, edge] of priorEdges) if (!draftEdges.has(id)) removedEdges.push(brief(edge));
 
-  // A removed node whose claims now point somewhere else was merged, not deleted.
-  // Report it that way, because "two nodes became one" is what the human decided.
-  const merges: MergedNodes[] = [];
-  const vanished = new Set(removedNodes.map((n) => n.id));
-  const survivors = new Map<string, Set<string>>();
-  if (vanished.size)
-    for (const [id, prior] of priorClaims) {
-      const draft = draftClaims.get(id);
-      if (!draft) continue;
-      const beforeTargets = targetsOf(prior);
-      const afterTargets = targetsOf(draft);
-      for (let at = 0; at < beforeTargets.length; at++) {
-        const from = beforeTargets[at];
-        const to = afterTargets[at];
-        if (!from || !to || from === to || !vanished.has(from) || !now.has(to)) continue;
-        survivors.set(to, (survivors.get(to) || new Set()).add(from));
-      }
-    }
-  for (const [into, gone] of survivors) {
-    const survivor = now.get(into);
-    if (!survivor) continue;
-    merges.push({ into: survivor, gone: [...gone].map((id) => was.get(id)!).filter(Boolean) });
+  // A vanished node whose moved edges all went to one node was merged into it.
+  // One whose edges went to several nodes was removed, and says where they went.
+  const merges = new Map<string, MergedNodes>();
+  const removedNodes: RemovedNode[] = [];
+  for (const node of gone) {
+    const targets = [...(destinations.get(node.id) || [])].map((id) => plain(now.get(id)!));
+    if (targets.length === 1) {
+      const into = targets[0]!;
+      const merge = merges.get(into.id) || { into, gone: [] };
+      merge.gone.push(plain(node));
+      merges.set(into.id, merge);
+    } else removedNodes.push({ ...plain(node), edgesMovedTo: targets });
   }
-  const merged = new Set([...survivors.values()].flatMap((set) => [...set]));
 
-  const ids = (list: { id: string }[] | undefined) => new Set((list || []).map((x) => x.id));
-  const beforeEvidence = ids(before.evidence);
-  const afterEvidence = ids(after.evidence);
-  const beforeSources = ids(before.sources);
-  const afterSources = ids(after.sources);
-
+  const held = new Set((before.evidence || []).map((e) => e.id));
+  const cited = new Set((after.claims || []).flatMap((c) => c.evidence.map((e) => e.ref)));
   const diff: GraphDiff = {
     addedNodes,
-    // A merged node is accounted for by its merge, not listed again as a removal.
-    removedNodes: removedNodes.filter((n) => !merged.has(n.id)),
+    removedNodes,
     renamedNodes,
-    merges,
-    addedClaims,
-    removedClaims,
-    changedClaims,
-    requalifiedClaims,
-    addedEvidence: [...afterEvidence].filter((id) => !beforeEvidence.has(id)),
-    removedEvidence: [...beforeEvidence].filter((id) => !afterEvidence.has(id)),
-    addedSources: [...afterSources].filter((id) => !beforeSources.has(id)),
-    removedSources: [...beforeSources].filter((id) => !afterSources.has(id)),
+    editedNodes,
+    merges: [...merges.values()],
+    addedEdges,
+    removedEdges,
+    movedEdges,
+    requalifiedEdges,
+    rewordedEdges,
+    recitedEdges,
+    evidenceToCopy: [...cited].filter((id) => !held.has(id)),
     unchanged: false,
   };
-  diff.unchanged = !(
-    diff.addedNodes.length ||
-    diff.removedNodes.length ||
-    diff.renamedNodes.length ||
-    diff.merges.length ||
-    diff.addedClaims.length ||
-    diff.removedClaims.length ||
-    diff.changedClaims.length ||
-    diff.requalifiedClaims.length ||
-    diff.addedEvidence.length ||
-    diff.removedEvidence.length ||
-    diff.addedSources.length ||
-    diff.removedSources.length
-  );
+  diff.unchanged = Object.values(diff).every((value) => !Array.isArray(value) || value.length === 0);
   return diff;
 }
 
@@ -166,20 +173,20 @@ export function describeDiff(diff: GraphDiff): string {
   if (diff.unchanged) return "No changes.";
   const counted = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
   const parts: string[] = [];
-  if (diff.addedNodes.length) parts.push(`${counted(diff.addedNodes.length, "new node")}`);
-  if (diff.merges.length) {
-    const gone = diff.merges.reduce((total, m) => total + m.gone.length, 0);
-    parts.push(
-      diff.merges.length === 1
-        ? `${counted(gone + 1, "node")} merged into one`
-        : `${counted(diff.merges.length, "merge")} collapsing ${counted(gone + diff.merges.length, "node")}`,
-    );
-  }
+  const merged = diff.merges.reduce((total, m) => total + m.gone.length, 0);
+  if (diff.merges.length === 1) parts.push(`${merged + 1} nodes merged into one`);
+  else if (diff.merges.length) parts.push(`${diff.merges.length} merges folding ${counted(merged, "node")} into others`);
+  if (diff.addedNodes.length) parts.push(counted(diff.addedNodes.length, "new node"));
   if (diff.removedNodes.length) parts.push(`${counted(diff.removedNodes.length, "node")} removed`);
-  if (diff.renamedNodes.length) parts.push(`${counted(diff.renamedNodes.length, "rename")}`);
-  if (diff.addedClaims.length) parts.push(`${counted(diff.addedClaims.length, "new claim")}`);
-  if (diff.changedClaims.length) parts.push(`${counted(diff.changedClaims.length, "claim")} reworded`);
-  if (diff.requalifiedClaims.length) parts.push(`${counted(diff.requalifiedClaims.length, "claim")} requalified`);
-  if (diff.removedClaims.length) parts.push(`${counted(diff.removedClaims.length, "claim")} removed`);
-  return `${parts.join(", ")}.`;
+  if (diff.renamedNodes.length) parts.push(counted(diff.renamedNodes.length, "node renamed", "nodes renamed"));
+  if (diff.editedNodes.length) parts.push(counted(diff.editedNodes.length, "node edited", "nodes edited"));
+  if (diff.addedEdges.length) parts.push(counted(diff.addedEdges.length, "new edge"));
+  if (diff.movedEdges.length) parts.push(`${counted(diff.movedEdges.length, "edge")} moved`);
+  if (diff.rewordedEdges.length) parts.push(`${counted(diff.rewordedEdges.length, "edge")} reworded`);
+  if (diff.requalifiedEdges.length) parts.push(`${counted(diff.requalifiedEdges.length, "edge")} requalified`);
+  if (diff.recitedEdges.length) parts.push(`${counted(diff.recitedEdges.length, "edge")} with changed citations`);
+  if (diff.removedEdges.length) parts.push(`${counted(diff.removedEdges.length, "edge")} removed`);
+  if (diff.evidenceToCopy.length) parts.push(`${counted(diff.evidenceToCopy.length, "evidence record")} added from the research`);
+  const line = parts.join(", ");
+  return `${line.charAt(0).toUpperCase()}${line.slice(1)}.`;
 }

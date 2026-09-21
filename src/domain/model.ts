@@ -1,16 +1,112 @@
 import type {
   Confidence,
   ContextConnectionRecord,
+  ContextConnectionType,
   ContextEntityRecord,
   FamilyDataset,
   ParentLink,
   PersonRecord,
   RelationshipNeighbor,
+  ResearchClaim,
   SourceRecord,
   UnionRecord,
 } from "./types";
+import { isCoupleEdge, isFamilyEdge, parentEdgeType } from "./family-edges.ts";
 
 const DEFAULT_CONFIDENCE: Confidence = "established";
+
+export const confidenceFor: Record<ResearchClaim["qualification"], Confidence> = {
+  supported: "established",
+  reported: "unknown",
+  inferred: "probable",
+  disputed: "disputed",
+  unresolved: "unknown",
+};
+
+// Display grouping for a few common edge names. Any other name is an association.
+const connectionTypes: Record<string, ContextConnectionType> = {
+  located_in: "location",
+  built_at: "location",
+  established: "founding",
+  built: "founding",
+  operated: "management",
+  partner_in: "partnership",
+};
+
+const target = (claim: ResearchClaim) => ("entityId" in claim.object ? claim.object.entityId : null);
+
+// Every source an edge cites, directly or through its evidence.
+export function claimSourceIds(dataset: FamilyDataset, claim: ResearchClaim): string[] {
+  const evidence = new Map((dataset.evidence ?? []).map((e) => [e.id, e.sourceId]));
+  return [
+    ...new Set([
+      ...claim.evidence.map((e) => evidence.get(e.ref)).filter((id): id is string => Boolean(id)),
+      ...(claim.sourceIds ?? []),
+    ]),
+  ];
+}
+
+// Relationships drawn between nodes, rebuilt from the edges that point at nodes.
+export function connectionsFromClaims(dataset: FamilyDataset): ContextConnectionRecord[] {
+  return (dataset.claims ?? [])
+    .filter((claim) => target(claim) && !isFamilyEdge(claim))
+    .map((claim) => ({
+      id: claim.id,
+      fromId: claim.subjectId,
+      toId: target(claim)!,
+      type: connectionTypes[claim.predicate] ?? "association",
+      label: claim.predicate.replaceAll("_", " "),
+      ...(claim.time ? { date: claim.time } : {}),
+      confidence: confidenceFor[claim.qualification] ?? "unknown",
+      qualification: claim.qualification,
+      sourceIds: claimSourceIds(dataset, claim),
+    }));
+}
+
+// Couples, and the children both partners are recorded as parents of, grouped for
+// the family layout. A couple is identified by its first couple edge.
+function familyFromClaims(dataset: FamilyDataset): { unions: UnionRecord[]; parentLinks: ParentLink[] } {
+  const claims = (dataset.claims ?? []).filter((c) => target(c));
+  const pair = (a: string, b: string) => [a, b].sort().join("\u0000");
+  const unions = new Map<string, UnionRecord>();
+  for (const claim of claims.filter((c) => isCoupleEdge(c.predicate))) {
+    const other = target(claim)!;
+    if (other === claim.subjectId || unions.has(pair(claim.subjectId, other))) continue;
+    unions.set(pair(claim.subjectId, other), {
+      id: claim.id,
+      partnerIds: [claim.subjectId, other],
+      type: "marriage",
+      ...(claim.time ? { date: claim.time } : {}),
+      confidence: confidenceFor[claim.qualification] ?? DEFAULT_CONFIDENCE,
+      sourceIds: claimSourceIds(dataset, claim),
+    });
+  }
+  const parentEdges = claims.filter((c) => parentEdgeType(c.predicate) && target(c) !== c.subjectId);
+  const parentsOf = new Map<string, string[]>();
+  for (const edge of parentEdges) pushToMap(parentsOf, target(edge)!, edge.subjectId);
+  const parentLinks: ParentLink[] = parentEdges.map((edge) => {
+    const child = target(edge)!;
+    const union = (parentsOf.get(child) ?? [])
+      .filter((other) => other !== edge.subjectId)
+      .map((other) => unions.get(pair(edge.subjectId, other)))
+      .find(Boolean);
+    return {
+      id: edge.id,
+      parentId: edge.subjectId,
+      childId: child,
+      ...(union ? { unionId: union.id } : {}),
+      type: parentEdgeType(edge.predicate)!,
+      confidence: confidenceFor[edge.qualification] ?? DEFAULT_CONFIDENCE,
+      ...(edge.reasoning ? { label: edge.reasoning.split("\n")[0] } : {}),
+      sourceIds: claimSourceIds(dataset, edge),
+    };
+  });
+  for (const link of parentLinks) {
+    const union = link.unionId && [...unions.values()].find((u) => u.id === link.unionId);
+    if (union && !union.childIds?.includes(link.childId)) (union.childIds ??= []).push(link.childId);
+  }
+  return { unions: [...unions.values()], parentLinks };
+}
 
 function assertUniqueIds(records: Array<{ id: string }>, label: string): void {
   const seen = new Set<string>();
@@ -44,6 +140,7 @@ export class GenealogyModel {
   readonly contextEntitiesById: ReadonlyMap<string, ContextEntityRecord>;
   readonly sourcesById: ReadonlyMap<string, SourceRecord>;
   readonly parentLinks: readonly ParentLink[];
+  readonly contextConnections: readonly ContextConnectionRecord[];
 
   private readonly unionsForPersonIndex = new Map<string, UnionRecord[]>();
   private readonly parentLinksForChildIndex = new Map<string, ParentLink[]>();
@@ -56,16 +153,15 @@ export class GenealogyModel {
   constructor(dataset: FamilyDataset) {
     this.dataset = dataset;
     assertUniqueIds(dataset.people, "person");
-    assertUniqueIds(dataset.unions, "union");
-    assertUniqueIds(dataset.directParentage ?? [], "direct parentage");
     assertUniqueIds(dataset.contextEntities ?? [], "context entity");
-    assertUniqueIds(dataset.contextConnections ?? [], "context connection");
     assertUniqueIds(dataset.sources ?? [], "source");
 
     this.peopleById = new Map(
       dataset.people.map((person) => [person.id, person]),
     );
-    this.unionsById = new Map(dataset.unions.map((union) => [union.id, union]));
+    const family = familyFromClaims(dataset);
+    this.unionsById = new Map(family.unions.map((union) => [union.id, union]));
+    this.contextConnections = connectionsFromClaims(dataset);
     this.contextEntitiesById = new Map(
       (dataset.contextEntities ?? []).map((entity) => [entity.id, entity]),
     );
@@ -74,7 +170,7 @@ export class GenealogyModel {
     );
 
     this.validateDataset();
-    this.parentLinks = this.buildParentLinks();
+    this.parentLinks = family.parentLinks;
     this.buildIndexes();
   }
 
@@ -99,6 +195,11 @@ export class GenealogyModel {
       throw new Error(`Unknown person: ${personId}`);
     }
     return person;
+  }
+
+  // Parent links that are not part of a recorded couple.
+  get directParentLinks(): readonly ParentLink[] {
+    return this.parentLinks.filter((link) => !link.unionId);
   }
 
   getUnion(unionId: string): UnionRecord {
@@ -292,16 +393,12 @@ export class GenealogyModel {
   }
 
   private validateDataset(): void {
-    if (this.dataset.version !== 1) {
+    if (this.dataset.version !== 2) {
       throw new Error(`Unsupported dataset version: ${this.dataset.version}`);
     }
 
     assertUniqueIds(
-      [
-        ...this.dataset.people,
-        ...this.dataset.unions,
-        ...(this.dataset.contextEntities ?? []),
-      ],
+      [...this.dataset.people, ...(this.dataset.contextEntities ?? [])],
       "graph node",
     );
     if (
@@ -313,52 +410,8 @@ export class GenealogyModel {
       );
     }
 
-    for (const person of this.dataset.people) {
-      this.validateSourceIds(person.sourceIds ?? [], `person ${person.id}`);
-    }
-
-    for (const union of this.dataset.unions) {
-      if (union.partnerIds.length === 0) {
-        throw new Error(`Union ${union.id} has no partners.`);
-      }
-      if (new Set(union.partnerIds).size !== union.partnerIds.length) {
-        throw new Error(`Union ${union.id} contains a duplicate partner.`);
-      }
-      for (const personId of [...union.partnerIds, ...(union.childIds ?? [])]) {
-        if (!this.peopleById.has(personId)) {
-          throw new Error(
-            `Union ${union.id} references unknown person: ${personId}`,
-          );
-        }
-      }
-      for (const childId of union.childIds ?? []) {
-        if (union.partnerIds.includes(childId)) {
-          throw new Error(
-            `Union ${union.id} lists a partner as a child: ${childId}`,
-          );
-        }
-      }
-      this.validateSourceIds(union.sourceIds ?? [], `union ${union.id}`);
-    }
-
-    for (const link of this.dataset.directParentage ?? []) {
-      if (!this.peopleById.has(link.parentId)) {
-        throw new Error(
-          `Direct parentage ${link.id} references unknown parent: ${link.parentId}`,
-        );
-      }
-      if (!this.peopleById.has(link.childId)) {
-        throw new Error(
-          `Direct parentage ${link.id} references unknown child: ${link.childId}`,
-        );
-      }
-      if (link.parentId === link.childId) {
-        throw new Error(`Direct parentage ${link.id} is self-referential.`);
-      }
-      this.validateSourceIds(
-        link.sourceIds ?? [],
-        `direct parentage ${link.id}`,
-      );
+    for (const node of [...this.dataset.people, ...(this.dataset.contextEntities ?? [])]) {
+      this.validateSourceIds(node.sourceIds ?? [], `node ${node.id}`);
     }
 
     assertUniqueIds(this.dataset.claims ?? [], "claim");
@@ -367,36 +420,9 @@ export class GenealogyModel {
     for (const evidence of this.dataset.evidence ?? []) this.validateSourceIds([evidence.sourceId], `evidence ${evidence.id}`);
     for (const claim of this.dataset.claims ?? []) {
       if (!this.hasNode(claim.subjectId) || ("entityId" in claim.object && !this.hasNode(claim.object.entityId))) throw new Error(`Claim ${claim.id} references an unknown node.`);
+      if ("entityId" in claim.object && claim.object.entityId === claim.subjectId) throw new Error(`Claim ${claim.id} points at its own subject.`);
       if (claim.evidence.some(e => !evidenceIds.has(e.ref))) throw new Error(`Claim ${claim.id} references unknown evidence.`);
-    }
-
-    for (const entity of this.dataset.contextEntities ?? []) {
-      this.validateSourceIds(
-        entity.sourceIds ?? [],
-        `context entity ${entity.id}`,
-      );
-    }
-
-    for (const connection of this.dataset.contextConnections ?? []) {
-      if (!this.isContextEndpoint(connection.fromId)) {
-        throw new Error(
-          `Context connection ${connection.id} references unknown endpoint: ${connection.fromId}`,
-        );
-      }
-      if (!this.isContextEndpoint(connection.toId)) {
-        throw new Error(
-          `Context connection ${connection.id} references unknown endpoint: ${connection.toId}`,
-        );
-      }
-      if (connection.fromId === connection.toId) {
-        throw new Error(
-          `Context connection ${connection.id} is self-referential.`,
-        );
-      }
-      this.validateSourceIds(
-        connection.sourceIds ?? [],
-        `context connection ${connection.id}`,
-      );
+      this.validateSourceIds(claim.sourceIds ?? [], `claim ${claim.id}`);
     }
   }
 
@@ -412,40 +438,8 @@ export class GenealogyModel {
     }
   }
 
-  private buildParentLinks(): ParentLink[] {
-    const links: ParentLink[] = [];
-
-    for (const union of this.dataset.unions) {
-      for (const childId of union.childIds ?? []) {
-        for (const parentId of union.partnerIds) {
-          links.push({
-            parentId,
-            childId,
-            unionId: union.id,
-            type: "biological",
-            confidence: union.confidence ?? DEFAULT_CONFIDENCE,
-            sourceIds: union.sourceIds ?? [],
-          });
-        }
-      }
-    }
-
-    for (const link of this.dataset.directParentage ?? []) {
-      links.push({
-        parentId: link.parentId,
-        childId: link.childId,
-        type: link.type ?? "unknown",
-        confidence: link.confidence ?? DEFAULT_CONFIDENCE,
-        label: link.label,
-        sourceIds: link.sourceIds ?? [],
-      });
-    }
-
-    return links;
-  }
-
   private buildIndexes(): void {
-    for (const union of this.dataset.unions) {
+    for (const union of this.unionsById.values()) {
       for (const partnerId of union.partnerIds) {
         pushToMap(this.unionsForPersonIndex, partnerId, union);
       }
@@ -456,7 +450,7 @@ export class GenealogyModel {
       pushToMap(this.parentLinksForParentIndex, link.parentId, link);
     }
 
-    for (const connection of this.dataset.contextConnections ?? []) {
+    for (const connection of this.contextConnections) {
       pushToMap(this.contextConnectionsIndex, connection.fromId, connection);
       pushToMap(this.contextConnectionsIndex, connection.toId, connection);
     }

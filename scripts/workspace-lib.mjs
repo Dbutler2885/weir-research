@@ -96,14 +96,13 @@ export function createTopicProject(topic) {
     id = `${base}-${number}`;
   const directory = join(home, "projects", id);
   const state = initialState({
-    version: 1,
+    version: 2,
     title: name,
     initialFocusId: null,
     people: [],
-    unions: [],
     contextEntities: [],
-    contextConnections: [],
-    directParentage: [],
+    claims: [],
+    evidence: [],
     sources: [],
   });
   save(join(directory, "workspace.json"), state);

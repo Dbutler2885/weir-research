@@ -9,16 +9,18 @@ import { layoutFamily } from "../src/layout/layout";
 import { initialState, transition } from "../src/domain/research";
 import { WorkspaceStore } from "../server/store.mjs";
 import { organize } from "../server/organization.mjs";
-import type { FamilyDataset } from "../src/domain/types";
+import type { FamilyDataset, ResearchClaim } from "../src/domain/types";
 const empty = (): FamilyDataset => ({
-  version: 1,
+  version: 2,
   title: "Industrial history",
   initialFocusId: null,
   people: [],
-  unions: [],
   contextEntities: [],
-  contextConnections: [],
+  claims: [],
   sources: [],
+});
+const edge = (id: string, from: string, name: string, to: string, qualification: ResearchClaim["qualification"] = "supported"): ResearchClaim => ({
+  id, subjectId: from, predicate: name, object: { entityId: to }, qualification, time: null, reasoning: "", evidence: [],
 });
 const directories: string[] = [];
 afterEach(() =>
@@ -59,16 +61,7 @@ describe("topic-first research projects", () => {
       { id: "lubec", name: "Lubec, Maine", kind: "place" },
       { id: "mill", name: "Mill", kind: "organization" },
     ];
-    d.contextConnections = [
-      {
-        id: "location",
-        fromId: "mill",
-        toId: "lubec",
-        type: "association",
-        label: "Location under investigation",
-        confidence: "unknown",
-      },
-    ];
+    d.claims = [edge("location", "mill", "location_under_investigation", "lubec", "unresolved")];
     const m = new GenealogyModel(d);
     const projection = projectAround(m, "lubec");
     const layout = await layoutFamily(m, projection);
@@ -82,15 +75,7 @@ describe("topic-first research projects", () => {
     const d = empty();
     d.people = [{ id: "person", name: "A person" }];
     d.contextEntities = [{ id: "place", name: "A place", kind: "place" }];
-    d.contextConnections = [
-      {
-        id: "c",
-        fromId: "person",
-        toId: "place",
-        type: "association",
-        label: "Research connection",
-      },
-    ];
+    d.claims = [edge("c", "person", "research_connection", "place")];
     d.initialFocusId = "place";
     const m = new GenealogyModel(d);
     const projection = projectAround(m, "place");
@@ -177,15 +162,7 @@ describe("topic-first research projects", () => {
     const d = empty();
     d.people = [{ id: "p", name: "Person" }];
     d.contextEntities = [{ id: "l", name: "Lubec", kind: "place" }];
-    d.contextConnections = [
-      {
-        id: "c",
-        fromId: "p",
-        toId: "l",
-        type: "association",
-        label: "Connection",
-      },
-    ];
+    d.claims = [edge("c", "p", "connection", "l")];
     d.initialFocusId = "p";
     const store = storeFor(d);
     const preview = organize(store, {
@@ -193,7 +170,7 @@ describe("topic-first research projects", () => {
       keepIds: ["l"],
     }) as any;
     organize(store, { action: "organization-apply", previewId: preview.id });
-    expect(store.state.dataset.contextConnections).toHaveLength(0);
+    expect(store.state.dataset.claims).toHaveLength(0);
     const blank = organize(store, {
       action: "organization-preview",
       keepIds: [],

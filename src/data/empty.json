@@ -1,11 +1,10 @@
 {
-  "version": 1,
+  "version": 2,
   "title": "Research workspace",
   "initialFocusId": null,
   "people": [],
-  "unions": [],
-  "directParentage": [],
   "contextEntities": [],
-  "contextConnections": [],
+  "claims": [],
+  "evidence": [],
   "sources": []
 }

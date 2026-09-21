@@ -33,7 +33,7 @@ describe("saved graph import", () => {
       if (!("undoId" in applied)) throw new Error("Expected applied import");
       const reloaded = new WorkspaceStore(directory, empty);
       expect(reloaded.state.dataset.claims).toHaveLength(2);
-      expect(reloaded.state.dataset.contextConnections[0].qualification).toBe("inferred");
+      expect(new GenealogyModel(reloaded.state.dataset).contextConnections[0]!.qualification).toBe("inferred");
       expect(reloaded.state.investigations).toEqual(before);
       const panel = document.createElement("aside");
       renderContextDetailsPanel(panel, new GenealogyModel(reloaded.state.dataset), "works", { onClose() {}, onNavigate() {}, onOpenContextEntity() {} });
@@ -42,7 +42,7 @@ describe("saved graph import", () => {
       expect(panel.textContent).toContain("About twenty hands worked at Example Works.");
       expect(panel.querySelector('[data-inspect-source="source"]')).not.toBeNull();
       organize(store, { action: "organization-undo", undoId: applied.undoId });
-      expect(store.state.dataset.claims).toBeUndefined();
+      expect(store.state.dataset.claims).toEqual([]);
       expect(store.state.dataset.people).toHaveLength(0);
       expect(store.state.investigations).toEqual(before);
     } finally { rmSync(directory, { recursive: true, force: true }); }
@@ -59,7 +59,7 @@ describe("saved graph import", () => {
       expect(() => graphImport(store, { action: "apply", previewId: preview.previewId })).toThrow(/changed since preview/);
       input.packet.sources = [];
       expect(() => graphImport(store, { action: "preview", ...input })).toThrow(/missing from the supplied registry/);
-      expect(store.state.dataset.claims).toBeUndefined();
+      expect(store.state.dataset.claims).toEqual([]);
     } finally { rmSync(directory, { recursive: true, force: true }); }
   });
 });

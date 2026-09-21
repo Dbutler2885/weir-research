@@ -177,20 +177,13 @@ export class GraphRenderer {
         edge.kind === "context" ? edge.id : null,
       )
       .attr("data-research-target", (edge) => {
-        const direct = model.dataset.directParentage?.find(
-          (link) => link.id === edge.id,
-        );
+        // Every drawn line is an edge; a couple's lines point at its couple edge.
         const union = [...model.unionsById.values()].find((item) =>
           edge.id.startsWith(`${item.id}:`),
         );
         return JSON.stringify({
-          table:
-            edge.kind === "context"
-              ? "contextConnections"
-              : direct
-                ? "directParentage"
-                : "unions",
-          recordId: edge.kind === "context" || direct ? edge.id : union?.id,
+          table: "claims",
+          recordId: union?.id ?? edge.id,
           label: `${model.contextNodeName(edge.sourceId)} → ${model.contextNodeName(edge.targetId)}${edge.label ? `: ${edge.label}` : ""}`,
         });
       })

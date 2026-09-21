@@ -33,6 +33,8 @@ export interface PersonRecord {
   sourceIds?: string[];
 }
 
+// Couples and parents are ordinary edges ("married_to", "parent_of"). The model
+// groups them into these shapes for the family layout; they are never stored.
 export interface UnionRecord {
   id: string;
   partnerIds: string[];
@@ -120,23 +122,34 @@ export interface ResearchClaim {
   time: string | null;
   reasoning: string;
   evidence: { ref: string; role: "supports" | "challenges" | "context" }[];
+  // Sources cited without a specific passage.
+  sourceIds?: string[];
 }
 
+// The graph is nodes and edges. People and context entities are the nodes;
+// claims are the edges, from a node to another node or to a value.
 export interface FamilyDataset {
-  claims?: ResearchClaim[];
-  evidence?: ResearchEvidence[];
-  version: number;
+  version: 2;
   title: string;
   initialFocusId: string | null;
   people: PersonRecord[];
-  unions: UnionRecord[];
-  directParentage?: DirectParentageRecord[];
   contextEntities?: ContextEntityRecord[];
-  contextConnections?: ContextConnectionRecord[];
+  claims?: ResearchClaim[];
+  evidence?: ResearchEvidence[];
   sources?: SourceRecord[];
 }
 
+// The stored shape before the graph was reduced to nodes and edges.
+export interface LegacyDataset extends Omit<FamilyDataset, "version"> {
+  version: number;
+  unions?: UnionRecord[];
+  directParentage?: DirectParentageRecord[];
+  contextConnections?: ContextConnectionRecord[];
+}
+
 export interface ParentLink {
+  // The edge this link was read from.
+  id: string;
   parentId: string;
   childId: string;
   unionId?: string;

@@ -10,6 +10,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { initialState, transition } from "../src/domain/research.ts";
+import { needsGraphUpgrade, upgradeGraphState } from "../src/domain/graph-upgrade.ts";
 
 export class WorkspaceStore {
   constructor(directory, dataset) {
@@ -23,6 +24,13 @@ export class WorkspaceStore {
         "Unsupported or corrupt workspace. Original state has been preserved.",
       );
     if (!existsSync(this.path)) this.save(this.state);
+    // A graph stored before it was reduced to nodes and edges is converted once,
+    // keeping the original beside it.
+    if (needsGraphUpgrade(this.state)) {
+      const backup = join(directory, "workspace.before-nodes-edges.json");
+      if (!existsSync(backup)) writeFileSync(backup, readFileSync(this.path), { mode: 0o600 });
+      this.save(upgradeGraphState(this.state));
+    }
     this.marks = [];
     this.mark(this.state);
   }

@@ -178,16 +178,18 @@ try {
             evidenceIds: ["entry"],
           },
           {
-            table: "contextConnections",
+            table: "claims",
             recordId: "employment",
             before: null,
             after: {
               id: "employment",
-              fromId: "alex",
-              toId: "workshop",
-              type: "employment",
-              label: "Reported employment",
-              confidence: "unknown",
+              subjectId: "alex",
+              predicate: "reported_employment",
+              object: { entityId: "workshop" },
+              qualification: "reported",
+              time: null,
+              reasoning: "Attributed by one register entry.",
+              evidence: [],
               sourceIds: ["fictional-register"],
             },
             reason: "Preserve the attribution as a qualified relationship.",
@@ -236,14 +238,14 @@ try {
       proposalId: graphId,
       groupIds: ["entities"],
     });
-    assert.equal((await state()).dataset.contextConnections.length, 0);
+    assert.equal((await state()).dataset.claims.length, 0);
     await post({
       type: "apply-groups",
       investigationId,
       proposalId: graphId,
       groupIds: ["relationship"],
     });
-    assert.equal((await state()).dataset.contextConnections.length, 1);
+    assert.equal((await state()).dataset.claims.length, 1);
     const before = (await state()).investigations[0].annotations.length;
     await post({
       type: "interface-feedback",

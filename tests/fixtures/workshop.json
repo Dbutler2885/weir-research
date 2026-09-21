@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "title": "Fictional workshop fixture",
   "initialFocusId": "alex",
   "people": [
@@ -56,41 +56,6 @@
       ]
     }
   ],
-  "unions": [
-    {
-      "id": "parents",
-      "partnerIds": [
-        "casey",
-        "drew"
-      ],
-      "childIds": [
-        "alex",
-        "erin"
-      ]
-    },
-    {
-      "id": "couple",
-      "partnerIds": [
-        "alex",
-        "blair"
-      ],
-      "childIds": [
-        "fran"
-      ]
-    }
-  ],
-  "directParentage": [
-    {
-      "id": "uncertain",
-      "parentId": "casey",
-      "childId": "blair",
-      "confidence": "disputed",
-      "label": "Parentage uncertain",
-      "sourceIds": [
-        "account"
-      ]
-    }
-  ],
   "contextEntities": [
     {
       "id": "workshop",
@@ -106,29 +71,6 @@
       "kind": "place"
     }
   ],
-  "contextConnections": [
-    {
-      "id": "employment",
-      "fromId": "alex",
-      "toId": "workshop",
-      "type": "employment",
-      "label": "Worked at",
-      "confidence": "established",
-      "sourceIds": [
-        "register"
-      ]
-    },
-    {
-      "id": "location",
-      "fromId": "workshop",
-      "toId": "town",
-      "type": "association",
-      "label": "Located in",
-      "sourceIds": [
-        "register"
-      ]
-    }
-  ],
   "sources": [
     {
       "id": "register",
@@ -138,6 +80,149 @@
     {
       "id": "account",
       "title": "Fictional family account"
+    }
+  ],
+  "claims": [
+    {
+      "id": "parents",
+      "subjectId": "casey",
+      "predicate": "married_to",
+      "object": {
+        "entityId": "drew"
+      },
+      "qualification": "supported",
+      "time": null,
+      "reasoning": "",
+      "evidence": []
+    },
+    {
+      "id": "parents-parent_of-casey-alex",
+      "subjectId": "casey",
+      "predicate": "parent_of",
+      "object": {
+        "entityId": "alex"
+      },
+      "qualification": "supported",
+      "time": null,
+      "reasoning": "",
+      "evidence": []
+    },
+    {
+      "id": "parents-parent_of-drew-alex",
+      "subjectId": "drew",
+      "predicate": "parent_of",
+      "object": {
+        "entityId": "alex"
+      },
+      "qualification": "supported",
+      "time": null,
+      "reasoning": "",
+      "evidence": []
+    },
+    {
+      "id": "parents-parent_of-casey-erin",
+      "subjectId": "casey",
+      "predicate": "parent_of",
+      "object": {
+        "entityId": "erin"
+      },
+      "qualification": "supported",
+      "time": null,
+      "reasoning": "",
+      "evidence": []
+    },
+    {
+      "id": "parents-parent_of-drew-erin",
+      "subjectId": "drew",
+      "predicate": "parent_of",
+      "object": {
+        "entityId": "erin"
+      },
+      "qualification": "supported",
+      "time": null,
+      "reasoning": "",
+      "evidence": []
+    },
+    {
+      "id": "couple",
+      "subjectId": "alex",
+      "predicate": "married_to",
+      "object": {
+        "entityId": "blair"
+      },
+      "qualification": "supported",
+      "time": null,
+      "reasoning": "",
+      "evidence": []
+    },
+    {
+      "id": "couple-parent_of-alex-fran",
+      "subjectId": "alex",
+      "predicate": "parent_of",
+      "object": {
+        "entityId": "fran"
+      },
+      "qualification": "supported",
+      "time": null,
+      "reasoning": "",
+      "evidence": []
+    },
+    {
+      "id": "couple-parent_of-blair-fran",
+      "subjectId": "blair",
+      "predicate": "parent_of",
+      "object": {
+        "entityId": "fran"
+      },
+      "qualification": "supported",
+      "time": null,
+      "reasoning": "",
+      "evidence": []
+    },
+    {
+      "id": "uncertain",
+      "subjectId": "casey",
+      "predicate": "parent_of",
+      "object": {
+        "entityId": "blair"
+      },
+      "qualification": "disputed",
+      "time": null,
+      "reasoning": "Parentage uncertain",
+      "evidence": [],
+      "sourceIds": [
+        "account"
+      ]
+    },
+    {
+      "id": "employment",
+      "subjectId": "alex",
+      "predicate": "Worked_at",
+      "object": {
+        "entityId": "workshop"
+      },
+      "qualification": "supported",
+      "time": null,
+      "reasoning": "",
+      "evidence": [],
+      "sourceIds": [
+        "register"
+      ]
+    },
+    {
+      "id": "location",
+      "subjectId": "workshop",
+      "predicate": "Located_in",
+      "object": {
+        "entityId": "town"
+      },
+      "qualification": "supported",
+      "time": null,
+      "reasoning": "",
+      "evidence": [],
+      "sourceIds": [
+        "register"
+      ]
     }
   ]
 }

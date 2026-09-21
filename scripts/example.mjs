@@ -14,7 +14,7 @@ if (!existsSync(join(directory, "workspace.json"))) {
   let state = initialState(dataset);
   const documentId = "example-baseline";
   const source = dataset.sources.find((s) => s.id === "register");
-  const before = dataset.contextConnections.find((c) => c.id === "employment");
+  const before = state.dataset.claims.find((c) => c.id === "employment");
   const now = new Date().toISOString();
   state.dataset.sources.push({
     id: documentId,
@@ -44,7 +44,7 @@ if (!existsSync(join(directory, "workspace.json"))) {
     question:
       "Example: can I inspect the original evidence for Alex’s employment?",
     target: {
-      table: "contextConnections",
+      table: "claims",
       recordId: before.id,
       label: "Alex Example → Example Workshop",
       text: "Worked for many years · Established",
@@ -92,15 +92,15 @@ if (!existsSync(join(directory, "workspace.json"))) {
       ],
       changes: [
         {
-          table: "contextConnections",
+          table: "claims",
           recordId: before.id,
           before,
           after: {
             ...before,
-            notes: [
-              ...(before.notes || []),
+            reasoning: [
+              before.reasoning,
               "Original-evidence access gap: this workspace cites an register summary but has not preserved the original register or an exact passage locator. Locate the original before treating this as passage-verified evidence.",
-            ],
+            ].filter(Boolean).join("\n"),
           },
           reason:
             "Expose the source-access limitation while preserving the existing relationship and its current confidence designation.",

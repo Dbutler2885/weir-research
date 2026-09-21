@@ -49,18 +49,6 @@ export function organize(store, command) {
     data.contextEntities = (data.contextEntities || []).filter((n) =>
       kept.has(n.id),
     );
-    data.unions = data.unions
-      .filter((u) => u.partnerIds.every((id) => kept.has(id)))
-      .map((u) => ({
-        ...u,
-        childIds: (u.childIds || []).filter((id) => kept.has(id)),
-      }));
-    data.directParentage = (data.directParentage || []).filter(
-      (c) => kept.has(c.parentId) && kept.has(c.childId),
-    );
-    data.contextConnections = (data.contextConnections || []).filter(
-      (c) => kept.has(c.fromId) && kept.has(c.toId),
-    );
     data.claims = (data.claims || []).filter(c => kept.has(c.subjectId) && (!c.object.entityId || kept.has(c.object.entityId)));
     const added = [];
     if (command.seed) {

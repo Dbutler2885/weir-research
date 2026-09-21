@@ -126,16 +126,18 @@ describe("finding and graph phases", () => {
           evidenceIds: ["e"],
         },
         {
-          table: "contextConnections",
+          table: "claims",
           recordId: "job",
           before: null,
           after: {
             id: "job",
-            fromId: "alex",
-            toId: "shop",
-            type: "employment",
-            label: "Reported employment",
-            confidence: "unknown",
+            subjectId: "alex",
+            predicate: "reported_employment",
+            object: { entityId: "shop" },
+            qualification: "reported",
+            time: null,
+            reasoning: "Attributed by one source.",
+            evidence: [],
             sourceIds: ["register"],
           },
           reason: "Attributed relationship",
@@ -165,9 +167,9 @@ describe("finding and graph phases", () => {
     ).toThrow("required groups");
     f.run({ type: "apply-groups", proposalId: p, groupIds: ["entities"] });
     expect(f.state().dataset.people).toHaveLength(1);
-    expect(f.state().dataset.contextConnections).toHaveLength(0);
+    expect(f.state().dataset.claims).toHaveLength(0);
     f.run({ type: "apply-groups", proposalId: p, groupIds: ["job"] });
-    expect(f.state().dataset.contextConnections).toHaveLength(1);
+    expect(f.state().dataset.claims).toHaveLength(1);
     expect(
       f.state().investigations[0]!.proposals[0]!.findings![1]!.status,
     ).toBe("pending");

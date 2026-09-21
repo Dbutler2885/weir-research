@@ -13,7 +13,8 @@ import {
 import type { Finding, FindingRef, GraphGroup } from "./findings.ts";
 import type { SourceRecord } from "./types.ts";
 import { GenealogyModel } from "./model.ts";
-import type { FamilyDataset } from "./types.ts";
+import type { FamilyDataset, LegacyDataset } from "./types.ts";
+import { upgradeDataset } from "./graph-upgrade.ts";
 import type { ReviewFlow } from "./review-flow";
 import {
   conversationTransition,
@@ -22,13 +23,7 @@ import {
 } from "./conversation.ts";
 import type { Message, Question } from "./conversation.ts";
 
-export type Table =
-  | "people"
-  | "unions"
-  | "directParentage"
-  | "contextEntities"
-  | "contextConnections"
-  | "sources";
+export type Table = "people" | "contextEntities" | "claims" | "sources";
 export interface AnnotationTarget {
   walkthroughId?: string;
   stepId?: string;
@@ -213,7 +208,8 @@ export interface ResearchState {
   };
 }
 
-export function initialState(dataset: FamilyDataset): ResearchState {
+export function initialState(source: FamilyDataset | LegacyDataset): ResearchState {
+  const dataset = upgradeDataset(source);
   new GenealogyModel(dataset);
   return {
     version: 1,

@@ -1,12 +1,5 @@
 import { sourceLibrary } from "../src/domain/findings.ts";
-const tables = [
-  "people",
-  "unions",
-  "directParentage",
-  "contextEntities",
-  "contextConnections",
-  "sources",
-];
+const tables = ["people", "contextEntities", "claims", "sources"];
 const label = (record) =>
   record.name || record.title || record.label || record.id;
 const clip = (value, limit = 500) => String(value || "").slice(0, limit);

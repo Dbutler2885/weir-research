@@ -5,6 +5,7 @@ import {
 } from "./ui/investigation-view";
 import { evidenceCard } from "./ui/finding-review";
 import { sourceLibrary } from "./domain/findings";
+import { connectionsFromClaims } from "./domain/model";
 import { GuidedReview } from "./ui/guided-review";
 import { AnnotationsDrawer, type DrawerTab } from "./ui/annotations-drawer";
 import type { Message } from "./domain/conversation";
@@ -312,8 +313,8 @@ export function mountResearchWorkspace(
       const names: [string, AnnotationTarget["table"]][] = [
         ["data-person-id", "people"],
         ["data-context-entity-id", "contextEntities"],
-        ["data-union-id", "unions"],
-        ["data-connection-id", "contextConnections"],
+        ["data-union-id", "claims"],
+        ["data-connection-id", "claims"],
       ];
       for (const [attr, table] of names)
         if (node.hasAttribute(attr)) {
@@ -870,7 +871,7 @@ export function mountResearchWorkspace(
     const subjects = [
       ...state.dataset.people,
       ...(state.dataset.contextEntities || []),
-      ...(state.dataset.contextConnections || []),
+      ...connectionsFromClaims(state.dataset),
     ].filter((r) => r.sourceIds?.includes(sourceId || ""));
     surface.innerHTML = `<button data-source-list>Back to source library</button>${currentInvestigation()?.reviewFlow?.walkthroughs.length ? '<button data-open-review>Return to your walkthrough</button>' : ""}<article class="source-inspector" ${targetAttribute({ table: "sources", recordId: sourceId || documentId, label: String(source?.title || doc?.name || "Source") })}><span class="eyebrow">Source record</span><h1>${escape(source?.title || doc?.name || "Source")}</h1><p>${[source?.repository, source?.access || "Access not recorded"].filter(Boolean).map(escape).join(" · ")}</p><p class="preserve-lines">${escape(source?.note)}</p>${doc ? `<p>Preserved ${date(doc.importedAt)}</p><a href="/api/documents/${doc.id}" target="_blank" rel="noopener">Open preserved original</a>` : ""}<section class="source-content">${body}</section><h2>Findings from this source</h2>${related.map(({ i, p, f }) => `<section class="source-finding" data-investigation-id="${i.id}" ${targetAttribute({ label: f.statement, proposalId: p.id, findingId: f.id })}><span class="status-badge">${escape(f.status)} · ${escape(f.qualification)}</span><h3>${escape(f.statement)}</h3><p class="preserve-lines">${escape(f.explanation)}</p><button data-source-review="${i.id}" data-source-proposal="${p.id}">Open finding review</button></section>`).join("") || '<p class="muted">No structured findings recorded yet.</p>'}<h2>Accepted graph connections</h2>${subjects.map((r) => `<p ${targetAttribute({ label: "name" in r ? r.name : r.label || r.id, recordId: r.id })}>${escape("name" in r ? r.name : r.label || r.id)}</p>`).join("") || '<p class="muted">No accepted graph records cite this source yet.</p>'}<details><summary>Recorded passages and review history (${passages.length})</summary>${passages.map(({ i, p, e }) => `<section data-investigation-id="${i.id}"><p class="muted">Revision ${p.revision} · ${escape(p.status)}</p>${evidenceCard(state, p, e)}</section>`).join("")}</details></article>`;
     surface.querySelectorAll("[data-evidence]").forEach((b) => b.remove());

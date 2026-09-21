@@ -515,9 +515,7 @@ async function startApplication() {
       requiredElement<HTMLElement>(".record-count").querySelectorAll("strong");
     [
       model.peopleById.size + model.contextEntitiesById.size,
-      model.dataset.unions.length +
-        (model.dataset.directParentage?.length ?? 0) +
-        (model.dataset.contextConnections?.length ?? 0),
+      model.dataset.claims?.filter((c) => "entityId" in c.object).length ?? 0,
       model.dataset.sources?.length ?? 0,
     ].forEach((n, index) => {
       counts[index]!.textContent = String(n);
