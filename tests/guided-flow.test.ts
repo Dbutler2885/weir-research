@@ -113,6 +113,30 @@ describe('guided research flow',()=>{
     stale.store.update((next: any)=>{next.datasetRevision++;});
     expect(()=>stale.command('publish-graph-review',{tour:tourFor()})).toThrow('accepted graph changed');
   });
+  it('sends a draft under review back for a revision, and holds the decision until the new draft arrives',()=>{
+    const f=fixture(); const {graphReviewId}=publish(f);
+    f.store.command({type:'annotate',investigationId:f.investigationId,question:'Were these one firm?',target:{label:'The works',graphReviewId,claimId:'location'},dispatch:true});
+    const note={annotationId:f.store.state.investigations[0].annotations.at(-1).id};
+    expect(()=>f.command('graph-accept',{graphReviewId},'human')).toThrow('newer feedback');
+    f.command('graph-update',{message:'Settle the agent from the 1880 list.',annotationIds:[note.annotationId]});
+    expect(f.job().status).toBe('queued');
+    expect(f.job().progress).toBe('Revising the graph draft.');
+    expect(f.review().revisingSince).toBeTruthy();
+    expect(()=>f.command('graph-accept',{graphReviewId},'human')).toThrow('being revised');
+    const revised=publish(f);
+    expect(f.store.state.investigations[0].reviewFlow.graphReviews.map((r: any)=>r.status)).toEqual(['superseded','pending']);
+    f.command('graph-accept',{graphReviewId:revised.graphReviewId},'human');
+    expect(f.review().status).toBe('applied');
+  });
+  it('lets the coordinator answer a note on a draft without a rebuild',()=>{
+    const f=fixture(); const {graphReviewId}=publish(f);
+    f.store.command({type:'annotate',investigationId:f.investigationId,question:'Are these the same node?',target:{label:'The works',graphReviewId},dispatch:true});
+    const note={annotationId:f.store.state.investigations[0].annotations.at(-1).id};
+    expect(()=>f.command('graph-accept',{graphReviewId},'human')).toThrow('newer feedback');
+    f.command('answer-draft-feedback',{graphReviewId,annotationIds:[note.annotationId]});
+    f.command('graph-accept',{graphReviewId},'human');
+    expect(f.review().status).toBe('applied');
+  });
   it('publishes walkthroughs without starting graph work, and runs one graph update at a time',()=>{
     const directory = mkdtempSync(join(tmpdir(),'fictional-guided-'));
     cleanup.push(()=>rmSync(directory,{recursive:true,force:true}));

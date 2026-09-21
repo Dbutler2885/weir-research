@@ -61,7 +61,7 @@ describe('graph review',()=>{
   const open=()=>{view.destroy();view=new GuidedReview(f.host,f.store.state,f.store.state.investigations[0],{command,source:vi.fn(),error:(m:string)=>{throw new Error('guided error: '+m);},decline,start:'graph'});};
   const ready=(selector:string)=>vi.waitFor(()=>expect(f.host.querySelector(selector)).not.toBeNull());
   const review=()=>f.store.state.investigations[0].reviewFlow.graphReviews[0];
-  const start=async()=>{open(); await ready('[data-draft-decision]');};
+  const start=async()=>{open(); await ready('.draft-decision');};
   return {...f,decline,ready,review,start};
  }
  it('shows the draft as one change: its summary, what changed, and what was left open',async()=>{
@@ -117,6 +117,19 @@ describe('graph review',()=>{
   expect(reference).toMatchObject({graphReviewId:f.review().id});
   expect(f.review().status).toBe('set-aside');
   expect(f.store.state.datasetRevision).toBe(0);
+ });
+ it('holds the decision while a note is waiting, and while the draft is revised',async()=>{
+  const f=graphReview();
+  f.store.command({type:'annotate',investigationId:f.research.investigationId,question:'Were these one firm?',target:{label:'The works',graphReviewId:f.review().id},dispatch:true});
+  await f.start();
+  expect(f.host.querySelector('[data-guided-accept]')).toBeNull();
+  expect(f.host.querySelector('.draft-decision')!.textContent).toContain('Your note is with the coordinator.');
+  const job=f.store.state.investigations[0].reviewFlow.jobs[0];
+  flowCommand(f.store,{action:'graph-update',investigationId:f.research.investigationId,jobId:job.id,message:'Revise the agent.'});
+  await f.start();
+  expect(f.host.querySelector('[data-guided-accept]')).toBeNull();
+  expect(f.host.querySelector('.draft-decision')!.textContent).toContain('Being revised.');
+  expect(f.host.querySelector('.guided-activity')!.textContent).toContain('Your draft is being revised.');
  });
  it('shows changes on the graph without redrawing it',async()=>{
   const f=graphReview();

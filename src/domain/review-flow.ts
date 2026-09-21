@@ -80,6 +80,8 @@ export interface GraphReview {
   status: 'pending' | 'applied' | 'set-aside' | 'superseded' | 'undone';
   decidedAt?: string;
   undoneAt?: string;
+  // Set when the coordinator sent this draft back; the next draft replaces it.
+  revisingSince?: string;
   undoId?: string;
   annotationIds: string[];
 }

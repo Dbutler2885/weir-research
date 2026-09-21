@@ -1,6 +1,6 @@
 import type { Investigation, ResearchState, AnnotationTarget } from '../domain/research';
 import type { Walkthrough, GraphReview, GraphJob } from '../domain/review-flow';
-import { graphWorkFinished } from '../domain/review-flow';
+import { graphWorkFinished, feedbackAwaitingDraft } from '../domain/review-flow';
 import { progressLine } from './review-view';
 import { html, target } from './finding-review';
 import { sourceLibrary } from '../domain/findings';
@@ -95,7 +95,7 @@ export class GuidedReview {
     // A batch whose graph review is finished takes no further graph work.
     const finished = graphWorkFinished(this.investigation);
     status.innerHTML = `${latest && latest.id !== this.progress.walkthroughId ? `<div class="walkthrough-update">An updated explanation is ready. Your reading position is saved. <button data-guided-latest>Read the update</button></div>` : ''}
-      <div class="guided-activity"><span>${html(review ? review.status === 'pending' ? 'A graph draft is ready for your review.' : review.status === 'undone' ? 'This batch\'s accepted draft was undone.' : 'This batch\'s graph review is complete.' : job ? progressLine(job.progress) : 'No graph update has been requested for this batch.')}</span>
+      <div class="guided-activity"><span>${html(review ? review.status === 'pending' ? this.pendingLine(review, job) : review.status === 'undone' ? 'This batch\'s accepted draft was undone.' : 'This batch\'s graph review is complete.' : job ? progressLine(job.progress) : 'No graph update has been requested for this batch.')}</span>
       ${review && this.progress.stage !== 'graph' ? '<button data-guided-graph>Explore the graph</button>' : ''}
       ${job && ['running','queued'].includes(job.status) ? '<button class="text-action" data-guided-pause>Pause graph preparation</button>' : ''}
       ${job?.status === 'paused' ? finished ? '<span class="muted">This batch\'s graph update is finished, so its paused preparation cannot resume. Later work belongs to a new batch.</span>' : job.resumeRequest?.status === 'pending' ? `<span>${html(job.resumeRequest.reason)}</span><button data-guided-resume="approve">Resume graph preparation</button><button data-guided-resume="decline">Keep paused</button>` : '<button data-guided-resume="resume">Resume graph preparation</button>' : ''}</div>`;
@@ -141,6 +141,12 @@ export class GuidedReview {
     const source = sourceLibrary(this.state).find(s => s.id === e.sourceId);
     return `<details class="guided-passage"><summary>${html(source?.title || e.sourceId)} · ${html(e.locator)}</summary><section ${target(this.reference(`Source passage: ${source?.title || e.sourceId}`, stepId))}><blockquote>${html(e.quote)}</blockquote><p class="preserve-lines">${html(e.interpretation)}</p><details><summary>Surrounding context</summary>${paragraphs(e.context)}</details><button data-guided-source="${html(e.sourceId)}">Inspect source</button></section></details>`;
   }
+  // What is happening to a draft under review, in the reader's terms.
+  private pendingLine(r: GraphReview, job?: GraphJob): string {
+    if (r.revisingSince) return `Your draft is being revised. ${job ? progressLine(job.note || job.progress) : ''}`.trim();
+    if (feedbackAwaitingDraft(this.investigation, r)) return 'Your note is with the coordinator, who will answer it or have the draft revised.';
+    return 'A graph draft is ready for your review.';
+  }
   // One decision for the whole draft, with a way to take it back while nothing has changed since.
   private decision(r: GraphReview, reference: AnnotationTarget): string {
     const undo = r.undoId && this.state.organization?.history.find(h => h.id === r.undoId);
@@ -149,6 +155,9 @@ export class GuidedReview {
     if (r.status === 'set-aside') return '<section class="draft-decision"><p><strong>Set aside.</strong> Your graph was not changed.</p></section>';
     if (r.status === 'undone') return '<section class="draft-decision"><p><strong>Accepted, then undone.</strong> Your graph is back as it was before this draft. You can request a revised draft from Review.</p></section>';
     if (r.status !== 'pending') return '<section class="draft-decision"><p>A newer draft replaced this one.</p></section>';
+    // While a note is being handled, the draft can be read but not decided.
+    if (r.revisingSince) return '<section class="draft-decision"><p><strong>Being revised.</strong> The builder is working on your notes. The new draft will replace this one here, and you can decide on it then.</p></section>';
+    if (feedbackAwaitingDraft(this.investigation, r)) return '<section class="draft-decision"><p><strong>Your note is with the coordinator.</strong> It will answer your note, or send the draft back to be revised. You can decide once it has.</p></section>';
     return `<section class="draft-decision" data-draft-decision data-reference="${html(JSON.stringify(reference))}"><p>Accepting replaces your graph with this draft. Research records are kept, and you can undo it until the graph next changes.</p><div class="draft-decision-actions"><button class="primary" data-guided-accept>Accept this draft</button><button data-guided-set-aside>Set aside…</button></div><div class="draft-set-aside" hidden><label>What should change instead? <span class="muted">Optional; your note goes to the coordinator as new work.</span><textarea data-set-aside-note rows="3"></textarea></label><div class="draft-decision-actions"><button data-guided-set-aside-confirm>Set aside</button><button class="text-action" data-guided-set-aside-cancel>Cancel</button></div></div><p class="muted">To ask for changes instead, annotate anything in the draft and send it.</p><p data-guided-error role="alert"></p></section>`;
   }
   private changes(r: GraphReview): string {

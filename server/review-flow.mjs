@@ -101,7 +101,9 @@ export function flowCommand(store, command, actor = 'coordinator') {
       fail(job.status === 'queued', 'Only queued graph work can be assigned.');
       fail(['codex','claude','manual'].includes(command.engine), 'Choose a graph-builder provider.');
     } else if (action === 'graph-update') {
-      fail(!['paused','superseded','published'].includes(job.status), 'Create a new walkthrough revision for superseded or published work; paused work requires approval.');
+      // A draft the human is reviewing can go back for a revision; the builder continues from it.
+      const underReview = job.status === 'published' && flow.graphReviews.some(r => r.jobId === job.id && r.status === 'pending');
+      fail(!['paused','superseded'].includes(job.status) && (job.status !== 'published' || underReview), 'Create a new walkthrough revision for superseded or published work; paused work requires approval.');
       fail(text(command.message), 'Describe what changed and how it affects representation.');
       fail((command.annotationIds || []).every(id => i.annotations.some(a => a.id === id && a.dispatchedAt)), 'Only dispatched annotations are builder assignments.');
       if (command.walkthrough) validateWalkthrough(i, command.walkthrough);
@@ -133,8 +135,13 @@ export function flowCommand(store, command, actor = 'coordinator') {
         }
         j.packet = graphPacket(next, inv, w, j.updates);
         j.baseDataset = structuredClone(next.dataset);
+        if (j.status === 'published') {
+          // The draft stays readable, but it is no longer the one to decide on.
+          for (const r of f.graphReviews) if (r.jobId === j.id && r.status === 'pending') r.revisingSince = update.at;
+          j.status = 'queued';
+        }
         if (j.status === 'returned') j.status = 'queued';
-        j.progress = 'New context supplied to the graph builder.';
+        j.progress = 'Revising the graph draft.';
       }
     });
     return {saved: true};
@@ -166,6 +173,17 @@ export function flowCommand(store, command, actor = 'coordinator') {
   }
   const review = flow.graphReviews.find(r => r.id === command.graphReviewId);
   fail(review, 'Graph review not found.');
+  // A note that needs no change to the draft is answered in the conversation and no longer holds it.
+  if (action === 'answer-draft-feedback') {
+    fail(review.status === 'pending', 'This graph review is no longer pending.');
+    const ids = command.annotationIds;
+    fail(Array.isArray(ids) && ids.length && ids.every(id => i.annotations.some(a => a.id === id && a.dispatchedAt)), 'Name the sent notes this answers.');
+    store.update(next => {
+      const r = next.investigations.find(x => x.id === i.id).reviewFlow.graphReviews.find(r => r.id === review.id);
+      r.annotationIds = [...new Set([...r.annotationIds, ...ids])];
+    });
+    return {saved: true};
+  }
   if (action === 'graph-accept' || action === 'graph-set-aside') {
     fail(review.status === 'pending', 'This graph review is no longer pending.');
     fail(review.format === 'draft', 'This review was prepared in the old format. Ask for a revised draft.');
@@ -177,6 +195,7 @@ export function flowCommand(store, command, actor = 'coordinator') {
       });
       return {saved: true};
     }
+    fail(!review.revisingSince, 'This draft is being revised. The new draft will replace it here.');
     fail(review.expectedGraphRevision === store.state.datasetRevision, 'The accepted graph changed since this draft was prepared. Ask for a revised draft.');
     fail(!feedbackAwaitingDraft(i, review), 'Your newer feedback on this draft has not reached the builder yet. Ask for a revised draft.');
     const dataset = acceptDraft(store.state.dataset, review.draft, review.cited, review.diff);

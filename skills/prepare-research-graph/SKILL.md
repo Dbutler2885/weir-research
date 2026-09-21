@@ -57,7 +57,9 @@ Signing off is refused when the accepted graph changed after the draft was prepa
 Accepting replaces the graph with the draft, copies cited research into it, closes the batch, and keeps an undo.
 Setting the draft aside closes the batch without changing the graph; a note the human leaves arrives as new work.
 Undoing an accepted draft reopens the batch for a revised draft.
-New feedback the human sends about a published draft must reach the builder before that draft can be accepted.
+New feedback the human sends about a published draft holds its acceptance until you handle it, and the review tells the human their note is with you.
+If the draft needs changing, send it back with `graph-update`, naming the note's annotationIds; the review shows it as being revised, and the next draft you sign off replaces it.
+If the note needs only an answer, reply in the conversation and send `answer-draft-feedback` with investigationId, graphReviewId and annotationIds, which releases the draft for a decision.
 
 Use `request-graph-resume` with investigationId, jobId, and reason when graph preparation is paused, and wait for browser approval before proceeding.
 The tables, checkpoints, full streamed output, attempt inputs, and frozen submissions live under the project's private graph-builders directory.

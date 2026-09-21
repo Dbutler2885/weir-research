@@ -10,9 +10,11 @@ const day = (iso: string) =>
 // Walkthroughs and graph updates for each batch; the coordinator groups the research.
 export function reviewPage(state: ResearchState): string {
   const settings = state.reviewSettings || { autoWalkthrough: false, autoGraph: false };
-  const pending = batches(state).find(
-    (b) => b.reviewFlow?.graphReviews.at(-1)?.status === "pending",
-  );
+  // A draft being revised is not waiting for the human.
+  const pending = batches(state).find((b) => {
+    const review = b.reviewFlow?.graphReviews.at(-1);
+    return review?.status === "pending" && !review.revisingSince;
+  });
   const pendingReview = pending?.reviewFlow!.graphReviews.at(-1);
   const rows = batches(state).map((b) => row(state, b)).join("");
   return `<section class="review-page"><header class="findings-head"><h1>Review</h1><p>Walkthroughs and graph updates for each batch. Your coordinator groups the research; you decide when to spend on explaining it.</p></header><div class="review-scroll"><div class="review-inner">
@@ -58,6 +60,8 @@ function graphCell(state: ResearchState, b: Investigation, status: string): stri
   const flow = b.reviewFlow;
   const review = flow?.graphReviews.at(-1);
   const job = flow?.jobs.filter((j) => j.status !== "superseded").at(-1);
+  if (review?.status === "pending" && review.revisingSince)
+    return `<p class="review-cell"><strong>Revising the draft</strong><br><span>${html(progressLine(job?.note || job?.progress || ""))}</span></p><div class="review-actions"><button type="button" data-review-open="graph">Open the current draft</button></div>`;
   if (review?.status === "pending")
     return `<p class="review-cell"><strong>Draft ready</strong><br><span>${html(review.summary ?? "")}</span></p><div class="review-actions"><button type="button" class="primary" data-review-open="graph">Review the draft</button></div>`;
   if (job && ["queued", "running", "returned", "paused"].includes(job.status)) {

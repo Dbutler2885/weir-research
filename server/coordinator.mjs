@@ -203,7 +203,7 @@ export class Coordinator {
   }
   command(data) {
     this.require(data.session);
-    if (["publish-walkthrough", "inspect-flow", "assign-graph", "graph-update", "request-graph-resume", "publish-graph-review"].includes(data.action)) return flowCommand(this.store, data);
+    if (["publish-walkthrough", "inspect-flow", "assign-graph", "graph-update", "request-graph-resume", "publish-graph-review", "answer-draft-feedback"].includes(data.action)) return flowCommand(this.store, data);
     if (data.action?.startsWith("organization-"))
       return organize(this.store, data);
     if (coordinatorConversationCommands.has(data.action)) {
