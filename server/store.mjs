@@ -151,7 +151,7 @@ function fingerprint(i) {
     flow?.walkthroughs.length,
     flow?.jobs.map((j) => `${j.status}:${j.updates.length}:${j.resumeRequest?.status}`).join(),
     flow?.graphReviews
-      .map((r) => `${r.status}:${r.appliedGroupIds.length}:${r.rejectedGroupIds.length}`)
+      .map((r) => `${r.status}:${r.decidedAt ?? ""}`)
       .join(),
   ].join("|");
 }

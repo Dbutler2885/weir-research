@@ -2,11 +2,12 @@
 import {afterEach,beforeEach,describe,it,expect,vi} from 'vitest';
 import {GuidedReview} from '../src/ui/guided-review';
 import {initialState} from '../src/domain/research';
-import {prepareResearch,emptyGraph,graphFor,tourFor} from './fixtures/guided-flow';
+import {prepareResearch,emptyGraph,returnDraft,tourFor} from './fixtures/guided-flow';
 import {transition} from '../src/domain/research';
-import {flowCommand,receiveGraph} from '../server/review-flow.mjs';
+import {flowCommand} from '../server/review-flow.mjs';
+import {organize} from '../server/organization.mjs';
 let view: GuidedReview;
-// The tour's decisions are under test here, not the SVG graph renderer.
+// The review's content and decision are under test here, not the SVG graph renderer.
 vi.mock('../src/ui/graph-renderer',()=>({GraphRenderer:class{render(){} centerOn(){} focusRegion(){} fitAll(){} zoomBy(){} destroy(){}}}));
 beforeEach(()=>{localStorage.clear(); Element.prototype.scrollIntoView=vi.fn();});
 afterEach(()=>{view?.destroy();document.body.replaceChildren();});
@@ -52,42 +53,79 @@ describe('graph review',()=>{
  function graphReview(){
   const f=fixture();
   const id=f.research.investigationId;
-  f.store.update((s:any)=>{s.investigations[0].reviewFlow.jobs[0].status='running';});
+  returnDraft(f.store,id);
   const job=f.store.state.investigations[0].reviewFlow.jobs[0];
-  const graph=graphFor(job.packet);
-  receiveGraph(f.store,id,job.id,graph,job.packet,'fictional');
-  flowCommand(f.store,{action:'publish-graph-review',investigationId:id,jobId:job.id,tour:tourFor(graph)});
+  flowCommand(f.store,{action:'publish-graph-review',investigationId:id,jobId:job.id,tour:tourFor(),undone:[{instruction:'Name the street.',reason:'The register gives only the town.'}]});
   const decline=vi.fn(async()=>{});
-  const open=()=>{view.destroy();view=new GuidedReview(f.host,f.store.state,f.store.state.investigations[0],{command:async(data:any)=>{flowCommand(f.store,data,'human');open();},source:vi.fn(),error:(m:string)=>{throw new Error('guided error: '+m);},decline,start:'graph'});};
+  const command=async(data:any)=>{ if(data.action==='organization-undo') organize(f.store,data); else flowCommand(f.store,data,'human'); open(); };
+  const open=()=>{view.destroy();view=new GuidedReview(f.host,f.store.state,f.store.state.investigations[0],{command,source:vi.fn(),error:(m:string)=>{throw new Error('guided error: '+m);},decline,start:'graph'});};
   const ready=(selector:string)=>vi.waitFor(()=>expect(f.host.querySelector(selector)).not.toBeNull());
-  const items=()=>[...f.host.querySelectorAll('.tour-decision li')].map(li=>li.textContent);
   const review=()=>f.store.state.investigations[0].reviewFlow.graphReviews[0];
-  const start=async()=>{open(); await ready('[data-guided-tour-next]'); f.click('[data-guided-tour-next]'); await ready('.tour-decision');};
-  return {...f,decline,ready,items,review,start};
+  const start=async()=>{open(); await ready('[data-draft-decision]');};
+  return {...f,decline,ready,review,start};
  }
- it('approves a change together with the changes in its step that need it',async()=>{
+ it('shows the draft as one change: its summary, what changed, and what was left open',async()=>{
   const f=graphReview();
   await f.start();
-  expect(f.items()).toEqual(['The townWaiting for your decision','The works and reported locationNeeds The town first']);
-  expect(f.host.querySelector('[data-guided-approve]')!.textContent).toBe('Approve these changes');
-  f.click('[data-guided-approve]');
-  await vi.waitFor(()=>expect(f.review().appliedGroupIds).toEqual(['place','factory']));
-  await f.ready('.tour-decision');
-  expect(f.items()).toEqual(['The townApproved','The works and reported locationApproved']);
-  expect(f.store.state.investigations[0].closedAt).toBeTruthy();
+  expect(f.host.querySelector('.draft-summary')?.textContent).toBe('2 new nodes, 1 new edge, 1 evidence record added from the research.');
+  const changes=[...f.host.querySelectorAll('.draft-changes h3')].map(h=>h.textContent);
+  expect(changes).toEqual(['New nodes','New edges']);
+  expect([...f.host.querySelectorAll('.draft-changes li')].map(li=>li.textContent)).toEqual(['Example Bay','Example Works','Example Works located in Example Bay']);
+  expect(f.host.textContent).toContain('Which street was the works on?');
+  expect(f.host.querySelector('.draft-undone')?.textContent).toContain('Name the street.');
+  // Every change can be annotated against the exact record it concerns.
+  const edge=JSON.parse(f.host.querySelectorAll('.draft-changes li')[2]!.getAttribute('data-research-target')!);
+  expect(edge).toMatchObject({graphReviewId:f.review().id,table:'claims',recordId:'location',claimId:'location'});
+  expect(f.host.querySelector('[data-guided-accept]')).not.toBeNull();
+  expect(f.host.querySelector('[data-guided-approve]')).toBeNull();
  });
- it('declines a step with its dependents and passes the note on',async()=>{
+ it('walks through the tour without asking for any decision',async()=>{
   const f=graphReview();
   await f.start();
-  f.click('[data-guided-decline]');
-  f.host.querySelector<HTMLTextAreaElement>('[data-decline-note]')!.value='Keep the works, but without a location.';
-  f.click('[data-guided-decline-confirm]');
+  f.click('[data-guided-tour-next]');
+  await f.ready('.tour-transition');
+  expect(f.host.querySelector('h2')?.textContent).toBe('Keep the location attributed');
+  expect(f.host.textContent).toContain('Which street was the works on?');
+  expect(f.host.querySelector('[data-draft-decision]')).toBeNull();
+ });
+ it('accepts the whole draft, then offers to undo it',async()=>{
+  const f=graphReview();
+  await f.start();
+  f.click('[data-guided-accept]');
+  await vi.waitFor(()=>expect(f.review().status).toBe('applied'));
+  await f.ready('[data-guided-undo]');
+  expect(f.store.state.dataset.contextEntities.map((e:any)=>e.id)).toEqual(['bay','works']);
+  expect(f.store.state.investigations[0].closedAt).toBeTruthy();
+  f.click('[data-guided-undo]');
+  await vi.waitFor(()=>expect(f.store.state.dataset.contextEntities ?? []).toEqual([]));
+  // Undoing reopens the batch for a revised draft, and the review says what happened.
+  expect(f.review().status).toBe('undone');
+  expect(f.store.state.investigations[0].closedAt).toBeUndefined();
+  await f.ready('.draft-decision');
+  expect(f.host.querySelector('.draft-decision')!.textContent).toContain('Accepted, then undone.');
+  expect(f.store.state.dataset.evidence.map((e:any)=>e.quote)).toEqual(['Example Works stood in Example Bay.']);
+ });
+ it('sets the draft aside and passes the note on',async()=>{
+  const f=graphReview();
+  await f.start();
+  f.click('[data-guided-set-aside]');
+  f.host.querySelector<HTMLTextAreaElement>('[data-set-aside-note]')!.value='Keep the works, but without a location.';
+  f.click('[data-guided-set-aside-confirm]');
   await vi.waitFor(()=>expect(f.decline).toHaveBeenCalled());
   const [note,reference]=f.decline.mock.calls[0] as any;
   expect(note).toBe('Keep the works, but without a location.');
-  expect(reference).toMatchObject({graphReviewId:f.review().id,groupId:'place',stepId:'site'});
-  expect(f.review().rejectedGroupIds).toEqual(['place','factory']);
-  expect(f.store.state.investigations[0].closedAt).toBeTruthy();
-  expect(f.host.querySelector('[data-guided-apply]')).toBeNull();
+  expect(reference).toMatchObject({graphReviewId:f.review().id});
+  expect(f.review().status).toBe('set-aside');
+  expect(f.store.state.datasetRevision).toBe(0);
+ });
+ it('shows changes on the graph without redrawing it',async()=>{
+  const f=graphReview();
+  await f.start();
+  const stage=f.host.querySelector('.guided-graph-stage')!;
+  expect(stage.classList.contains('shows-changes')).toBe(true);
+  const toggle=f.host.querySelector<HTMLInputElement>('[data-guided-changes]')!;
+  toggle.checked=false; toggle.dispatchEvent(new Event('change',{bubbles:true}));
+  expect(f.host.querySelector('.guided-graph-stage')).toBe(stage);
+  expect(stage.classList.contains('shows-changes')).toBe(false);
  });
 });

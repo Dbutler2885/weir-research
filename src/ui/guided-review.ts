@@ -4,7 +4,7 @@ import { graphWorkFinished } from '../domain/review-flow';
 import { progressLine } from './review-view';
 import { html, target } from './finding-review';
 import { sourceLibrary } from '../domain/findings';
-import { materializeGraph, approvableTogether, declinedWithDependents } from '../domain/graph-draft';
+import { reviewGraph } from '../domain/graph-delivery';
 import { GenealogyModel } from '../domain/model';
 import { projectAround } from '../domain/projection';
 import { layoutFamily } from '../layout/layout';
@@ -13,31 +13,43 @@ import { renderDetailsPanel, renderContextDetailsPanel } from './details-panel';
 
 import {researchText as paragraphs, researchInline} from './research-text';
 
-interface Progress { walkthroughId?: string; stage: 'reading' | 'graph'; step: number; graphReviewId?: string; stop: number; groups?: string[] }
+interface Progress { walkthroughId?: string; stage: 'reading' | 'graph'; step: number; graphReviewId?: string; stop: number; changes?: boolean }
 interface Options {
   command: (data: Record<string, unknown>) => Promise<void>;
   source: (id: string, quote?: string) => void;
   error: (message: string) => void;
   // Opens on the batch's walkthrough or directly on its graph review.
   start?: 'reading' | 'graph';
-  // Sends the note left when declining graph changes, as new work for the coordinator.
+  // Sends the note left when setting a draft aside, as new work for the coordinator.
   decline?: (note: string, reference: AnnotationTarget) => Promise<void>;
 }
-type Group = GraphReview['graph']['groups'][number];
+type Change = {label: string; ids: string[]; target: Partial<AnnotationTarget>};
 
-// The change groups a tour step shows, and whether each can be decided now.
-export function stepGroups(r: GraphReview, step: GraphReview['tour']['steps'][number]): Group[] {
-  const focus = new Set([...step.focusNodeIds, ...step.focusClaimIds]);
-  return r.graph.groups.filter(g => [...g.nodeIds, ...g.claimIds].some(id => focus.has(id)));
-}
-export function groupState(r: GraphReview, g: Group): {label: string; actionable: boolean} {
-  if (r.appliedGroupIds.includes(g.id)) return {label: 'Approved', actionable: false};
-  if (r.rejectedGroupIds.includes(g.id)) return {label: 'Declined', actionable: false};
-  if (r.graph.issues.some(i => i.blocksGroupIds.includes(g.id))) return {label: 'Waiting on a question', actionable: false};
-  if (g.dependsOn.some(d => r.rejectedGroupIds.includes(d))) return {label: 'Depends on a declined change', actionable: false};
-  const missing = g.dependsOn.filter(d => !r.appliedGroupIds.includes(d)).map(d => r.graph.groups.find(x => x.id === d)?.title || d);
-  if (missing.length) return {label: `Needs ${missing.join(', ')} first`, actionable: false};
-  return {label: 'Waiting for your decision', actionable: true};
+// The difference between the accepted graph and a draft, as sections a person can read.
+// Every line names real records, so it can be annotated and shown on the graph.
+export function changeSections(r: GraphReview): {title: string; items: Change[]}[] {
+  const names = new Map([...r.baseDataset.people, ...(r.baseDataset.contextEntities || []), ...r.draft.people, ...(r.draft.contextEntities || [])].map(n => [n.id, n.name]));
+  const name = (id: string) => names.get(id) || id;
+  const list = (items: string[]) => items.length < 3 ? items.join(' and ') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`;
+  // An edge name reads as a phrase between two names: "Alex worked at the workshop".
+  const phrase = (edgeName: string) => { const words = edgeName.replaceAll('_', ' '); return /^[A-Z][a-z]/.test(words) ? words.charAt(0).toLowerCase() + words.slice(1) : words; };
+  const edge = (e: {from: string; name: string; target: string}) => `${name(e.from)} ${phrase(e.name)} ${name(e.target)}`;
+  const node = (id: string, removed = false): Partial<AnnotationTarget> => ({table: r.draft.people.some(p => p.id === id) || r.baseDataset.people.some(p => p.id === id) ? 'people' : 'contextEntities', recordId: id, ...(removed ? {text: 'Removed by this draft'} : {})});
+  const claim = (id: string, removed = false): Partial<AnnotationTarget> => ({table: 'claims', recordId: id, claimId: id, ...(removed ? {text: 'Removed by this draft'} : {})});
+  const d = r.diff;
+  return [
+    {title: 'Merged', items: d.merges.map(m => ({label: `${list(m.gone.map(g => g.name))} merged into ${m.into.name}`, ids: [m.into.id, ...m.gone.map(g => g.id)], target: node(m.into.id)}))},
+    {title: 'Removed nodes', items: d.removedNodes.map(n => ({label: n.edgesMovedTo.length ? `${n.name}, its edges moved to ${list(n.edgesMovedTo.map(t => t.name))}` : n.name, ids: [n.id], target: node(n.id, true)}))},
+    {title: 'New nodes', items: d.addedNodes.map(n => ({label: n.name, ids: [n.id], target: node(n.id)}))},
+    {title: 'Renamed', items: d.renamedNodes.map(n => ({label: `${n.wasName}, now ${n.name}`, ids: [n.id], target: node(n.id)}))},
+    {title: 'Edited nodes', items: d.editedNodes.map(n => ({label: `${n.name}: ${n.fields.join(', ')}`, ids: [n.id], target: node(n.id)}))},
+    {title: 'Moved edges', items: d.movedEdges.map(e => ({label: `${edge(e)}, was ${edge({...e, from: e.wasFrom, target: e.wasTarget})}`, ids: [e.id], target: claim(e.id)}))},
+    {title: 'New edges', items: d.addedEdges.map(e => ({label: edge(e), ids: [e.id], target: claim(e.id)}))},
+    {title: 'Requalified', items: d.requalifiedEdges.map(e => ({label: `${edge(e)}, now ${e.qualification}, was ${e.wasQualification}`, ids: [e.id], target: claim(e.id)}))},
+    {title: 'Reworded', items: d.rewordedEdges.map(e => ({label: edge(e), ids: [e.id], target: claim(e.id)}))},
+    {title: 'Citations changed', items: d.recitedEdges.map(e => ({label: edge(e), ids: [e.id], target: claim(e.id)}))},
+    {title: 'Removed edges', items: d.removedEdges.map(e => ({label: edge(e), ids: [e.id], target: claim(e.id, true)}))},
+  ].filter(section => section.items.length);
 }
 export class GuidedReview {
   private renderer?: GraphRenderer;
@@ -83,7 +95,7 @@ export class GuidedReview {
     // A batch whose graph review is finished takes no further graph work.
     const finished = graphWorkFinished(this.investigation);
     status.innerHTML = `${latest && latest.id !== this.progress.walkthroughId ? `<div class="walkthrough-update">An updated explanation is ready. Your reading position is saved. <button data-guided-latest>Read the update</button></div>` : ''}
-      <div class="guided-activity"><span>${html(review ? review.status === 'pending' ? 'A graph update is ready for your review.' : 'This batch\'s graph review is complete.' : job ? progressLine(job.progress) : 'No graph update has been requested for this batch.')}</span>
+      <div class="guided-activity"><span>${html(review ? review.status === 'pending' ? 'A graph draft is ready for your review.' : review.status === 'undone' ? 'This batch\'s accepted draft was undone.' : 'This batch\'s graph review is complete.' : job ? progressLine(job.progress) : 'No graph update has been requested for this batch.')}</span>
       ${review && this.progress.stage !== 'graph' ? '<button data-guided-graph>Explore the graph</button>' : ''}
       ${job && ['running','queued'].includes(job.status) ? '<button class="text-action" data-guided-pause>Pause graph preparation</button>' : ''}
       ${job?.status === 'paused' ? finished ? '<span class="muted">This batch\'s graph update is finished, so its paused preparation cannot resume. Later work belongs to a new batch.</span>' : job.resumeRequest?.status === 'pending' ? `<span>${html(job.resumeRequest.reason)}</span><button data-guided-resume="approve">Resume graph preparation</button><button data-guided-resume="decline">Keep paused</button>` : '<button data-guided-resume="resume">Resume graph preparation</button>' : ''}</div>`;
@@ -129,43 +141,51 @@ export class GuidedReview {
     const source = sourceLibrary(this.state).find(s => s.id === e.sourceId);
     return `<details class="guided-passage"><summary>${html(source?.title || e.sourceId)} · ${html(e.locator)}</summary><section ${target(this.reference(`Source passage: ${source?.title || e.sourceId}`, stepId))}><blockquote>${html(e.quote)}</blockquote><p class="preserve-lines">${html(e.interpretation)}</p><details><summary>Surrounding context</summary>${paragraphs(e.context)}</details><button data-guided-source="${html(e.sourceId)}">Inspect source</button></section></details>`;
   }
-  private decision(r: GraphReview, groups: Group[], reference: AnnotationTarget): string {
-    if (!groups.length) return '';
-    const states = groups.map(g => ({g, ...groupState(r, g)}));
-    const pending = r.status === 'pending';
-    const declinable = pending ? groups.filter(g => ![...r.appliedGroupIds, ...r.rejectedGroupIds].includes(g.id)).map(g => g.id) : [];
-    const approvable = pending ? approvableTogether(r.graph, declinable, r.appliedGroupIds, r.rejectedGroupIds) : [];
-    const dependents = declinedWithDependents(r.graph, declinable, [...r.appliedGroupIds, ...r.rejectedGroupIds]).length - declinable.length;
-    const actions = `${approvable.length ? `<button class="primary" data-guided-approve>Approve ${approvable.length === 1 ? 'this change' : approvable.length === declinable.length ? 'these changes' : `${approvable.length} of these changes`}</button>` : ''}<button data-guided-decline>Decline${declinable.length > 1 ? ' these' : ''}…</button>`;
-    const cascade = dependents ? `<p class="muted">This also declines ${dependents === 1 ? 'a later change that depends' : `${dependents} later changes that depend`} on ${declinable.length === 1 ? 'it' : 'them'}.</p>` : '';
-    return `<section class="tour-decision" data-tour-decision data-approve-ids="${html(approvable.join(' '))}" data-decline-ids="${html(declinable.join(' '))}" data-reference="${html(JSON.stringify(reference))}"><h3>${groups.length === 1 ? 'The change in this step' : 'Changes in this step'}</h3><ul>${states.map(s => `<li ${target({...reference, label: s.g.title, groupId: s.g.id})}><span>${html(s.g.title)}</span><span class="tour-decision-state">${html(s.label)}</span></li>`).join('')}</ul>${declinable.length ? `<div class="tour-decision-actions">${actions}</div><div class="tour-decline" hidden>${cascade}<label>What should change instead? <span class="muted">Optional; your note goes to the coordinator as new work.</span><textarea data-decline-note rows="3"></textarea></label><div class="tour-decision-actions"><button data-guided-decline-confirm>Decline</button><button class="text-action" data-guided-decline-cancel>Cancel</button></div></div>` : ''}<p data-guided-error role="alert"></p></section>`;
+  // One decision for the whole draft, with a way to take it back while nothing has changed since.
+  private decision(r: GraphReview, reference: AnnotationTarget): string {
+    const undo = r.undoId && this.state.organization?.history.find(h => h.id === r.undoId);
+    const undoable = undo && (undo as {appliedRevision?: number}).appliedRevision === this.state.datasetRevision;
+    if (r.status === 'applied') return `<section class="draft-decision" data-draft-decision><p><strong>Accepted${r.decidedAt ? ` ${html(new Date(r.decidedAt).toLocaleDateString('en-US', {month: 'short', day: 'numeric'}))}` : ''}.</strong> This draft is now your graph.</p>${undoable ? `<button data-guided-undo="${html(r.undoId!)}">Undo accepting</button>` : ''}<p data-guided-error role="alert"></p></section>`;
+    if (r.status === 'set-aside') return '<section class="draft-decision"><p><strong>Set aside.</strong> Your graph was not changed.</p></section>';
+    if (r.status === 'undone') return '<section class="draft-decision"><p><strong>Accepted, then undone.</strong> Your graph is back as it was before this draft. You can request a revised draft from Review.</p></section>';
+    if (r.status !== 'pending') return '<section class="draft-decision"><p>A newer draft replaced this one.</p></section>';
+    return `<section class="draft-decision" data-draft-decision data-reference="${html(JSON.stringify(reference))}"><p>Accepting replaces your graph with this draft. Research records are kept, and you can undo it until the graph next changes.</p><div class="draft-decision-actions"><button class="primary" data-guided-accept>Accept this draft</button><button data-guided-set-aside>Set aside…</button></div><div class="draft-set-aside" hidden><label>What should change instead? <span class="muted">Optional; your note goes to the coordinator as new work.</span><textarea data-set-aside-note rows="3"></textarea></label><div class="draft-decision-actions"><button data-guided-set-aside-confirm>Set aside</button><button class="text-action" data-guided-set-aside-cancel>Cancel</button></div></div><p class="muted">To ask for changes instead, annotate anything in the draft and send it.</p><p data-guided-error role="alert"></p></section>`;
+  }
+  private changes(r: GraphReview): string {
+    const sections = changeSections(r);
+    const evidence = r.cited.evidence.length ? `<p class="muted">${r.cited.evidence.length} evidence ${r.cited.evidence.length === 1 ? 'record' : 'records'} from the research will be added.</p>` : '';
+    return `<section class="draft-changes"><h2>What changed</h2>${sections.map(section => `<h3>${html(section.title)}</h3><ul>${section.items.map(item => `<li ${target({label: item.label, graphReviewId: r.id, ...item.target})}><button class="draft-change" data-guided-focus="${html(item.ids.join(' '))}">${html(item.label)}</button></li>`).join('')}</ul>`).join('') || '<p class="muted">This draft changes nothing.</p>'}${evidence}</section>`;
+  }
+  private commentary(r: GraphReview): string {
+    const questions = r.questions.length ? `<section class="draft-questions"><h2>The builder's open questions</h2>${r.questions.map(q => `<details class="tour-issue" ${target({label: q.question, graphReviewId: r.id})}><summary>${html(q.question)}</summary>${paragraphs(q.provisionalTreatment)}${q.requestedResearch ? `<p>Further research: ${html(q.requestedResearch)}</p>` : ''}</details>`).join('')}</section>` : '';
+    const undone = r.undone.length ? `<section class="draft-undone"><h2>Left undone</h2><ul>${r.undone.map(u => `<li ${target({label: u.instruction, graphReviewId: r.id})}><strong>${html(u.instruction)}</strong>${paragraphs(u.reason)}</li>`).join('')}</ul></section>` : '';
+    return undone + questions;
   }
   private async renderGraph() {
     const r = this.review()!;
     this.progress.graphReviewId = r.id; this.save();
-    const generation = this.generation;
-    const data = materializeGraph(r.baseDataset, r.graph, r.evidence, r.sources);
-    const model = new GenealogyModel(data);
-    const mapped = (id: string) => r.graph.nodes.find(n => n.id === id)?.existingId || id;
-    const fallbackFocus = data.initialFocusId;
     const host = this.host.querySelector<HTMLElement>('[data-guided-body]')!;
-    host.innerHTML = `<section class="guided-graph-review" data-graph-review-id="${html(r.id)}"><header class="graph-review-heading">${this.walkthrough() ? '<button data-guided-reading>Back to the research</button>' : '<span></span>'}<span>${r.status === 'applied' ? 'Applied graph' : 'Proposed graph'} · Revision ${r.revision}</span><button data-guided-tour-home>Tour overview</button></header><div class="guided-graph-layout"><div class="guided-graph-stage"><div class="guided-graph-controls"><button data-guided-fit>Fit all</button><button data-guided-zoom="1.3" aria-label="Zoom in">+</button><button data-guided-zoom="0.77" aria-label="Zoom out">−</button><span>Outlined records are proposed additions.</span></div><div class="guided-graph-canvas"></div></div><aside class="guided-graph-sidebar"><div data-tour-guidance></div><div data-tour-record></div></aside></div></section>`;
+    if (r.format !== 'draft') { host.innerHTML = '<p class="muted">This graph review was prepared in an older format and cannot be shown.</p>'; return; }
+    const generation = this.generation;
+    const view = reviewGraph(r);
+    const model = new GenealogyModel(view.dataset);
+    const shows = this.progress.changes ?? r.status === 'pending';
+    host.innerHTML = `<section class="guided-graph-review" data-graph-review-id="${html(r.id)}"><header class="graph-review-heading">${this.walkthrough() ? '<button data-guided-reading>Back to the research</button>' : '<span></span>'}<span>${r.status === 'applied' ? 'Accepted draft' : 'Graph draft'} · Revision ${r.revision}</span><button data-guided-tour-home>Overview</button></header><div class="guided-graph-layout"><div class="guided-graph-stage${shows ? ' shows-changes' : ''}"><div class="guided-graph-controls"><button data-guided-fit>Fit all</button><button data-guided-zoom="1.3" aria-label="Zoom in">+</button><button data-guided-zoom="0.77" aria-label="Zoom out">−</button><label class="draft-toggle"><input type="checkbox" data-guided-changes ${shows ? 'checked' : ''}> Show changes</label></div><div class="guided-graph-canvas"></div></div><aside class="guided-graph-sidebar"><div data-tour-guidance></div><div data-tour-record></div></aside></div></section>`;
     const canvas = host.querySelector<HTMLElement>('.guided-graph-canvas')!;
     const record = host.querySelector<HTMLElement>('[data-tour-record]')!;
     const ref = (label: string, extras: Partial<AnnotationTarget> = {}) => ({label, graphReviewId: r.id, ...extras});
     const annotateRecords = (container: Element) => {
       for (const element of container.querySelectorAll<HTMLElement>('[data-research-target]')) {
-        const original = JSON.parse(element.getAttribute('data-research-target')!);
-        const claim = r.graph.claims.find(c => c.id === original.recordId);
-        const group = r.graph.groups.find(g => g.claimIds.includes(original.recordId) || g.nodeIds.some(id => mapped(id) === original.recordId));
-        element.setAttribute('data-research-target', JSON.stringify({...original, graphReviewId: r.id, groupId: group?.id, claimId: claim?.id}));
+        const original = JSON.parse(element.getAttribute('data-research-target')!) as AnnotationTarget;
+        const removed = original.recordId && view.ghostIds.has(original.recordId);
+        element.setAttribute('data-research-target', JSON.stringify({...original, graphReviewId: r.id, ...(original.table === 'claims' ? {claimId: original.recordId} : {}), ...(removed ? {text: 'Removed by this draft'} : {})}));
       }
     };
     const showRecord = (id: string) => {
-      id = mapped(id);
       const options = {onClose: () => record.replaceChildren(), onNavigate: showRecord, onOpenContextEntity: showRecord};
       if (model.peopleById.has(id)) renderDetailsPanel(record, model, id, options);
       else if (model.contextEntitiesById.has(id)) renderContextDetailsPanel(record, model, id, options);
+      if (view.ghostIds.has(id)) record.insertAdjacentHTML('afterbegin', '<p class="draft-ghost-note">This draft removes this record.</p>');
       annotateRecords(record);
     };
     this.renderer = new GraphRenderer(canvas, {
@@ -173,37 +193,34 @@ export class GuidedReview {
       onOpenDetails: id => { showRecord(id); this.exploring(); },
       onOpenContextEntity: id => { this.renderer?.centerOn(id); showRecord(id); this.exploring(); },
     }, true);
-    if (fallbackFocus) {
-      const projection = projectAround(model, fallbackFocus);
+    if (view.focusId) {
+      const projection = projectAround(model, view.focusId);
       const layout = await layoutFamily(model, projection);
       if (this.disposed || generation !== this.generation) return;
       this.renderer.render(layout, projection, model);
       annotateRecords(canvas);
-      const additions = new Set(r.graph.nodes.filter(n => !n.existingId).map(n => n.id));
-      for (const node of canvas.querySelectorAll('.graph-node')) if (additions.has(node.getAttribute('data-person-id') || node.getAttribute('data-context-entity-id') || '')) node.classList.add('is-proposed');
+      markChanges(canvas, view);
     }
     const step = r.tour.steps[this.progress.stop];
     const guidance = host.querySelector<HTMLElement>('[data-tour-guidance]')!;
-    if (this.progress.stop < 0) {
-      guidance.innerHTML = `<section ${target(ref('Graph overview'))}><span class="eyebrow">Organizing what we learned</span><h1>${html(r.graph.title)}</h1>${paragraphs(r.tour.introduction)}<p>${r.graph.nodes.filter(n => !n.existingId).length} new records · ${r.graph.claims.filter(c => 'entityId' in c.object).length} connections</p><button class="primary" data-guided-tour-next>Begin graph walkthrough</button><p class="muted">Explore freely. The tour will be here when you return.</p></section>`;
-    } else if (step) {
-      guidance.innerHTML = `<section ${target(ref(step.title, {stepId: step.id}))}><span class="eyebrow">Graph stop ${this.progress.stop + 1} of ${r.tour.steps.length}</span><h2>${html(step.title)}</h2>${paragraphs(step.explanation)}${step.issueIds.map(id => { const issue = r.graph.issues.find(x => x.id === id)!; return `<details class="tour-issue"><summary>${html(issue.question)}</summary>${paragraphs(issue.provisionalTreatment)}${issue.requestedResearch ? `<p>Further research: ${html(issue.requestedResearch)}</p>` : ''}${issue.blocksGroupIds.length ? '<p>This question blocks the affected groups from application.</p>' : ''}</details>`; }).join('')}${this.decision(r, stepGroups(r, step), ref(step.title, {stepId: step.id}))}<div class="tour-transition">${paragraphs(step.transition)}</div></section><nav class="guided-navigation"><button data-guided-tour-back>Back</button><button class="primary" data-guided-tour-next>${this.progress.stop === r.tour.steps.length - 1 ? 'Finish' : 'Continue'}</button></nav><button class="text-action" data-guided-return hidden>Return to this tour stop</button>`;
-      const focusIds = step.focusNodeIds.map(mapped);
-      const claimFocus = r.graph.claims.find(c => step.focusClaimIds.includes(c.id));
-      const recordId = focusIds[0] || (claimFocus ? mapped(claimFocus.subjectId) : undefined);
+    if (this.progress.stop < 0 || !step) {
+      this.progress.stop = -1;
+      guidance.innerHTML = `<section ${target(ref('Graph draft overview'))}><span class="eyebrow">Graph draft</span><h1>${html(this.investigation.title)}</h1><p class="draft-summary">${html(r.summary)}</p>${paragraphs(r.tour.introduction)}${r.tour.steps.length ? '<button data-guided-tour-next>Walk through the changes</button>' : ''}</section>${this.decision(r, ref('Graph draft decision'))}${this.commentary(r)}${this.changes(r)}`;
+    } else {
+      guidance.innerHTML = `<section ${target(ref(step.title, {stepId: step.id}))}><span class="eyebrow">Change ${this.progress.stop + 1} of ${r.tour.steps.length}</span><h2>${html(step.title)}</h2>${paragraphs(step.explanation)}${step.issueIds.map(id => { const q = r.questions.find(x => x.id === id); return q ? `<details class="tour-issue"><summary>${html(q.question)}</summary>${paragraphs(q.provisionalTreatment)}${q.requestedResearch ? `<p>Further research: ${html(q.requestedResearch)}</p>` : ''}</details>` : ''; }).join('')}<div class="tour-transition">${paragraphs(step.transition)}</div></section><nav class="guided-navigation"><button data-guided-tour-back>Back</button><button class="primary" data-guided-tour-next>${this.progress.stop === r.tour.steps.length - 1 ? 'Finish' : 'Continue'}</button></nav><button class="text-action" data-guided-return hidden>Return to this change</button>`;
+      const focusIds = step.focusNodeIds;
+      const edge = view.dataset.claims!.find(c => step.focusClaimIds.includes(c.id));
+      const recordId = focusIds[0] || edge?.subjectId;
       if (recordId) showRecord(recordId);
       window.requestAnimationFrame(() => { if (!this.disposed && generation === this.generation) this.renderer?.focusRegion(focusIds, step.focusClaimIds); });
-    } else {
-      const covered = new Set(r.tour.steps.flatMap(st => stepGroups(r, st).map(g => g.id)));
-      const outside = r.graph.groups.filter(g => !covered.has(g.id));
-      const decided = r.appliedGroupIds.length + r.rejectedGroupIds.length;
-      guidance.innerHTML = `<section ${target(ref('Graph review summary'))}><span class="eyebrow">Your research graph</span><h2>${r.status === 'pending' ? `${decided} of ${r.graph.groups.length} changes decided` : 'This graph review is complete'}</h2><p>${r.appliedGroupIds.length} approved and added to your graph, ${r.rejectedGroupIds.length} declined. Approved changes keep their reported, inferred, and unresolved qualifications.</p>${r.status === 'pending' && decided < r.graph.groups.length ? '<p>Go back through the tour to decide the remaining changes.</p>' : ''}${this.decision(r, outside, ref('Changes outside the tour'))}<details><summary>Research left outside the graph</summary>${r.graph.coverage.filter(c => !c.nodeIds.length && !c.claimIds.length).map(c => paragraphs(c.omissionReason || '')).join('') || '<p>All supplied findings are represented.</p>'}</details></section><button data-guided-tour-back>Back to the tour</button>`;
     }
   }
   private exploring() { const button = this.host.querySelector<HTMLElement>('[data-guided-return]'); if (button) button.hidden = false; }
   private change = (event: Event) => {
     const input = event.target as HTMLInputElement;
     if (input.hasAttribute('data-guided-revision')) { this.progress = {walkthroughId: input.value, stage: 'reading', step: 0, stop: -1}; this.render(); }
+    // Showing changes only reveals what is already drawn, so nothing moves.
+    if (input.hasAttribute('data-guided-changes')) { this.progress.changes = input.checked; this.save(); input.closest('.guided-graph-stage')?.classList.toggle('shows-changes', input.checked); }
   };
   private click = (event: Event) => {
     const b = (event.target as Element).closest<HTMLElement>('button');
@@ -214,24 +231,34 @@ export class GuidedReview {
       const action = b.hasAttribute('data-guided-pause') ? 'graph-job-pause' : b.dataset.guidedResume === 'resume' ? 'graph-job-resume' : 'graph-resume-decision';
       void this.options.command({action, investigationId: this.investigation.id, jobId: this.job()!.id, decision: b.dataset.guidedResume}).catch(e => this.options.error(e.message)); return;
     }
-    const block = b.closest<HTMLElement>('[data-tour-decision]');
-    if (block && (b.hasAttribute('data-guided-decline') || b.hasAttribute('data-guided-decline-cancel'))) {
-      const form = block.querySelector<HTMLElement>('.tour-decline')!;
-      form.hidden = b.hasAttribute('data-guided-decline-cancel');
-      block.querySelector<HTMLElement>('.tour-decision-actions')!.hidden = !form.hidden;
-      if (!form.hidden) block.querySelector<HTMLTextAreaElement>('[data-decline-note]')!.focus();
+    const block = b.closest<HTMLElement>('[data-draft-decision]');
+    if (block && (b.hasAttribute('data-guided-set-aside') || b.hasAttribute('data-guided-set-aside-cancel'))) {
+      const form = block.querySelector<HTMLElement>('.draft-set-aside')!;
+      form.hidden = b.hasAttribute('data-guided-set-aside-cancel');
+      block.querySelector<HTMLElement>('.draft-decision-actions')!.hidden = !form.hidden;
+      if (!form.hidden) block.querySelector<HTMLTextAreaElement>('[data-set-aside-note]')!.focus();
       return;
     }
-    if (block && (b.hasAttribute('data-guided-approve') || b.hasAttribute('data-guided-decline-confirm'))) {
-      const approve = b.hasAttribute('data-guided-approve');
-      const r = this.review()!, groupIds = block.dataset[approve ? 'approveIds' : 'declineIds']!.split(' ').filter(Boolean);
-      const note = block.querySelector<HTMLTextAreaElement>('[data-decline-note]')?.value.trim() || '';
-      const reference = JSON.parse(block.dataset.reference!) as AnnotationTarget;
+    if (block && (b.hasAttribute('data-guided-accept') || b.hasAttribute('data-guided-set-aside-confirm') || b.dataset.guidedUndo)) {
+      const r = this.review()!;
+      const note = block.querySelector<HTMLTextAreaElement>('[data-set-aside-note]')?.value.trim() || '';
       b.setAttribute('disabled', '');
       void (async () => {
-        await this.options.command({action: approve ? 'graph-apply' : 'graph-set-aside', investigationId: this.investigation.id, graphReviewId: r.id, groupIds});
-        if (!approve && note && this.options.decline) await this.options.decline(note, {...reference, groupId: groupIds[0]});
+        if (b.dataset.guidedUndo) await this.options.command({action: 'organization-undo', undoId: b.dataset.guidedUndo});
+        else if (b.hasAttribute('data-guided-accept')) await this.options.command({action: 'graph-accept', investigationId: this.investigation.id, graphReviewId: r.id});
+        else {
+          await this.options.command({action: 'graph-set-aside', investigationId: this.investigation.id, graphReviewId: r.id});
+          if (note && this.options.decline) await this.options.decline(note, JSON.parse(block.dataset.reference!) as AnnotationTarget);
+        }
       })().catch(e => { const error = block.querySelector('[data-guided-error]'); if (error) error.textContent = e.message; b.removeAttribute('disabled'); });
+      return;
+    }
+    if (b.dataset.guidedFocus) {
+      const ids = b.dataset.guidedFocus.split(' ');
+      const nodes = ids.filter(id => this.host.querySelector(`.graph-node[data-person-id="${CSS.escape(id)}"], .graph-node[data-context-entity-id="${CSS.escape(id)}"]`));
+      const stage = this.host.querySelector('.guided-graph-stage');
+      if (stage && !stage.classList.contains('shows-changes')) { stage.classList.add('shows-changes'); this.progress.changes = true; this.save(); const toggle = this.host.querySelector<HTMLInputElement>('[data-guided-changes]'); if (toggle) toggle.checked = true; }
+      this.renderer?.focusRegion(nodes, ids.filter(id => !nodes.includes(id)));
       return;
     }
     if (b.hasAttribute('data-guided-fit')) { this.renderer?.fitAll(); return; }
@@ -247,4 +274,21 @@ export class GuidedReview {
     this.render();
     this.host.scrollIntoView({block: 'start'});
   };
+}
+
+// Mark what a draft changes on the drawn graph: ghosts for removed records, and
+// outlines for new ones. The marks show only while changes are shown.
+function markChanges(canvas: Element, view: {ghostIds: Set<string>; addedIds: Set<string>; changedEdgeIds: Set<string>}) {
+  for (const node of canvas.querySelectorAll('.graph-node')) {
+    const id = node.getAttribute('data-person-id') || node.getAttribute('data-context-entity-id') || '';
+    node.classList.toggle('is-ghost', view.ghostIds.has(id));
+    node.classList.toggle('is-proposed', view.addedIds.has(id));
+  }
+  for (const edge of canvas.querySelectorAll('.graph-edge, .context-edge-label')) {
+    let id = '';
+    try { id = (JSON.parse(edge.getAttribute('data-research-target') || '{}') as AnnotationTarget).recordId || edge.getAttribute('data-connection-id') || ''; } catch { /* Unmarked. */ }
+    edge.classList.toggle('is-ghost', view.ghostIds.has(id));
+    edge.classList.toggle('is-proposed', view.addedIds.has(id));
+    edge.classList.toggle('is-changed', view.changedEdgeIds.has(id));
+  }
 }

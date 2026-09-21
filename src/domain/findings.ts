@@ -286,8 +286,8 @@ export function validateReferences(
       }
       if (r.graphReviewId) {
         const g = flow.graphReviews.find(g => g.id === r.graphReviewId)!;
-        assert(!r.claimId || g.graph.claims.some(c => c.id === r.claimId), "Claim does not exist in this graph proposal.");
-        assert(!r.groupId || g.graph.groups.some(group => group.id === r.groupId), "Group does not exist in this graph proposal.");
+        // A note can concern an edge the draft keeps or one it removes.
+        assert(!r.claimId || [...(g.draft.claims || []), ...(g.baseDataset.claims || [])].some(c => c.id === r.claimId), "Edge does not exist in this graph draft.");
       }
     }
     if (r.proposalId) {

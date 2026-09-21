@@ -1,54 +1,28 @@
 import { GenealogyModel } from './model.ts';
 import { canonical } from './changes.ts';
 import type { FamilyDataset, SourceRecord, ResearchEvidence } from './types';
-import type { GraphDraft } from './review-flow';
+
+// The proposal format builders wrote before they edited the graph as tables. Only the
+// one-time conversion of stored reviews reads it.
+export interface LegacyGraphProposal {
+  schemaVersion: number;
+  baseGraphRevision: number;
+  researchRevision: string;
+  consumedUpdateSequence: number;
+  title: string;
+  summary: string;
+  nodes: {id: string; kind: string; label: string; existingId: string | null; evidenceRefs: string[]}[];
+  claims: import('./types').ResearchClaim[];
+  groups: {id: string; title: string; nodeIds: string[]; claimIds: string[]; dependsOn: string[]}[];
+  issues: {id: string; kind: string; question: string; nodeIds: string[]; claimIds: string[]; evidenceRefs: string[]; provisionalTreatment: string; requestedResearch: string | null; blocksGroupIds: string[]}[];
+  coverage: {findingRef: string; nodeIds: string[]; claimIds: string[]; omissionReason: string | null}[];
+  identityDecisions: {nodeIds: string[]; decision: string; reason: string; evidenceRefs: string[]}[];
+  representationNotes: {id: string; nodeIds: string[]; claimIds: string[]; issueIds: string[]; decision: string; alternatives: string[]; reason: string}[];
+}
+type GraphDraft = LegacyGraphProposal;
 
 const confidence = {supported: 'established', reported: 'unknown', inferred: 'probable', disputed: 'disputed', unresolved: 'unknown'} as const;
 const types = {located_in: 'location', built_at: 'location', established: 'founding', built: 'founding', operated: 'management', partner_in: 'partnership'} as const;
-
-export function selectedGraphGroups(graph: GraphDraft, ids: string[], applied: string[] = []): void {
-  if (!Array.isArray(ids) || !ids.length || new Set(ids).size !== ids.length) throw new Error('Choose groups to apply.');
-  for (const id of ids) {
-    const group = graph.groups.find(g => g.id === id);
-    if (!group || applied.includes(id)) throw new Error('This group is unavailable or already applied.');
-    if (group.dependsOn.some(d => !ids.includes(d) && !applied.includes(d))) throw new Error('Select the required groups too.');
-    if (graph.issues.some(issue => issue.blocksGroupIds.includes(id))) throw new Error('This group has an unresolved blocking question.');
-  }
-}
-
-// Declining a change also declines whatever was built on top of it, so the human is
-// never left holding a step that can no longer be finished.
-export function declinedWithDependents(graph: GraphDraft, ids: string[], decided: string[] = []): string[] {
-  const declined = new Set(ids);
-  let growing = true;
-  while (growing) {
-    growing = false;
-    for (const group of graph.groups) {
-      if (declined.has(group.id) || decided.includes(group.id)) continue;
-      if (group.dependsOn.some(d => declined.has(d))) { declined.add(group.id); growing = true; }
-    }
-  }
-  return [...declined];
-}
-
-// The largest subset of a step's undecided groups that can be approved together:
-// every dependency must already be applied or be approved in the same press, and a
-// group with an unresolved blocking question cannot go at all.
-export function approvableTogether(graph: GraphDraft, groupIds: string[], applied: string[], rejected: string[]): string[] {
-  const blocked = (id: string) => graph.issues.some(issue => issue.blocksGroupIds.includes(id));
-  let candidates = groupIds.filter(id => !applied.includes(id) && !rejected.includes(id) && !blocked(id));
-  let shrinking = true;
-  while (shrinking) {
-    shrinking = false;
-    const chosen = new Set(candidates);
-    const next = candidates.filter(id => {
-      const group = graph.groups.find(g => g.id === id);
-      return (group?.dependsOn || []).every(d => applied.includes(d) || chosen.has(d));
-    });
-    if (next.length !== candidates.length) { candidates = next; shrinking = true; }
-  }
-  return candidates;
-}
 
 export function materializeGraph(dataset: FamilyDataset, graph: GraphDraft, evidence: Record<string, ResearchEvidence>, sources: SourceRecord[], ids = graph.groups.map(g => g.id)): FamilyDataset {
   const data = structuredClone(dataset);

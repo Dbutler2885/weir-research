@@ -53,9 +53,9 @@ export function investigationIndex(i) {
   return {
     guidedReview: i.reviewFlow ? {
       walkthrough: i.reviewFlow.walkthroughs.at(-1)?.id,
-      jobs: i.reviewFlow.jobs.filter(j => j.status !== "superseded").map(j => ({id: j.id, status: j.status, progress: j.progress, engine: j.engine, consumedUpdateSequence: j.consumedUpdateSequence, latestUpdateSequence: j.updates.length, resumeRequest: j.resumeRequest, issues: j.issues})),
-      graphReview: i.reviewFlow.graphReviews.at(-1)?.id,
-      nextAction: i.reviewFlow.jobs.some(j => j.status === "returned") ? "Inspect flow, then write the graph tour and publish the graph review." : i.walkthroughRequestedAt ? "The human requested a walkthrough; fork yourself to write it (docs/coordinator.md), then check and publish the draft." : null,
+      jobs: i.reviewFlow.jobs.filter(j => j.status !== "superseded").map(j => ({id: j.id, status: j.status, progress: j.progress, engine: j.engine, consumedUpdateSequence: j.consumedUpdateSequence, latestUpdateSequence: j.updates.length, resumeRequest: j.resumeRequest, ...(j.candidate ? {draftSummary: j.candidate.summary, questions: j.candidate.questions.length} : {})})),
+      graphReview: i.reviewFlow.graphReviews.at(-1) ? {id: i.reviewFlow.graphReviews.at(-1).id, status: i.reviewFlow.graphReviews.at(-1).status} : undefined,
+      nextAction: i.reviewFlow.jobs.some(j => j.status === "returned") ? "Inspect flow and check the draft against the human's instructions; send it back with graph-update, or write the tour and sign it off with publish-graph-review (skills/prepare-research-graph/SKILL.md)." : i.walkthroughRequestedAt ? "The human requested a walkthrough; fork yourself to write it (docs/coordinator.md), then check and publish the draft." : null,
     } : i.walkthroughRequestedAt ? {nextAction: "The human requested a walkthrough; fork yourself to write it (docs/coordinator.md), then check and publish the draft."} : null,
     id: i.id,
     title: i.title,

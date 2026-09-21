@@ -156,11 +156,11 @@ For managed workers, inspect returned candidates before publishing; they are not
 For native workers, collect their findings under a coordinator-owned investigation, save checkpoints, and synthesize a proposal yourself.
 Workers must not edit the live dataset, workspace state files, or imported originals.
 Publish through the coordinator API so validation, revision capture, and stale-data checks remain enforced.
-The human reads the walkthrough and alone applies graph groups in the browser.
+The human reads the walkthrough and alone accepts or sets aside a graph draft in the browser.
 Reading does not require accepting individual findings.
 Inspect the investigation phase before assigning a pass.
 Research and synthesis return `kind: "findings"`, with qualified statements and evidence but no graph changes.
-Graph construction uses the separate durable CSV builder job described in `skills/prepare-research-graph/SKILL.md`, with exact evidence references, coherent groups, dependencies, and omissions.
+Graph construction uses the separate durable builder job described in `skills/prepare-research-graph/SKILL.md`: the builder edits the graph as two tables, and you sign its draft off against the human's instructions or send it back.
 The older `graphRequest` proposal API remains available for legacy reviews.
 Do not ask one pass to both develop historical conclusions and design their graph representation.
 Keeping a finding preserves its qualification, including reported, disputed, and unresolved accounts.

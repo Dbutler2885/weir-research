@@ -32,12 +32,16 @@
 .guided-graph-sidebar .detail-name { font-size: 1.35rem; }
 .tour-transition { border-left: 2px solid #b29057; padding-left: 12px; margin-top: 20px; }
 .tour-issue { padding: 12px 0; color: #705522; }
-.guided-apply-group { padding: 14px 0; border-bottom: 1px solid #d4cbbc; }
-.guided-apply-group label { display: flex; align-items: baseline; gap: 10px; }
-.guided-apply-group input { width: auto; }
-.guided-apply-group p, .guided-apply-group span { font-size: .82rem; color: #53696d; }
-.guided-graph-sidebar [data-guided-apply] { margin-top: 20px; }
-.graph-node.is-proposed .person-card, .graph-node.is-proposed .context-card { stroke: #176b70; stroke-width: 2.5; }
+/* A draft's changes show on the graph only while "Show changes" is on. */
+.draft-toggle { display: inline-flex; align-items: center; gap: 6px; margin-left: 6px; padding: 5px 9px; font-size: .85rem; color: #33494d; background: #f8f5ebdf; border-radius: 6px; cursor: pointer; }
+.draft-toggle input { width: auto; margin: 0; }
+.guided-graph-stage:not(.shows-changes) .is-ghost { display: none; }
+.shows-changes .graph-node.is-ghost { opacity: .38; }
+.shows-changes .graph-node.is-ghost .person-card, .shows-changes .graph-node.is-ghost .context-card { stroke-dasharray: 5 4; }
+.shows-changes .graph-edge.is-ghost { stroke-dasharray: 5 4; opacity: .35 !important; }
+.shows-changes .graph-node.is-proposed .person-card, .shows-changes .graph-node.is-proposed .context-card { stroke: #176b70; stroke-width: 2.5; }
+.shows-changes .graph-edge.is-proposed, .shows-changes .graph-edge.is-changed { stroke: #176b70; stroke-width: 2.4; }
+.draft-ghost-note { margin: 0 0 12px; font-size: .9rem; color: #705522; }
 .graph-node.is-tour-focus .person-card, .graph-node.is-tour-focus .context-card { stroke: #b24c2d; stroke-width: 3.5; }
 .graph-edge.is-tour-focus { stroke: #b24c2d; stroke-width: 3; opacity: 1 !important; }
 [data-guided-error] { color: #9c3327; }
@@ -52,16 +56,20 @@
 .research-surface .guided-reading h3 { font-size: 1.12rem; margin: 1.8rem 0 .6rem; }
 .guided-reading blockquote { border-left: 3px solid #b29057; padding-left: 20px; margin: 20px 0; line-height: 1.7; white-space: pre-wrap; }
 .guided-graph-sidebar .tour-issue { font-size: .9rem; line-height: 1.5; }
-.tour-decision { margin: 22px 0 8px; padding: 14px 16px; border: 1px solid #d4cbbc; border-radius: 10px; background: #fff; }
-.guided-graph-sidebar .tour-decision h3 { margin: 0 0 8px; font-size: 1rem; }
-.tour-decision ul { list-style: none; margin: 0 0 12px; padding: 0; }
-.tour-decision li { display: flex; flex-direction: column; gap: 2px; padding: 6px 0; border-bottom: 1px solid #ece5d8; font-size: .92rem; }
-.tour-decision li:last-child { border-bottom: 0; }
-.tour-decision-state { color: #53696d; font-size: .85rem; }
-.tour-decision-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.tour-decline label { display: grid; gap: 6px; margin-bottom: 10px; font-size: .9rem; }
-.tour-decline textarea { width: 100%; padding: 8px 10px; border: 1px solid #d4cbbc; border-radius: 8px; font: inherit; font-size: .92rem; }
-.tour-decision [data-guided-error]:empty { display: none; }
+.draft-decision { margin: 24px 0; padding-top: 18px; border-top: 1px solid #d4cbbc; }
+.draft-decision-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 12px 0; }
+.draft-set-aside label { display: grid; gap: 6px; margin: 12px 0 4px; font-size: .9rem; }
+.draft-set-aside textarea { width: 100%; padding: 8px 10px; border: 1px solid #d4cbbc; border-radius: 8px; font: inherit; font-size: .92rem; }
+.draft-decision [data-guided-error]:empty { display: none; }
+.guided-graph-sidebar .draft-changes h2, .guided-graph-sidebar .draft-questions h2, .guided-graph-sidebar .draft-undone h2 { font-size: 1.1rem; margin: 28px 0 6px; }
+.guided-graph-sidebar .draft-changes h3 { font-size: .8rem; letter-spacing: .06em; text-transform: uppercase; color: #53696d; margin: 18px 0 4px; }
+.draft-changes ul, .draft-undone ul { list-style: none; margin: 0; padding: 0; }
+.draft-changes li { padding: 3px 0; font-size: .92rem; line-height: 1.45; }
+.draft-summary { font-weight: 600; }
+.guided-graph-sidebar .draft-change { display: inline; min-height: 0; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.guided-graph-sidebar .draft-change:hover, .guided-graph-sidebar .draft-change:focus-visible { background: transparent; text-decoration: underline; text-underline-offset: 3px; }
+.draft-undone li { padding: 6px 0; font-size: .92rem; }
+.draft-undone li p { margin: 2px 0 0; font-size: .9rem; color: #53696d; }
 .research-table { margin: 1.2rem 0; overflow-x: auto; }
 .research-table table { width: 100%; border-collapse: collapse; font-size: .95rem; line-height: 1.5; }
 .research-table th, .research-table td { padding: 8px 12px 8px 0; border-bottom: 1px solid #e4dccd; text-align: left; vertical-align: top; }

@@ -255,14 +255,14 @@ After a restart, a draft file for a still-requested batch is resumable work; che
 ## Guided research and graph review
 
 The standard presentation flow is documented in `skills/present-research/SKILL.md` and its runtime reference.
-The separate CSV graph-builder and coordinator-authored tour are documented in `skills/prepare-research-graph/SKILL.md`.
+The graph builder, which edits the graph as two tables, and the coordinator's sign-off and tour are documented in `skills/prepare-research-graph/SKILL.md`.
 Use those routes for new work; the kept-finding graph request described in older contracts remains supported for existing reviews.
-The snapshot exposes walkthrough revisions, graph job progress, and returned candidates requiring a tour.
-`inspect-flow` retrieves the preserved explanation, job packet, frozen candidate, and graph reviews for one investigation.
-Graph workers can complete while the coordinator is disconnected; the browser then explains that the coordinator is preparing the tour.
-On restart, interrupted builder jobs pause with their files retained and require human confirmation to resume.
-The browser review persists reading position, supports source inspection and annotations, and previews proposed additions before application.
-Graph application validates the base revision, group dependencies, blocking issues, and new feedback against the reviewed revision.
+The snapshot exposes walkthrough revisions, graph job progress, and returned drafts awaiting your sign-off.
+`inspect-flow` retrieves the preserved explanation, job packet, the candidate draft with its computed difference, and graph reviews for one investigation.
+Graph workers can complete while the coordinator is disconnected; the browser then explains that the coordinator is checking the draft.
+On restart, an interrupted builder picks its draft back up from its saved files, up to its attempt limit.
+The browser review persists reading position, supports source inspection and annotations, and shows the draft with its changes, including removed records as ghosts.
+Accepting a draft validates the base revision and that newer feedback on the draft has reached the builder, then replaces the graph and keeps an undo.
 
 ## Boundaries
 

@@ -17,7 +17,6 @@ import { fileURLToPath } from "node:url";
 import { randomBytes, createHash } from "node:crypto";
 import { WorkspaceStore } from "./store.mjs";
 import { organize } from "./organization.mjs";
-import { graphImport } from "./graph-import.mjs";
 import { Coordinator } from "./coordinator.mjs";
 import { ResearcherPool } from "./researchers.mjs";
 import { GraphBuilderPool } from "./graph-builders.mjs";
@@ -284,11 +283,6 @@ const server = createServer(async (req, res) => {
         "Cache-Control": "private, max-age=31536000, immutable",
       });
       return res.end(readFileSync(join(documentsDir, doc.id)));
-    }
-    if (req.method === "POST" && url.pathname === "/api/graph-import") {
-      const result = graphImport(store, await body(req));
-      researchers.pump();
-      return json(res, 200, result);
     }
     if (req.method === "POST" && url.pathname === "/api/review-flow") {
       const result = flowCommand(store, await body(req), "human");

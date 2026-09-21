@@ -141,13 +141,15 @@ export function organize(store, command) {
     const id = randomUUID();
     store.update((next) => {
       const restored = structuredClone(record.before);
-      restored.sources = [
-        ...new Map(
-          [...(restored.sources || []), ...(next.dataset.sources || [])].map(
-            (s) => [s.id, s],
-          ),
-        ).values(),
-      ];
+      // Research records are only ever added, so undoing keeps any that arrived since.
+      for (const key of ["sources", "evidence"])
+        if (restored[key] || next.dataset[key]) restored[key] = [
+          ...new Map(
+            [...(restored[key] || []), ...(next.dataset[key] || [])].map(
+              (r) => [r.id, r],
+            ),
+          ).values(),
+        ];
       new GenealogyModel(restored);
       next.organization.history.push({
         id,
@@ -159,7 +161,16 @@ export function organize(store, command) {
       next.dataset = restored;
       next.datasetRevision++;
       delete next.organization.preview;
-      invalidate(next);
+      // Undoing an accepted draft reopens its batch for a revised draft. Like accepting
+      // it, this leaves running research alone.
+      const batch = record.graphReviewId && next.investigations.find((i) => i.reviewFlow?.graphReviews.some((r) => r.id === record.graphReviewId));
+      if (batch) {
+        const review = batch.reviewFlow.graphReviews.find((r) => r.id === record.graphReviewId);
+        review.status = "undone";
+        review.undoneAt = new Date().toISOString();
+        delete batch.closedAt;
+        batch.events.push({ at: review.undoneAt, message: "Accepted graph draft undone; the batch is open for a revised draft." });
+      } else invalidate(next);
     });
     return {
       saved: true,

@@ -103,7 +103,12 @@ function retarget(value: unknown): void {
   Object.values(record).forEach(retarget);
 }
 
-type Upgradable = { dataset: FamilyDataset | LegacyDataset; organization?: { history?: { before?: FamilyDataset | LegacyDataset }[]; preview?: { dataset?: FamilyDataset | LegacyDataset } } };
+type Snapshot = { baseDataset?: FamilyDataset | LegacyDataset };
+type Upgradable = {
+  dataset: FamilyDataset | LegacyDataset;
+  organization?: { history?: { before?: FamilyDataset | LegacyDataset }[]; preview?: { dataset?: FamilyDataset | LegacyDataset } };
+  investigations?: { reviewFlow?: { jobs?: Snapshot[]; graphReviews?: Snapshot[] } }[];
+};
 
 export function needsGraphUpgrade(state: Upgradable): boolean {
   return state.dataset.version !== 2;
@@ -118,5 +123,9 @@ export function upgradeGraphState<S extends Upgradable>(source: S): S {
   state.dataset = upgradeDataset(state.dataset);
   for (const record of state.organization?.history || []) if (record.before) record.before = upgradeDataset(record.before);
   if (state.organization?.preview?.dataset) state.organization.preview.dataset = upgradeDataset(state.organization.preview.dataset);
+  // Graph work records the graph it started from; builders and reviews read it as tables.
+  for (const flow of (state.investigations || []).map((i) => i.reviewFlow))
+    for (const record of [...(flow?.jobs || []), ...(flow?.graphReviews || [])])
+      if (record.baseDataset) record.baseDataset = upgradeDataset(record.baseDataset);
   return state;
 }

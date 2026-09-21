@@ -578,7 +578,9 @@ export function mountResearchWorkspace(
     guidedReview = new GuidedReview(surface.querySelector<HTMLElement>("[data-guided-host]")!, state, batch, {
       start: reviewTarget.start,
       command: async (data) => {
-        await request("/api/review-flow", data);
+        // Undoing an accepted draft is a graph organization step with its own snapshot.
+        if (data.action === "organization-undo") await request("/api/organization", { action: "organization-undo", undoId: data.undoId });
+        else await request("/api/review-flow", data);
         await refresh();
       },
       source: (id, quote) => showSource(undefined, quote, id),
@@ -589,7 +591,7 @@ export function mountResearchWorkspace(
           annotation: { question: note, references: [reference] },
         });
         await refresh(false);
-        message("Declined. Your note went to the coordinator as new work.");
+        message("Set aside. Your note went to the coordinator as new work.");
       },
     });
   }

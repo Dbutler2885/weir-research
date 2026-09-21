@@ -1,91 +1,64 @@
 ---
 name: prepare-research-graph
-description: Prepare a separate graph-builder assignment after synthesizing a research walkthrough, reconcile its proposed entities, claims, and uncertainties, and write the coordinator-owned graphical review tour. Use for research graph preparation and isolated graph-builder experiments.
+description: Supervise a graph builder that edits the research graph as two tables, sign off or send back its draft against the human's instructions, and write the coordinator-owned tour of what the draft changes. Use for research graph updates.
 ---
 
 # Prepare a research graph
 
 Help the builder turn the research into a useful, evidence-linked graph that the human can explore.
-The coordinator first explains the research through a guided walkthrough, then assigns graph preparation while the human reads.
-Reading progress is separate from permission to apply graph changes.
+The graph is nodes and edges.
+A builder edits a copy of it as two tables, and the application works out what changed.
+The human accepts or sets aside the whole draft; reading the tour is separate from that decision.
 
-## Assemble the assignment
-
-Supply the actual research question, the walkthrough and its revision, exact researcher returns, and an evidence registry keyed by immutable capture and record IDs.
-Include the graph base revision, initial relevant records, the source scope, and the read-only query interface available in this run.
-The builder can use search, inspect, neighborhood, and evidence-trace operations to expand context; the brief is a starting point rather than the boundary of accessible research.
-Distinguish empty graphs from truncated snapshots.
-
-Read [the experimental contract](references/contract.md) and use [the builder system prompt](references/graph-builder-system.md) when preparing a headless trial.
-Pass packet-specific contradictions, source-access limits, and user corrections as context in the assignment.
-Keep them separate from reusable instructions.
-Use the user's configured model and effort, preserving the provider authorization already established in the session.
-
-## Provide a durable working session
-
-Give the builder an isolated output directory and working tools for saving proposal pieces, checkpoints, and status.
-Use the CSV tables in the contract as its deliverable, with Markdown for working notes.
-Let it choose how to divide its work and when to save each piece.
-Preserve the complete response stream as it arrives and retain resumable session state where the harness supports it.
-Saved artifacts and the checkpoint also support recovery in a replacement model session.
-Receive progress and completion through a separate status channel; a conversational turn ending is not proof that the proposal is complete.
-The completion signal identifies the exact artifact set and input revision to validate and review.
-Freeze that submitted revision before inspection so later edits cannot change the proposal under review.
-Interrupted work remains available for recovery without publishing an incomplete graph.
-
-For an isolated Claude trial, run `node skills/prepare-research-graph/scripts/run-csv-experiment.mjs <new-run-directory> <packet.json>` from the repository root.
-The runner requires Node, Python 3 for standard CSV parsing, and the configured Claude CLI account.
-It provides file tools confined by Claude's restricted mode to the private working directory, records every streamed message, and preserves the session ID.
-To resume, supply the same directory plus a packet and a third argument pointing to a text file with the follow-up assignment.
-Use the existing packet for recovery, or a coordinator-prepared revised packet with sequenced updates when supplying additional context.
-The runner preserves the previous packet and captures the new input for that attempt before the worker starts.
-Read `status.txt`, the attempt's `result.json` and `validation.json`, and the working checkpoint before choosing a recovery action.
-Each attempt preserves its own logs; completed submissions contain frozen CSVs plus software-generated validation and internal graph records.
-This runner demonstrates the file-delivery protocol; it does not yet implement a live coordinator watcher or application publication.
-
-## Coordinate updates and questions
-
-Pass newly dispatched annotations and research returns as sequenced updates tied to exact references.
-Have the builder state the input revision and update cursor it used.
-Its representation notes and questions should identify the affected representation, evidence, provisional treatment, and what information would change the decision.
-Decide whether bounded in-scope follow-up would materially improve the proposal or whether explicit uncertainty is the useful result.
-Keep existing pauses and user limits in force.
-Return further research to the same investigation and route it back to the builder; surface consequential discoveries in the proposal's graphical review.
-
-## Review the returned proposal
-
-Check that the graph expresses relationships as well as entities, preserves qualifications on individual assertions, and references the evidence it actually uses.
-Inspect identity decisions, unrepresented findings, and builder questions.
-After inspecting the graph, the coordinator writes the graphical walkthrough using [the tour guidance](references/coordinator-graph-tour.md).
-Introduce the whole addition, then focus on new records and consequential uncertainties with stable focus IDs and sidebar explanations.
-Use the builder's notes as material for synthesis while retaining the coordinator's guiding voice and understanding of the research.
-Preserve the raw output and validation results before any revision.
-
-## Use the integrated application
+## How a graph job runs
 
 A graph job is queued when the human requests a batch's graph update from Review, or automatically when they have turned that on.
 It represents all of the batch's findings, with its latest walkthrough when one exists.
-Only one graph update runs at a time across the project, and a pending graph review blocks the next.
-Use `inspect-flow` with the batch's investigation ID to inspect jobs, packets, and returned candidates.
+Only one graph update runs at a time across the project, and a pending review blocks the next.
+
+When the job starts, the application writes the accepted graph into the builder's working directory as `nodes.csv` and `edges.csv`, with an untouched copy under `start/`.
+Beside them it writes `packet.json` with the research: the question, the walkthrough, the findings, the evidence registry, and the source library.
+[The builder contract](references/contract.md) describes the tables, and [the builder system prompt](references/graph-builder-system.md) is its standing instruction.
+
 Managed jobs start automatically with the saved provider preference.
-For a manual job, send `claim-graph` with investigationId and jobId; give the returned working directory and its AGENTS.md to a bounded native builder.
+For a manual job, send `claim-graph` with investigationId and jobId, and give the returned working directory and its AGENTS.md to a bounded native builder.
 When it signals completion, send `submit-graph-files` with those IDs.
-The host validates and freezes its CSVs before exposing the candidate.
 
-The candidate contains `graph`, `packet`, and `graphSha256`.
-Read the issues, coverage, identity decisions, and representation notes, then write the tour using the guidance above.
-Send `publish-graph-review` with investigationId, jobId, and `tour: {graphSha256, introduction, steps}`.
-Each tour step supplies id, title, focusNodeIds, focusClaimIds, explanation, issueIds, and transition.
-The browser moves the graph camera and opens the relevant record in its single guidance sidebar.
-The final screen offers coherent groups for explicit application with dependencies and evidence intact.
+When the builder finishes, the application reads the tables back.
+A draft that does not hold together goes straight back to the builder with every problem listed, up to three times.
+A draft that holds together becomes the job's candidate, with the computed difference and a one-line summary.
 
-Send `graph-update` with investigationId, jobId, message, and the relevant dispatched annotationIds for new context before publication.
+## Pass the human's instructions as context
+
+The human's representation conventions, such as folding a single-site organisation into its site, belong to the job, not to the shared instructions.
+Send them with `graph-update` (investigationId, jobId, message, and the relevant dispatched annotationIds).
+The builder receives them as sequenced updates and reports the last one it incorporated; a draft written before the latest update is kept but queued to incorporate it.
 If the explanation materially changes, include a complete revised walkthrough in that update.
-Workers receive updated packet.json and updates.json and record the consumed sequence in their CSVs.
-An older completed submission is preserved and queued for an update rather than silently published.
-Approving a graph review closes its batch; related later work belongs in a new batch with its own graph update.
+Editing this skill or its references changes the rules for every builder in every project, which is a reviewed code change rather than a coordinator action.
 
-Use `request-graph-resume` with investigationId, jobId, and reason when graph preparation is paused.
-Wait for browser approval before proceeding.
-The files, checkpoints, full streamed output, attempt inputs, and frozen submissions live under the project's private graph-builders directory.
+## Sign off or send back
+
+Use `inspect-flow` with the batch's investigation ID to read the candidate: `draft`, `diff`, `summary`, `questions`, and `notes`.
+Check the difference against the human's instructions for this job and against the findings.
+Check that the draft expresses relationships as well as entities, preserves qualifications, and cites the evidence it actually uses.
+Removals and merges deserve the closest reading, because the human is asked to accept records disappearing.
+
+If the draft does not yet do what was asked, send it back with `graph-update`, naming what is missing.
+The builder continues from its own draft in the same directory.
+
+When the draft is ready, write the tour using [the tour guidance](references/coordinator-graph-tour.md) and send `publish-graph-review` with investigationId, jobId, `tour`, and `undone`.
+`undone` lists each instruction the draft still leaves undone as `{instruction, reason}`, with the builder's reason; it is empty when everything was done.
+This is how the human learns that an instruction was not carried out.
+The human never sees a draft you have not signed off.
+Signing off is refused when the accepted graph changed after the draft was prepared; send a graph update so the builder redrafts against it.
+
+## After the human decides
+
+Accepting replaces the graph with the draft, copies cited research into it, closes the batch, and keeps an undo.
+Setting the draft aside closes the batch without changing the graph; a note the human leaves arrives as new work.
+Undoing an accepted draft reopens the batch for a revised draft.
+New feedback the human sends about a published draft must reach the builder before that draft can be accepted.
+
+Use `request-graph-resume` with investigationId, jobId, and reason when graph preparation is paused, and wait for browser approval before proceeding.
+The tables, checkpoints, full streamed output, attempt inputs, and frozen submissions live under the project's private graph-builders directory.
 The configured optional time limit applies per attempt; its default is unlimited.
