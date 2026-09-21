@@ -205,12 +205,16 @@ export function mountResearchWorkspace(
   }
   // Research the workspace is running right now, said where every tab can see it.
   function updateRunning() {
-    const running = state.investigations.filter((i) => ["queued", "running"].includes(i.status)).length;
+    // Only a batch a researcher has claimed is being worked on; a queued one is waiting.
+    const open = state.investigations.filter((i) => !i.closedAt);
+    const running = open.filter((i) => i.status === "running").length;
+    const queued = open.filter((i) => i.status === "queued").length;
     const builders = state.investigations.flatMap((i) => i.reviewFlow?.jobs || [])
       .filter((j) => ["queued", "running", "returned"].includes(j.status)).length;
     const writing = state.investigations.filter((i) => i.walkthroughRequestedAt).length;
     const parts = [
       running ? `${running} ${running === 1 ? "researcher" : "researchers"} working` : "",
+      queued ? `${queued} ${queued === 1 ? "batch" : "batches"} waiting for a researcher` : "",
       builders ? `${builders} graph ${builders === 1 ? "update" : "updates"} building` : "",
       writing ? `${writing} ${writing === 1 ? "walkthrough" : "walkthroughs"} being written` : "",
     ].filter(Boolean);

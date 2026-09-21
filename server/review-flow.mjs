@@ -217,6 +217,9 @@ export function flowCommand(store, command, actor = 'coordinator') {
 // A batch closes when its graph review is complete; later related work starts a new batch.
 function closeBatch(inv) {
   inv.closedAt = new Date().toISOString();
+  // A closed batch takes no more work, so research queued on it is no longer waiting.
+  inv.status = 'closed';
+  delete inv.lease;
   inv.events.push({at: inv.closedAt, message: 'Graph review completed; batch closed.'});
 }
 

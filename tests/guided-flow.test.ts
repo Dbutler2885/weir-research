@@ -55,9 +55,12 @@ describe('guided research flow',()=>{
     expect(f.store.state.dataset.sources.map((s: any)=>s.id)).toEqual(['register']);
     expect(f.review().status).toBe('applied');
     expect(f.store.state.investigations[0].closedAt).toBeTruthy();
+    // A closed batch is not left looking like research is waiting on it.
+    expect(f.store.state.investigations[0].status).toBe('closed');
     expect(()=>f.command('graph-accept',{graphReviewId},'human')).toThrow('no longer pending');
     expect(new WorkspaceStore(f.directory,emptyGraph).state.dataset.claims).toHaveLength(1);
     organize(f.store,{action:'organization-undo',undoId:accepted.undoId});
+    expect(f.store.state.investigations[0].status).toBe('review');
     expect(f.store.state.dataset.claims ?? []).toEqual([]);
     expect(f.store.state.datasetRevision).toBe(2);
   });

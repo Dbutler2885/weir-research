@@ -169,6 +169,7 @@ export function organize(store, command) {
         review.status = "undone";
         review.undoneAt = new Date().toISOString();
         delete batch.closedAt;
+        batch.status = "review";
         batch.events.push({ at: review.undoneAt, message: "Accepted graph draft undone; the batch is open for a revised draft." });
       } else invalidate(next);
     });
