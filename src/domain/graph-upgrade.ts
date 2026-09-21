@@ -6,6 +6,7 @@
 // dates become the edge's time, and labels, places and notes become its reasoning.
 import { COUPLE_EDGE, PARENT_EDGE, parentEdgeName } from "./family-edges.ts";
 import type { Confidence, FamilyDataset, LegacyDataset, ResearchClaim } from "./types";
+import { convertLegacyReviews, hasLegacyReviews } from "./legacy-graph-review.ts";
 
 const qualificationFor: Record<Confidence, ResearchClaim["qualification"]> = {
   established: "supported",
@@ -111,14 +112,14 @@ type Upgradable = {
 };
 
 export function needsGraphUpgrade(state: Upgradable): boolean {
-  return state.dataset.version !== 2;
+  return state.dataset.version !== 2 || hasLegacyReviews(state as never);
 }
 
 // Upgrade a whole workspace: the live graph, every undo snapshot, and the records
 // that point into the graph.
 export function upgradeGraphState<S extends Upgradable>(source: S): S {
   if (!needsGraphUpgrade(source)) return source;
-  const state = structuredClone(source);
+  let state = structuredClone(source);
   retarget(state);
   state.dataset = upgradeDataset(state.dataset);
   for (const record of state.organization?.history || []) if (record.before) record.before = upgradeDataset(record.before);
@@ -127,5 +128,7 @@ export function upgradeGraphState<S extends Upgradable>(source: S): S {
   for (const flow of (state.investigations || []).map((i) => i.reviewFlow))
     for (const record of [...(flow?.jobs || []), ...(flow?.graphReviews || [])])
       if (record.baseDataset) record.baseDataset = upgradeDataset(record.baseDataset);
+  // Reviews and candidates prepared as proposals become drafts of the graph they were built against.
+  state = convertLegacyReviews(state as never) as S;
   return state;
 }
