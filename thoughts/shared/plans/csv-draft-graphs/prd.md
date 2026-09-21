@@ -1,9 +1,8 @@
 # Draft graphs
 
-Status: design agreed with the human on 2026-09-20 and revised on 2026-09-21; not implemented.
+Status: design agreed with the human on 2026-09-20 and revised on 2026-09-21; implemented on the `draft-graphs` branch on 2026-09-21, not yet merged.
 The revision reduces the graph to nodes and edges, removes unions and direct parentage, and hands the builder two editable tables that cite evidence by identifier.
-A serialisation module and a diff module exist and are committed, but they were built for the earlier ten-table shape and need rework.
-The builder handoff, the accept path, the review surface, and the migration are not built.
+Existing projects convert when a workspace is first opened, keeping the original file as `workspace.before-nodes-edges.json`.
 
 ## Problem Statement
 
@@ -252,6 +251,9 @@ Accepting completes the review and closes its batch, as it does today.
 
 The stale-graph check is retained: a draft prepared against an older graph revision cannot be accepted, and the coordinator is asked for a revised draft.
 
+Undoing an accepted draft restores the graph from the snapshot, keeps any research records that arrived with the draft, marks the draft as undone, and reopens its batch so a revised draft can be requested.
+Like accepting, it leaves running research alone.
+
 Group selection, group dependencies, cascade declines, and the applied and rejected group lists are removed.
 Setting a draft aside remains, and applies to the draft as a whole.
 
@@ -336,10 +338,12 @@ Changing what a builder is permitted to research, or how research findings are p
 
 ## Further Notes
 
-The two foundation modules are committed but were built for the earlier ten-table shape, which carried unions, parentage, evidence, sources, and graph settings as editable tables.
-They need rework to the two-table shape.
-The built reader also had a gap that the rework must not repeat: it did not check that a cited evidence identifier or a node's source identifier named a record that exists.
-The built difference module compares only nodes, claims, evidence, and sources, so a change to unions, parentage, the title, or a node's sources was reported as no change; removing everything except nodes and edges closes that.
+The first foundation modules were built for a ten-table shape that carried unions, parentage, evidence, sources, and graph settings as editable tables.
+They also silently dropped node descriptions, biographies, dates, and research notes, which a round trip missed because the project it was checked against used none of them, and they did not check that cited evidence or sources existed.
+The rework carries every node field, checks every citation, and has been round-tripped against every stored project.
+
+A builder job created before the tables existed may hold files in the old proposal format.
+When such a job resumes, those files are moved aside into `proposal-format/` and the builder starts from fresh tables.
 
 Verifying the round trip initially used a comparison that filtered nested fields and reported a false pass, which hid a defect that converted numeric claim values to strings.
 Comparisons of whole graphs should use the canonical serialisation already present in the codebase.
