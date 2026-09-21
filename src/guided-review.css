@@ -44,6 +44,12 @@
 .shows-changes .graph-node.is-proposed .person-card, .shows-changes .graph-node.is-proposed .context-card { stroke: #176b70; stroke-width: 2.5; }
 .shows-changes .graph-edge.is-proposed, .shows-changes .graph-edge.is-changed { stroke: #176b70; stroke-width: 2.4; }
 .draft-ghost-note { margin: 0 0 12px; font-size: .9rem; color: #705522; }
+/* A review has no current focus: nothing is dimmed by distance, and only a tour
+   step's records are highlighted. */
+.guided-graph-canvas .graph-node, .guided-graph-canvas .graph-edge { opacity: 1; }
+.guided-graph-canvas .graph-node.is-focus { filter: none; }
+.guided-graph-canvas .person-node.is-focus .person-card { fill: #fdfbf4; stroke: #52696c; stroke-width: 1.5; }
+.guided-graph-canvas .context-node.is-focus .context-card { stroke: #927542; stroke-width: 1.6; filter: none; }
 .graph-node.is-tour-focus .person-card, .graph-node.is-tour-focus .context-card { stroke: #b24c2d; stroke-width: 3.5; }
 .graph-edge.is-tour-focus { stroke: #b24c2d; stroke-width: 3; opacity: 1 !important; }
 [data-guided-error] { color: #9c3327; }

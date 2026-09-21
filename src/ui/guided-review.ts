@@ -217,11 +217,14 @@ export class GuidedReview {
       guidance.innerHTML = `<section ${target(ref('Graph draft overview'))}><span class="eyebrow">Graph draft</span><h1>${html(this.investigation.title)}</h1><p class="draft-summary">${html(r.summary)}</p>${paragraphs(r.tour.introduction)}${r.tour.steps.length ? '<button data-guided-tour-next>Walk through the changes</button>' : ''}</section>${this.decision(r, ref('Graph draft decision'))}${this.commentary(r)}${this.changes(r)}`;
     } else {
       guidance.innerHTML = `<section ${target(ref(step.title, {stepId: step.id}))}><span class="eyebrow">Change ${this.progress.stop + 1} of ${r.tour.steps.length}</span><h2>${html(step.title)}</h2>${paragraphs(step.explanation)}${step.issueIds.map(id => { const q = r.questions.find(x => x.id === id); return q ? `<details class="tour-issue"><summary>${html(q.question)}</summary>${paragraphs(q.provisionalTreatment)}${q.requestedResearch ? `<p>Further research: ${html(q.requestedResearch)}</p>` : ''}</details>` : ''; }).join('')}<div class="tour-transition">${paragraphs(step.transition)}</div></section><nav class="guided-navigation"><button data-guided-tour-back>Back</button><button class="primary" data-guided-tour-next>${this.progress.stop === r.tour.steps.length - 1 ? 'Finish' : 'Continue'}</button></nav><button class="text-action" data-guided-return hidden>Return to this change</button>`;
-      const focusIds = step.focusNodeIds;
-      const edge = view.dataset.claims!.find(c => step.focusClaimIds.includes(c.id));
+      // Ghosts are hidden while changes are off, so the camera frames only what can be seen.
+      const visible = (id: string) => shows || !view.ghostIds.has(id);
+      const focusIds = step.focusNodeIds.filter(visible);
+      const focusEdges = step.focusClaimIds.filter(visible);
+      const edge = view.dataset.claims!.find(c => focusEdges.includes(c.id));
       const recordId = focusIds[0] || edge?.subjectId;
       if (recordId) showRecord(recordId);
-      window.requestAnimationFrame(() => { if (!this.disposed && generation === this.generation) this.renderer?.focusRegion(focusIds, step.focusClaimIds); });
+      window.requestAnimationFrame(() => { if (!this.disposed && generation === this.generation) this.renderer?.focusRegion(focusIds, focusEdges); });
     }
   }
   private exploring() { const button = this.host.querySelector<HTMLElement>('[data-guided-return]'); if (button) button.hidden = false; }
