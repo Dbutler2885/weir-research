@@ -145,6 +145,39 @@ dialog button:hover,
   border-color: var(--sea);
   background: #edf1e9;
 }
+/* The Annotations button is a switch: while it is on, the page can be annotated. */
+[data-add-instruction] {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.annotation-switch {
+  position: relative;
+  flex: none;
+  width: 26px;
+  height: 15px;
+  border-radius: 10px;
+  background: #d7d1c4;
+  transition: background 0.15s;
+}
+.annotation-switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 20%);
+  transition: transform 0.15s;
+}
+[data-add-instruction][aria-checked="true"] .annotation-switch {
+  background: var(--sea);
+}
+[data-add-instruction][aria-checked="true"] .annotation-switch::after {
+  transform: translateX(11px);
+}
 .research-surface button:disabled {
   cursor: not-allowed;
   opacity: 0.45;

@@ -14,10 +14,8 @@ export interface DrawerHost {
   command(data: ResearchCommand): Promise<unknown>;
   navigate(reference: AnnotationTarget): void;
   batchAction(batchId: string, action: "walkthrough" | "graph"): void;
-  setSelecting(enabled: boolean): void;
   // True when the workspace service cannot be reached right now.
   offline?(): boolean;
-  selecting(): boolean;
   changed(): void;
 }
 
@@ -263,14 +261,13 @@ ${this.presence(state)}<form class="message-form" data-message-form><div class="
           `<li><span>${html(r.label)}</span><button type="button" data-remove-reference="${n}" aria-label="Remove reference">✕</button></li>`,
       )
       .join("");
-    const selecting = this.host.selecting();
     const items = queue
       .map(
         (a) =>
           `<div class="queue-item${a.id === d.editing ? " is-editing" : ""}" data-annotation-id="${html(a.id)}"><div class="queue-item-row"><span>${html(a.question)}</span><span class="queue-item-actions"><button type="button" class="text-link" data-edit-queued>Edit</button><button type="button" class="text-link" data-remove-queued>Remove</button></span></div>${this.about(state, a)}</div>`,
       )
       .join("");
-    return `<div class="queue-pane"><form class="new-note" data-note-form><p class="new-note-label">${d.editing ? "Editing queued annotation" : "New annotation"}${d.references.length ? " about" : ""}</p>${refs ? `<ul class="note-references">${refs}</ul>` : ""}<button type="button" class="text-link select-references" data-select aria-pressed="${selecting}">${selecting ? "Selecting in the page… (⌘ I to stop)" : "Select references in the page (⌘ I)"}</button><textarea data-note rows="3" aria-label="Annotation" placeholder="A question, a doubt, or a thought to follow up…">${html(d.question)}</textarea><div class="new-note-row"><label class="feedback-check"><input type="checkbox" data-feedback ${d.feedback ? "checked" : ""}> Interface feedback</label><span class="new-note-actions">${d.editing ? '<button type="button" data-cancel-edit>Cancel</button>' : ""}${d.feedback ? '<button type="submit" class="primary" data-submit="feedback">Save feedback</button>' : `<button type="submit" data-submit="queue">${d.editing ? "Save" : "Add to queue"}</button>${d.editing ? "" : '<button type="submit" class="primary" data-submit="now">Send now</button>'}`}</span></div>${this.error && this.tab === "queue" ? `<p class="form-error" role="alert">${html(this.error)}</p>` : ""}</form>${items ? `<div class="queue-list" aria-label="Queued annotations">${items}</div>` : '<p class="queue-empty">Nothing queued. Annotations you add wait here until you send them together.</p>'}</div>
+    return `<div class="queue-pane"><form class="new-note" data-note-form><p class="new-note-label">${d.editing ? "Editing queued annotation" : "New annotation"}${d.references.length ? " about" : ""}</p>${refs ? `<ul class="note-references">${refs}</ul>` : ""}${d.references.length ? "" : '<p class="new-note-hint">Select anything on the page to add it here.</p>'}<textarea data-note rows="3" aria-label="Annotation" placeholder="A question, a doubt, or a thought to follow up…">${html(d.question)}</textarea><div class="new-note-row"><label class="feedback-check"><input type="checkbox" data-feedback ${d.feedback ? "checked" : ""}> Interface feedback</label><span class="new-note-actions">${d.editing ? '<button type="button" data-cancel-edit>Cancel</button>' : ""}${d.feedback ? '<button type="submit" class="primary" data-submit="feedback">Save feedback</button>' : `<button type="submit" data-submit="queue">${d.editing ? "Save" : "Add to queue"}</button>${d.editing ? "" : '<button type="submit" class="primary" data-submit="now">Send now</button>'}`}</span></div>${this.error && this.tab === "queue" ? `<p class="form-error" role="alert">${html(this.error)}</p>` : ""}</form>${items ? `<div class="queue-list" aria-label="Queued annotations">${items}</div>` : '<p class="queue-empty">Nothing queued. Annotations you add wait here until you send them together.</p>'}</div>
 <div class="queue-foot"><span>Your coordinator reads these together.</span><button type="button" class="primary" data-send-queue ${queue.length ? "" : "disabled"}>Send queue</button></div>`;
   }
 
@@ -340,7 +337,6 @@ ${this.presence(state)}<form class="message-form" data-message-form><div class="
     if (!ok) return;
     this.draft = { references: [], question: "", feedback: d.feedback };
     this.saveDraft();
-    this.host.setSelecting(false);
     this.show(mode === "now" ? "conversation" : "queue");
   }
 
@@ -351,8 +347,6 @@ ${this.presence(state)}<form class="message-form" data-message-form><div class="
     const messageId = button.closest<HTMLElement>("[data-message-id]")?.dataset.messageId;
     const annotationId = button.closest<HTMLElement>("[data-annotation-id]")?.dataset.annotationId;
     if (button.dataset.tab) this.show(button.dataset.tab as DrawerTab);
-    else if (button.hasAttribute("data-select"))
-      this.host.setSelecting(!this.host.selecting());
     else if (button.dataset.removeReference) {
       this.draft.references.splice(Number(button.dataset.removeReference), 1);
       this.saveDraft();

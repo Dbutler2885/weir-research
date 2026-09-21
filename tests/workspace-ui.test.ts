@@ -116,17 +116,20 @@ describe("investigation workspace", () => {
     click('[data-view="work"]');
     click("[data-add-instruction]");
     expect(document.querySelector('[data-tab="conversation"]')!.getAttribute("aria-current")).toBe("page");
+    // Opening the drawer is the switch: the page is annotatable while it is open.
+    expect(document.body.classList.contains("research-annotating")).toBe(true);
     click('[data-tab="queue"]');
     typeNote("Compare these records");
     click('[data-tab="conversation"]');
     click('[data-tab="queue"]');
     expect(document.querySelector<HTMLTextAreaElement>("[data-note]")!.value).toBe("Compare these records");
-    click("[data-select]");
-    expect(document.body.classList.contains("research-annotating")).toBe(true);
+    click('[data-tab="conversation"]');
+    // A selection in the page opens the queue with the note being written.
     (window as any).lavishUnifiedFeedback.selectReference({
       text: "Fictional register entry",
       selector: ".investigation-heading",
     });
+    expect(document.querySelector('[data-tab="queue"]')!.getAttribute("aria-current")).toBe("page");
     expect(document.querySelector(".note-references")!.textContent).toContain("Fictional register entry");
     expect(document.querySelector<HTMLTextAreaElement>("[data-note]")!.value).toBe("Compare these records");
     click("[data-close]");

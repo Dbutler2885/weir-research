@@ -88,7 +88,7 @@ export function mountResearchWorkspace(
     )
     .join(
       "",
-    )}</div><div class="workspace-actions"><button type="button" data-view="feedback" class="feedback-destination">Feedback <span data-count="feedback"></span></button><button type="button" class="running-indicator" data-running hidden></button><span class="local-indicator" title="Saved on this computer">Saved</span><button type="button" data-organize-project>Organize</button><button type="button" data-add-instruction aria-expanded="false" aria-controls="notes-sidebar">Annotations <span data-count="queue" title="Queued annotations"></span></button></div>`;
+    )}</div><div class="workspace-actions"><button type="button" data-view="feedback" class="feedback-destination">Feedback <span data-count="feedback"></span></button><button type="button" class="running-indicator" data-running hidden></button><span class="local-indicator" title="Saved on this computer">Saved</span><button type="button" data-organize-project>Organize</button><button type="button" data-add-instruction role="switch" aria-checked="false" aria-controls="notes-sidebar"><span class="annotation-switch" aria-hidden="true"></span>Annotations <span data-count="queue" title="Queued annotations"></span></button></div>`;
   shell.insertBefore(nav, graph);
   const surface = document.createElement("section");
   surface.className = "research-surface";
@@ -142,7 +142,7 @@ export function mountResearchWorkspace(
     shell.classList.toggle("composing", dialog.open);
     nav
       .querySelector("[data-add-instruction]")!
-      .setAttribute("aria-expanded", String(dialog.open));
+      .setAttribute("aria-checked", String(dialog.open));
     if (nodeInspector) {
       if (dialog.open && view === "research")
         composerColumn.prepend(nodeInspector);
@@ -289,8 +289,7 @@ export function mountResearchWorkspace(
       { type: "lavish:setAnnotationMode", enabled: annotate },
       window.location.origin,
     );
-    if (enabled) openDrawer("queue");
-    else if (dialog.open && drawer?.currentTab === "queue") drawer.render();
+    if (dialog.open && drawer?.currentTab === "queue") drawer.render();
   }
   function resolveTarget(context: any): {
     target: AnnotationTarget;
@@ -342,8 +341,11 @@ export function mountResearchWorkspace(
         ?.dataset.investigationId,
     };
   }
+  // The Annotations drawer is the switch: while it is open, the page can be annotated,
+  // and anything selected is added to the note being written in the queue.
   function openDrawer(tab?: DrawerTab, reference?: AnnotationTarget) {
     if (!dialog.open) dialog.show();
+    if (!annotate) setMode(true);
     // Lay the drawer out first so the conversation can scroll to its end.
     syncComposer();
     if (reference) drawer!.addReference(reference);
@@ -451,9 +453,7 @@ export function mountResearchWorkspace(
     command: (data) => command(data, false),
     navigate,
     batchAction: (batchId, kind) => void requestReview(batchId, kind),
-    setSelecting: (enabled) => setMode(enabled),
     offline: () => offline,
-    selecting: () => annotate,
     changed: () => updateCounts(),
   });
   dialog.addEventListener("cancel", (event) => {
@@ -474,8 +474,10 @@ export function mountResearchWorkspace(
     if (
       event.source === window &&
       event.data?.type === "lavish:toggleAnnotationMode"
-    )
-      setMode(!annotate);
+    ) {
+      if (dialog.open) closeDrawer();
+      else openDrawer();
+    }
   });
   // D3 starts gestures on mousedown; stop those gestures only while selecting annotations.
   shell.addEventListener(
