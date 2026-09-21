@@ -106,7 +106,7 @@ try {
   });
   const id = annotated.result.investigationId;
   const woken = await waiting;
-  assert.equal(woken.investigations[0].id, id);
+  assert.equal(woken.changed.investigations[0].id, id);
   const replayed = await run("coordinator", ["wait", "--session", sessionFile]);
   assert.equal(replayed.revision, woken.revision);
   await run("coordinator", [
