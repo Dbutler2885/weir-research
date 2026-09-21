@@ -30,6 +30,8 @@
 .guided-graph-sidebar p { font-size: .96rem; line-height: 1.65; }
 .guided-graph-sidebar [data-tour-record]:not(:empty) { margin-top: 28px; padding-top: 18px; border-top: 1px solid #d4cbbc; }
 .guided-graph-sidebar .detail-name { font-size: 1.35rem; }
+/* The record panel's section labels keep their small caps inside the research surface. */
+.guided-graph-sidebar h3.detail-kicker { font-size: 9px; line-height: 1.4; margin: 0 0 10px; }
 .tour-transition { border-left: 2px solid #b29057; padding-left: 12px; margin-top: 20px; }
 .tour-issue { padding: 12px 0; color: #705522; }
 /* A draft's changes show on the graph only while "Show changes" is on. */
