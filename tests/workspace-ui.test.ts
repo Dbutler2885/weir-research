@@ -225,11 +225,24 @@ describe("investigation workspace", () => {
       graphReviews: [],
       jobs: [{ id: "j1", status: "running", progress: "Building a connected graph.", engine: "claude", updates: [], attempt: 0, createdAt: "2026-01-01T00:00:00.000Z", consumedUpdateSequence: 0 }],
     } as never;
+    state.live = [{ role: "builder", name: "Claude graph builder", investigationId: state.investigations[0]!.id, jobId: "j1", startedAt: new Date(Date.now() - 4 * 60_000).toISOString(), latest: { at: new Date().toISOString(), text: "Editing the edges table" } }];
     mount();
     const indicator = document.querySelector<HTMLElement>("[data-running]")!;
     expect(indicator.hidden).toBe(false);
     expect(indicator.textContent).toBe("1 graph update building");
-    indicator.click();
+    // The line opens a panel saying who is working and what each is doing.
+    expect(indicator.getAttribute("popovertarget")).toBe("live-panel");
+    const panel = document.getElementById("live-panel")!;
+    panel.dispatchEvent(Object.assign(new Event("beforetoggle"), { newState: "open" }));
+    const [researcher, builder] = panel.querySelectorAll(".live-now li");
+    expect(researcher!.textContent).toBe("ResearcherBatch 1Paused. Investigation paused; saved findings retained.");
+    expect(builder!.querySelector(".live-who")!.textContent).toBe("Claude graph builderBatch 14 min");
+    expect(builder!.querySelector(".live-stage")!.textContent).toBe("Building a connected graph.");
+    expect(builder!.querySelector(".live-latest")!.textContent).toBe("Editing the edges table");
+    expect(panel.querySelector(".live-recent")!.textContent).toContain("Investigation paused");
+    // jsdom has no popover support; the panel only needs to close.
+    HTMLElement.prototype.hidePopover = vi.fn();
+    panel.querySelector<HTMLElement>("[data-live-all]")!.click();
     expect(document.querySelector(".app-shell")!.getAttribute("data-workspace-view")).toBe("work");
     expect(document.querySelector('[data-investigation-section="activity"]')!.getAttribute("aria-current")).toBe("page");
   });

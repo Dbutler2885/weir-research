@@ -130,6 +130,17 @@ describe('guided research flow',()=>{
     expect(f.store.state.investigations[0].reviewFlow.graphReviews.map((r: any)=>r.status)).toEqual(['superseded','pending']);
     f.command('graph-accept',{graphReviewId:revised.graphReviewId},'human');
     expect(f.review().status).toBe('applied');
+    // Each stage is kept in the batch's history, which the activity list reads.
+    const history=f.store.state.investigations[0].events.map((e: any)=>e.message);
+    expect(history.filter((m: string)=>/graph|draft/i.test(m))).toEqual([
+      'Graph update requested.',
+      expect.stringMatching(/^Graph builder handed in a draft: /),
+      'Coordinator signed off the graph draft; it is ready for your review.',
+      'Coordinator sent the graph draft back to the builder.',
+      expect.stringMatching(/^Graph builder handed in a draft: /),
+      'Coordinator signed off the graph draft; it is ready for your review.',
+      'Graph review completed; batch closed.',
+    ]);
   });
   it('lets the coordinator answer a note on a draft without a rebuild',()=>{
     const f=fixture(); const {graphReviewId}=publish(f);
@@ -283,6 +294,10 @@ describe('validation feedback', () => {
     expect(f.job().corrections).toBe(1);
     expect(f.job().attempt).toBe(2);
     expect(f.job().progress).toBe('Fixing the graph draft.');
+    expect(f.store.state.investigations[0].events.map((e: any)=>e.message)).toEqual(expect.arrayContaining([
+      'Graph builder started the draft.',
+      'The app sent the draft back to the builder with 2 problems to fix.',
+    ]));
     const report = readFileSync(join(task.work, 'validation.txt'), 'utf8');
     expect(report).toContain('not in nodes.csv: nowhere');
     expect(report).toContain('qualification "certain"');

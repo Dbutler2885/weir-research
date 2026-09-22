@@ -20,6 +20,7 @@ import { organize } from "./organization.mjs";
 import { Coordinator } from "./coordinator.mjs";
 import { ResearcherPool } from "./researchers.mjs";
 import { GraphBuilderPool } from "./graph-builders.mjs";
+import { LiveActivity } from "./live-activity.mjs";
 import { flowCommand } from "./review-flow.mjs";
 import { humanConversationCommands } from "../src/domain/conversation.ts";
 
@@ -54,8 +55,9 @@ const store = new WorkspaceStore(
   JSON.parse(readFileSync(join(root, "src/data/empty.json"), "utf8")),
 );
 const coordinator = new Coordinator(store);
-const researchers = new ResearcherPool(store, directory, root, { coordinator });
-const graphBuilders = new GraphBuilderPool(store, directory, root);
+const live = new LiveActivity();
+const researchers = new ResearcherPool(store, directory, root, { coordinator, live });
+const graphBuilders = new GraphBuilderPool(store, directory, root, { live });
 process.on("exit", () => graphBuilders.stop());
 process.on("exit", () => researchers.stop());
 const token = randomBytes(32).toString("hex");
@@ -223,15 +225,21 @@ const server = createServer(async (req, res) => {
         // Long waits are cheap now that a quiet one answers with its revision alone.
         const deadline =
           Date.now() + Math.min(300_000, Math.max(0, Number(data.timeout) || 0));
-        while (
-          store.state.revision === since &&
-          Date.now() < deadline &&
-          !res.destroyed
-        ) {
-          await new Promise((resolve) => setTimeout(resolve, 200));
-          coordinator.require(data.session);
+        coordinator.waiting++;
+        try {
+          while (
+            store.state.revision === since &&
+            Date.now() < deadline &&
+            !res.destroyed
+          ) {
+            await new Promise((resolve) => setTimeout(resolve, 200));
+            coordinator.require(data.session);
+          }
+        } finally {
+          coordinator.waiting--;
         }
         if (res.destroyed) return;
+        if (store.state.revision === since) coordinator.quietAt = coordinator.now();
         return json(res, 200, coordinator.delta(data.session, since));
       }
       if (
@@ -241,6 +249,7 @@ const server = createServer(async (req, res) => {
         throw new Error("Requested researcher CLI is not available.");
       if (["claim-graph", "submit-graph-files"].includes(data.action)) {
         coordinator.require(data.session);
+        coordinator.noteAction(data);
         return json(res, 200, graphBuilders.native(data));
       }
       const result = coordinator.command(data);
@@ -264,12 +273,14 @@ const server = createServer(async (req, res) => {
         ...store.publicState(),
         researcher: researchers.capabilities(),
         coordinator: coordinator.status(),
+        live: live.list(),
       });
     if (req.method === "GET" && url.pathname === "/api/revision")
       return json(res, 200, {
         revision: store.state.revision,
         datasetRevision: store.state.datasetRevision,
         coordinator: coordinator.status(),
+        live: live.list(),
       });
     if (req.method === "GET" && url.pathname.startsWith("/api/documents/")) {
       const doc = store.state.documents.find(

@@ -1266,3 +1266,110 @@ dialog .muted {
     animation: none;
   }
 }
+/* Who is working and what each is doing, opened from the running line. */
+.live-panel {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  width: min(380px, calc(100vw - 32px));
+  max-height: min(560px, calc(100vh - 96px));
+  overflow-y: auto;
+  padding: 16px 18px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: var(--shadow);
+  font-size: 13px;
+}
+.live-panel h2 {
+  margin: 0 0 8px;
+  color: var(--ink-soft);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.live-panel h2:not(:first-child) {
+  margin-top: 18px;
+}
+.live-now,
+.live-recent {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.live-now li {
+  padding: 9px 0;
+  border-top: 1px solid var(--paper-deep);
+}
+.live-now li:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+.live-panel [data-live-open] {
+  cursor: pointer;
+}
+.live-now [data-live-open]:hover strong,
+.live-recent [data-live-open]:hover span {
+  color: var(--sea-dark);
+}
+.live-who {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.live-who strong {
+  font-weight: 600;
+}
+.live-who span,
+.live-who time {
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+.live-who time {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+.live-stage,
+.live-latest {
+  margin: 2px 0 0;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.live-latest {
+  color: var(--ink-soft);
+}
+.live-empty {
+  margin: 0;
+  color: var(--ink-soft);
+}
+.live-recent li {
+  display: grid;
+  grid-template-columns: 62px minmax(0, 1fr);
+  gap: 8px;
+  padding: 4px 0;
+  line-height: 1.4;
+}
+.live-recent time {
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.live-recent b {
+  font-weight: 600;
+}
+.live-panel [data-live-all] {
+  margin-top: 14px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--sea-dark);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.live-panel [data-live-all]:hover {
+  color: var(--sea);
+}

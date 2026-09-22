@@ -8,7 +8,13 @@ import {
   copyFileSync,
   existsSync,
 } from "node:fs";
-import { join, delimiter, extname } from "node:path";
+import { join, delimiter, extname, basename } from "node:path";
+import {
+  LiveActivity,
+  streamReader,
+  fileDescriber,
+  researcherFiles,
+} from "./live-activity.mjs";
 
 export function executableOnPath(name) {
   for (const dir of (process.env.PATH || "").split(delimiter)) {
@@ -32,9 +38,11 @@ export class ResearcherPool {
       launch = spawn,
       findExecutable = executableOnPath,
       coordinator = null,
+      live = new LiveActivity(),
     } = {},
   ) {
     this.store = store;
+    this.live = live;
     this.coordinator = coordinator;
     this.directory = directory;
     this.root = root;
@@ -284,10 +292,14 @@ Your final message should be a short completion status. The host will validate r
               `web_search="${web ? "live" : "disabled"}"`,
               "--color",
               "never",
+              "--json",
               "-",
             ]
           : [
               "--print",
+              "--output-format",
+              "stream-json",
+              "--verbose",
               "--permission-mode",
               "dontAsk",
               "--allowedTools",
@@ -302,6 +314,19 @@ Your final message should be a short completion status. The host will validate r
         stdio: ["pipe", "pipe", "pipe"],
       });
       this.active.set(id, task);
+      this.live.begin(`research:${id}`, {
+        role: "researcher",
+        name: engine === "codex" ? "Codex researcher" : "Claude researcher",
+        investigationId: id,
+      });
+      const titles = Object.fromEntries(
+        brief.documents.map((d) => [basename(d.localFile), d.name]),
+      );
+      const follow = streamReader(
+        fileDescriber(researcherFiles, titles),
+        (text) => this.live.note(`research:${id}`, text),
+      );
+      task.child.stdout.on("data", follow);
       const log = join(directory, "process.log");
       let logSize = 0;
       const append = (chunk) => {
@@ -313,12 +338,14 @@ Your final message should be a short completion status. The host will validate r
       task.child.stdin.on("error", () => {});
       task.child.stdin.end(engine === "codex" ? instructions : undefined);
       task.child.on("error", () => {
+        this.live.end(`research:${id}`);
         this.fail(
           task,
           `${engine} could not start. Check its installation and existing sign-in, or choose another researcher.`,
         );
       });
       task.child.on("close", (code) => {
+        this.live.end(`research:${id}`);
         this.checkpoint(task);
         try {
           const current = this.store.state.investigations.find(

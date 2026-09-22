@@ -6,6 +6,7 @@ import { executableOnPath } from './researchers.mjs';
 import { draftTables, graphToTables, DraftError } from '../src/domain/graph-csv.ts';
 import { commentaryHeaders, readDelivery } from '../src/domain/graph-delivery.ts';
 import { receiveDraft } from './review-flow.mjs';
+import { LiveActivity, streamReader, fileDescriber, builderFiles } from './live-activity.mjs';
 
 // The files a builder hands back: the graph tables and its commentary beside them.
 const deliveryFiles = [...draftTables, ...Object.keys(commentaryHeaders), 'submission.txt'];
@@ -32,8 +33,8 @@ function writeJson(path, value) {
 }
 
 export class GraphBuilderPool {
-  constructor(store, directory, root, {launch = spawn, findExecutable = executableOnPath} = {}) {
-    Object.assign(this, {store, directory, root, launch, findExecutable});
+  constructor(store, directory, root, {launch = spawn, findExecutable = executableOnPath, live = new LiveActivity()} = {}) {
+    Object.assign(this, {store, directory, root, launch, findExecutable, live});
     this.active = new Map();
     this.nativeActive = new Map();
     this.corrections = new Map();
@@ -69,7 +70,7 @@ export class GraphBuilderPool {
   terminate(task) {
     if (task.terminated) return;
     task.terminated = true;
-    if (!task.child) { this.nativeActive.delete(task.id); return; }
+    if (!task.child) { this.nativeActive.delete(task.id); this.live.end(`graph:${task.id}`); return; }
     task.child.kill('SIGTERM');
     const timer = setTimeout(() => { if (task.child.exitCode === null) task.child.kill('SIGKILL'); }, 5000);
     timer.unref();
@@ -85,12 +86,17 @@ export class GraphBuilderPool {
     } catch { /* The summary still reaches the human. */ }
     return `The builder's submission was rejected: ${lines[0]} (and ${lines.length - 1} more problems, saved in last-failure.txt).`;
   }
+  // The batch's saved history of what happened to its graph job.
+  log(next, id, message) {
+    next.investigations.find(i => i.reviewFlow?.jobs.some(j => j.id === id)).events.push({at: new Date().toISOString(), message});
+  }
   pause(id, message) {
     const {job} = this.job(id);
     if (!['running','queued'].includes(job.status)) return;
     this.store.update(next => {
       const j = next.investigations.flatMap(i => i.reviewFlow?.jobs || []).find(j => j.id === id);
       j.status = 'paused'; j.progress = message;
+      this.log(next, id, `Graph builder stopped: ${message}`);
     });
   }
   // A rejected submission is the builder's problem to fix. Hand the validation report
@@ -106,6 +112,8 @@ export class GraphBuilderPool {
       const j = next.investigations.flatMap(i => i.reviewFlow?.jobs || []).find(j => j.id === id);
       j.status = 'queued'; j.corrections = attempts; j.recoverable = true;
       j.progress = `Fixing the graph draft (attempt ${attempts} of ${this.maxCorrections}).`;
+      const problems = report.split('\n').filter(Boolean).length;
+      this.log(next, id, `The app sent the draft back to the builder with ${problems} ${problems === 1 ? 'problem' : 'problems'} to fix.`);
     });
     return true;
   }
@@ -119,6 +127,7 @@ export class GraphBuilderPool {
       const j = next.investigations.flatMap(i => i.reviewFlow?.jobs || []).find(j => j.id === id);
       j.status = 'queued'; j.corrections = attempts; j.recoverable = true;
       j.progress = `Picking the graph draft back up (attempt ${attempts} of ${this.maxCorrections}).`;
+      this.log(next, id, 'Graph builder stopped before finishing; starting it again from its saved files.');
     });
     return true;
   }
@@ -188,6 +197,7 @@ export class GraphBuilderPool {
       const j = next.investigations.find(i => i.id === investigation.id).reviewFlow.jobs.find(j => j.id === id);
       j.status = 'running'; j.attempt = attemptNumber; j.runToken = token; j.format = 'tables';
       j.progress = fixing ? 'Fixing the graph draft.' : 'Writing the graph draft.';
+      if (attemptNumber === 1) this.log(next, id, 'Graph builder started the draft.');
       delete j.note;
       j.directory = directory;
     });
@@ -240,12 +250,15 @@ export class GraphBuilderPool {
       writeFileSync(join(task.attempt, 'invocation.json'), JSON.stringify({engine: job.engine, args, cwd: task.work}, null, 2));
       task.child = this.launch(executable, args, {cwd: task.work, env: {...process.env}, stdio: ['pipe','pipe','pipe']});
       this.active.set(id, task);
-      task.child.stdout.on('data', chunk => appendFileSync(join(task.attempt, 'stream.ndjson'), chunk));
+      this.live.begin(`graph:${id}`, {role: 'builder', name: job.engine === 'codex' ? 'Codex graph builder' : 'Claude graph builder', investigationId: task.investigationId, jobId: id});
+      const follow = streamReader(fileDescriber(builderFiles), text => this.live.note(`graph:${id}`, text));
+      task.child.stdout.on('data', chunk => { appendFileSync(join(task.attempt, 'stream.ndjson'), chunk); follow(chunk); });
       task.child.stderr.on('data', chunk => appendFileSync(join(task.attempt, 'stderr.txt'), chunk));
       task.child.stdin.on('error', () => {});
       task.child.stdin.end(task.prompt);
-      task.child.on('error', error => this.pause(id, `Builder could not start: ${error.message}. Saved files are retained.`));
+      task.child.on('error', error => { this.live.end(`graph:${id}`); this.pause(id, `Builder could not start: ${error.message}. Saved files are retained.`); });
       task.child.on('close', code => {
+        this.live.end(`graph:${id}`);
         try {
           const {job} = this.job(id);
           if (job.status !== 'running' || job.runToken !== task.token) return;
@@ -282,6 +295,7 @@ export class GraphBuilderPool {
       if (investigation.id !== command.investigationId || job.engine !== 'manual') throw new Error('Use native delegation only for a manual builder assignment.');
       const task = this.prepare(job.id);
       this.nativeActive.set(job.id, task);
+      this.live.begin(`graph:${job.id}`, {role: 'builder', name: 'Graph builder run by the coordinator', investigationId: investigation.id, jobId: job.id});
       return {jobId: job.id, directory: task.work, packet: task.packet};
     }
     if (command.action === 'submit-graph-files') {
@@ -293,6 +307,7 @@ export class GraphBuilderPool {
       this.sync(task);
       this.complete(task);
       this.nativeActive.delete(job.id);
+      this.live.end(`graph:${job.id}`);
       return {submitted: true};
     }
   }

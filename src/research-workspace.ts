@@ -16,6 +16,7 @@ import "./findings.css";
 import "./annotations-drawer.css";
 import "./guided-review.css";
 import { mountOrganizationPanel } from "./ui/organization-panel";
+import { livePanel, runningSummary } from "./ui/live-panel";
 import type {
   AnnotationTarget,
   Investigation,
@@ -88,7 +89,7 @@ export function mountResearchWorkspace(
     )
     .join(
       "",
-    )}</div><div class="workspace-actions"><button type="button" data-view="feedback" class="feedback-destination">Feedback <span data-count="feedback"></span></button><button type="button" class="running-indicator" data-running hidden></button><span class="local-indicator" title="Saved on this computer">Saved</span><button type="button" data-organize-project>Organize</button><button type="button" data-add-instruction role="switch" aria-checked="false" aria-controls="notes-sidebar"><span class="annotation-switch" aria-hidden="true"></span>Annotations <span data-count="queue" title="Queued annotations"></span></button></div>`;
+    )}</div><div class="workspace-actions"><button type="button" data-view="feedback" class="feedback-destination">Feedback <span data-count="feedback"></span></button><button type="button" class="running-indicator" data-running popovertarget="live-panel" hidden></button><span class="local-indicator" title="Saved on this computer">Saved</span><button type="button" data-organize-project>Organize</button><button type="button" data-add-instruction role="switch" aria-checked="false" aria-controls="notes-sidebar"><span class="annotation-switch" aria-hidden="true"></span>Annotations <span data-count="queue" title="Queued annotations"></span></button></div>`;
   shell.insertBefore(nav, graph);
   const surface = document.createElement("section");
   surface.className = "research-surface";
@@ -204,25 +205,45 @@ export function mountResearchWorkspace(
     return result;
   }
   // Research the workspace is running right now, said where every tab can see it.
+  // Clicking it shows who is working, what each is doing, and what just happened.
+  const live = document.createElement("div");
+  live.className = "live-panel";
+  live.id = "live-panel";
+  live.popover = "auto";
+  live.setAttribute("data-lavish-ui", "live");
+  live.setAttribute("aria-label", "What is happening now");
+  document.body.append(live);
+  let liveOpen = false;
+  live.addEventListener("toggle", (event) => {
+    liveOpen = (event as ToggleEvent).newState === "open";
+  });
   function updateRunning() {
-    // Only a batch a researcher has claimed is being worked on; a queued one is waiting.
-    const open = state.investigations.filter((i) => !i.closedAt);
-    const running = open.filter((i) => i.status === "running").length;
-    const queued = open.filter((i) => i.status === "queued").length;
-    const builders = state.investigations.flatMap((i) => i.reviewFlow?.jobs || [])
-      .filter((j) => ["queued", "running", "returned"].includes(j.status)).length;
-    const writing = state.investigations.filter((i) => i.walkthroughRequestedAt).length;
-    const parts = [
-      running ? `${running} ${running === 1 ? "researcher" : "researchers"} working` : "",
-      queued ? `${queued} ${queued === 1 ? "batch" : "batches"} waiting for a researcher` : "",
-      builders ? `${builders} graph ${builders === 1 ? "update" : "updates"} building` : "",
-      writing ? `${writing} ${writing === 1 ? "walkthrough" : "walkthroughs"} being written` : "",
-    ].filter(Boolean);
+    const summary = runningSummary(state);
     const indicator = nav.querySelector<HTMLButtonElement>("[data-running]")!;
-    indicator.textContent = parts.join(" · ");
-    indicator.hidden = !parts.length;
-    indicator.title = "Open Investigations activity";
+    indicator.textContent = summary;
+    indicator.hidden = !summary;
+    if (liveOpen) live.innerHTML = livePanel(state);
   }
+  // The indicator opens and closes the panel itself; fill and place it as it opens.
+  live.addEventListener("beforetoggle", (event) => {
+    if ((event as ToggleEvent).newState !== "open") return;
+    const box = nav.querySelector("[data-running]")!.getBoundingClientRect();
+    live.innerHTML = livePanel(state);
+    live.style.top = `${nav.getBoundingClientRect().bottom + 6}px`;
+    live.style.right = `${Math.max(16, window.innerWidth - box.right)}px`;
+  });
+  live.addEventListener("click", (event) => {
+    const target = event.target as Element;
+    const batch = target.closest<HTMLElement>("[data-live-open]")?.dataset.liveOpen;
+    if (target.closest("[data-live-all]")) {
+      live.hidePopover();
+      findingsSection = "activity";
+      setView("work");
+    } else if (batch) {
+      live.hidePopover();
+      openActivity(batch);
+    }
+  });
   function updateCounts() {
     // Unread coordinator messages stay visible until the conversation is read.
     const unread = dialog.open && drawer?.currentTab === "conversation" ? 0 : drawer?.unread() || 0;
@@ -496,11 +517,7 @@ export function mountResearchWorkspace(
     const button = (event.target as Element).closest<HTMLButtonElement>(
       "button",
     );
-    if (button?.hasAttribute("data-running")) {
-      findingsSection = "activity";
-      setView("work");
-      return;
-    }
+    if (button?.hasAttribute("data-running")) return;
     if (button?.dataset.view) {
       // Choosing a tab starts somewhere new; the earlier place no longer applies.
       returnPlace = undefined;
@@ -995,6 +1012,8 @@ export function mountResearchWorkspace(
     polling = true;
     try {
       const revision = await request("/api/revision");
+      // Live activity changes between revisions; take it from every poll.
+      state.live = revision.live;
       if (revision.coordinator) {
         // Attaching or dropping does not change the revision, so refresh the drawer here.
         const wasConnected = state.coordinator?.connected;
@@ -1015,6 +1034,7 @@ export function mountResearchWorkspace(
             ? `${revision.coordinator.name} is supervising research and preparing proposals.`
             : "Research and findings are saved. Open an agent in the research repository to continue.";
       }
+      updateRunning();
       if (revision.revision !== state.revision) {
         const previous = state;
         await refresh(false);

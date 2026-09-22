@@ -196,16 +196,31 @@ export interface ResearchState {
     // Listening right now, as opposed to attached but busy elsewhere.
     connected: boolean;
     attached?: boolean;
+    // Waiting for the next thing to do, rather than working on something.
+    listening?: boolean;
+    // What it last did, from the command it sent.
+    latest?: { at: string; text: string } | null;
     lastSeenSecondsAgo?: number | null;
     name: string | null;
     handoff: string;
     awaitingSynthesis: string[];
   };
+  // What each running worker is doing right now; never saved.
+  live?: LiveWorker[];
   researcher?: {
     selected: "manual" | "codex" | "claude";
     engines: { id: string; available: boolean }[];
     limit: number;
   };
+}
+
+export interface LiveWorker {
+  role: "researcher" | "builder";
+  name: string;
+  investigationId: string;
+  jobId?: string;
+  startedAt: string;
+  latest: { at: string; text: string } | null;
 }
 
 export function initialState(source: FamilyDataset | LegacyDataset): ResearchState {

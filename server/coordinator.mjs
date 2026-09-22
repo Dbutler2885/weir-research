@@ -12,6 +12,7 @@ import {
   inspectContext,
   searchContext,
 } from "./research-context.mjs";
+import { coordinatorAction } from "./live-activity.mjs";
 
 // Durable research state belongs to the store; session liveness belongs to this server.
 export class Coordinator {
@@ -23,6 +24,20 @@ export class Coordinator {
     this.ttl = ttl;
     this.ownership = ownership;
     this.session = null;
+    // Waits in progress; a coordinator with one open is listening, not working.
+    this.waiting = 0;
+    this.quietAt = null;
+    this.latest = null;
+  }
+  // A wait that ended with nothing new is followed by another; the gap is not work.
+  listening() {
+    return this.waiting > 0 || (this.quietAt !== null && this.now() - this.quietAt < 30_000);
+  }
+  // What the coordinator is doing, read from the command it just sent.
+  noteAction(data) {
+    const text = coordinatorAction(data, this.store.state);
+    this.quietAt = null;
+    if (text) this.latest = { at: new Date(this.now()).toISOString(), text };
   }
   owner() {
     return this.session && this.session.owned > this.now() ? this.session : null;
@@ -41,6 +56,8 @@ export class Coordinator {
       enabled: this.enabled,
       connected: Boolean(live),
       attached: Boolean(owner),
+      listening: Boolean(live) && this.listening(),
+      latest: live ? this.latest : null,
       name: owner ? owner.name : null,
       lastSeenSecondsAgo: owner ? Math.round((this.now() - owner.seen) / 1000) : null,
       handoff: (this.store.state.coordination?.handoff || "").slice(0, 6000),
@@ -203,6 +220,7 @@ export class Coordinator {
   }
   command(data) {
     this.require(data.session);
+    this.noteAction(data);
     if (["publish-walkthrough", "inspect-flow", "assign-graph", "graph-update", "request-graph-resume", "publish-graph-review", "answer-draft-feedback"].includes(data.action)) return flowCommand(this.store, data);
     if (data.action?.startsWith("organization-"))
       return organize(this.store, data);
@@ -216,6 +234,7 @@ export class Coordinator {
     const i = this.store.state.investigations.find((i) => i.id === id);
     if (data.action === "detach") {
       this.session = null;
+      this.latest = null;
       return { detached: true };
     }
     if (data.action === "snapshot") return this.snapshot(data.session);

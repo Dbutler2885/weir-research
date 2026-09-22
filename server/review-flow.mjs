@@ -126,6 +126,7 @@ export function flowCommand(store, command, actor = 'coordinator') {
       }
       if (action === 'graph-resume-decision' && command.decision === 'decline') j.resumeRequest.status = 'declined';
       if (action === 'graph-update') {
+        const sentBack = j.status === 'published';
         const update = {id: randomUUID(), sequence: j.updates.length + 1, message: command.message, annotationIds: command.annotationIds || [], at: new Date().toISOString()};
         j.updates.push(update);
         let w = f.walkthroughs.find(w => w.id === j.walkthroughId);
@@ -142,6 +143,7 @@ export function flowCommand(store, command, actor = 'coordinator') {
         }
         if (j.status === 'returned') j.status = 'queued';
         j.progress = 'Revising the graph draft.';
+        inv.events.push({at: update.at, message: sentBack ? 'Coordinator sent the graph draft back to the builder.' : 'Coordinator sent the graph builder new instructions.'});
       }
     });
     return {saved: true};
@@ -168,6 +170,7 @@ export function flowCommand(store, command, actor = 'coordinator') {
         annotationIds: [...new Set([...j.packet.annotationIds, ...j.updates.flatMap(u => u.annotationIds)])],
       });
       j.status = 'published'; j.progress = 'The draft is ready for your review.';
+      next.investigations.find(x => x.id === i.id).events.push({at: f.graphReviews.at(-1).createdAt, message: 'Coordinator signed off the graph draft; it is ready for your review.'});
     });
     return {graphReviewId: id};
   }
@@ -181,6 +184,7 @@ export function flowCommand(store, command, actor = 'coordinator') {
     store.update(next => {
       const r = next.investigations.find(x => x.id === i.id).reviewFlow.graphReviews.find(r => r.id === review.id);
       r.annotationIds = [...new Set([...r.annotationIds, ...ids])];
+      next.investigations.find(x => x.id === i.id).events.push({at: new Date().toISOString(), message: 'Coordinator answered your note on the graph draft.'});
     });
     return {saved: true};
   }
@@ -241,7 +245,9 @@ export function receiveDraft(store, investigationId, jobId, delivery, packet, su
     j.submissions ||= [];
     j.submissions.push({at: new Date().toISOString(), summary: delivery.summary, consumedUpdateSequence: delivery.consumedUpdateSequence, submissionDirectory});
     if (delivery.consumedUpdateSequence !== j.updates.length || packet.researchRevision !== j.packet.researchRevision) {
-      j.status = 'queued'; j.progress = 'Saved a completed draft; incorporating newer context next.'; return;
+      j.status = 'queued'; j.progress = 'Saved a completed draft; incorporating newer context next.';
+      i.events.push({at: j.submissions.at(-1).at, message: 'Graph builder handed in a draft; it is going back to take in newer instructions.'});
+      return;
     }
     j.candidate = {
       draft: delivery.draft, diff: delivery.diff, summary: delivery.summary, questions: delivery.questions, notes: delivery.notes,
@@ -250,5 +256,6 @@ export function receiveDraft(store, investigationId, jobId, delivery, packet, su
     j.status = 'returned';
     j.consumedUpdateSequence = delivery.consumedUpdateSequence;
     j.progress = 'Draft ready. The coordinator is checking it against your instructions.';
+    i.events.push({at: j.submissions.at(-1).at, message: `Graph builder handed in a draft: ${delivery.summary}`});
   });
 }
