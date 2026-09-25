@@ -12,6 +12,7 @@ import {
 } from "./findings.ts";
 import type { Finding, FindingRef, GraphGroup } from "./findings.ts";
 import type { SourceRecord } from "./types.ts";
+import type { Catalog, Dispatch } from "./dispatch.ts";
 import { GenealogyModel } from "./model.ts";
 import type { FamilyDataset, LegacyDataset } from "./types.ts";
 import { upgradeDataset } from "./graph-upgrade.ts";
@@ -210,6 +211,9 @@ export interface ResearchState {
   };
   // What each running worker is doing right now; never saved.
   live?: LiveWorker[];
+  // Which agent, model and effort does each job, and what the installed CLIs offer.
+  dispatch?: Dispatch;
+  catalog?: Catalog;
   researcher?: {
     selected: "manual" | "codex" | "claude";
     engines: { id: string; available: boolean }[];
@@ -218,9 +222,11 @@ export interface ResearchState {
 }
 
 export interface LiveWorker {
-  role: "researcher" | "builder" | "writer";
+  role: "researcher" | "builder" | "writer" | "helper";
   name: string;
-  investigationId: string;
+  // Absent for a helper, whose task belongs to no batch.
+  investigationId?: string;
+  task?: string;
   jobId?: string;
   startedAt: string;
   latest: { at: string; text: string } | null;

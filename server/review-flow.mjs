@@ -2,9 +2,17 @@ import { randomUUID } from 'node:crypto';
 import { sourceLibrary } from '../src/domain/findings.ts';
 import { acceptDraft, citedResearch } from '../src/domain/graph-delivery.ts';
 import { graphBlocker, graphWorkFinished, validateDraftTour, feedbackAwaitingDraft } from '../src/domain/review-flow.ts';
+import { choose } from '../src/domain/dispatch.ts';
 
 const fail = (ok, message) => { if (!ok) throw new Error(message); };
 const text = value => typeof value === 'string' && value.trim() && value.length <= 100_000;
+// The agent, model and effort for a role: what was named, else the project's
+// dispatch rules, else the older single engine preference.
+function pick(state, role, command = {}) {
+  if (command.engine) return {agent: command.engine, model: command.model ?? null, effort: command.effort ?? null};
+  if (state.dispatch) return choose(state.dispatch, role);
+  return ['claude', 'codex'].includes(state.engine) ? {agent: state.engine, model: null, effort: null} : null;
+}
 const flowFor = i => i.reviewFlow ||= {walkthroughs: [], jobs: [], graphReviews: []};
 export function evidenceRegistry(i, proposalIds) {
   const evidence = {}, findings = {};
@@ -57,14 +65,14 @@ export function flowCommand(store, command, actor = 'coordinator') {
   if (action === 'assign-walkthrough') {
     fail(i.walkthroughRequestedAt, 'The human has not asked for a walkthrough of this batch.');
     fail(i.proposals.some(p => p.kind === 'findings'), 'Publish the batch\'s findings before a walkthrough is written.');
-    const engine = command.engine || store.state.engine;
-    fail(['claude','codex'].includes(engine), 'Choose claude or codex for the walkthrough writer.');
+    const choice = pick(store.state, 'walkthrough-writer', command);
+    fail(['claude','codex'].includes(choice?.agent), 'Choose claude or codex for the walkthrough writer.');
     fail(text(command.brief), 'Give the walkthrough writer a brief.');
     fail(!['queued','running'].includes(i.reviewFlow?.writer?.status), 'A walkthrough writer is already assigned; send it instructions with walkthrough-update.');
     const id = randomUUID();
     store.update(next => {
       const inv = next.investigations.find(x => x.id === i.id);
-      flowFor(inv).writer = {id, status: 'queued', engine, brief: command.brief, progress: 'Waiting to start.', attempt: 0, corrections: 0};
+      flowFor(inv).writer = {id, status: 'queued', engine: choice.agent, model: choice.model, effort: choice.effort, brief: command.brief, progress: 'Waiting to start.', attempt: 0, corrections: 0};
       inv.events.push({at: new Date().toISOString(), message: 'Coordinator assigned a walkthrough writer.'});
     });
     return {writerId: id};
@@ -103,10 +111,11 @@ export function flowCommand(store, command, actor = 'coordinator') {
     fail(i.proposals.some(p => p.kind === 'findings'), 'This batch has no findings to represent yet.');
     const blocker = graphBlocker(store.state);
     fail(!blocker, blocker);
-    const jobId = randomUUID(), at = new Date().toISOString(), engine = store.state.engine || 'manual';
+    const choice = pick(store.state, 'graph-builder');
+    const jobId = randomUUID(), at = new Date().toISOString(), engine = choice?.agent || 'manual';
     store.update(next => {
       const inv = next.investigations.find(x => x.id === i.id), flow = flowFor(inv), w = flow.walkthroughs.at(-1);
-      flow.jobs.push({id: jobId, format: 'tables', ...(w ? {walkthroughId: w.id} : {}), status: 'queued', engine, progress: engine === 'manual' ? 'Waiting for the coordinator to assign a graph builder.' : 'Graph preparation is queued.', createdAt: at, attempt: 0, updates: [], consumedUpdateSequence: 0, packet: graphPacket(next, inv, w), baseDataset: structuredClone(next.dataset)});
+      flow.jobs.push({id: jobId, format: 'tables', ...(w ? {walkthroughId: w.id} : {}), status: 'queued', engine, model: choice?.model ?? null, effort: choice?.effort ?? null, progress: engine === 'manual' ? 'Waiting for the coordinator to assign a graph builder.' : 'Graph preparation is queued.', createdAt: at, attempt: 0, updates: [], consumedUpdateSequence: 0, packet: graphPacket(next, inv, w), baseDataset: structuredClone(next.dataset)});
       inv.events.push({at, message: 'Graph update requested.'});
     });
     return {jobId};
@@ -135,12 +144,11 @@ export function flowCommand(store, command, actor = 'coordinator') {
     if (action === 'graph-resume-decision') fail(job.resumeRequest?.status === 'pending' && ['approve','decline'].includes(command.decision), 'No matching resume request.');
     store.update(next => {
       const inv = next.investigations.find(x => x.id === i.id), f = flowFor(inv), j = f.jobs.find(x => x.id === job.id);
-      if (action === 'assign-graph') j.engine = command.engine;
+      if (action === 'assign-graph') Object.assign(j, {engine: command.engine, model: command.model ?? null, effort: command.effort ?? null});
       if (action === 'graph-job-pause') { j.status = 'paused'; j.progress = 'Graph preparation paused. Saved work is retained.'; }
       if (action === 'request-graph-resume') j.resumeRequest = {reason: command.reason, status: 'pending'};
       if (action === 'graph-job-resume' || (action === 'graph-resume-decision' && command.decision === 'approve')) {
         j.status = 'queued'; j.progress = 'Resuming graph preparation from saved files.';
-        j.engine = next.engine || j.engine;
         if (j.resumeRequest) j.resumeRequest.status = 'approved';
       }
       if (action === 'graph-resume-decision' && command.decision === 'decline') j.resumeRequest.status = 'declined';

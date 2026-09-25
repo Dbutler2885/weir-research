@@ -59,13 +59,14 @@ describe.each(["claude", "codex"] as const)("agent supervisor with a %s agent", 
     const a = start(provider, steps([read("brief.json"), read("documents/doc-1.pdf")]));
     expect(a.live.list()).toMatchObject([{ role: "researcher", name: "Fixture researcher", investigationId: "fixture" }]);
     expect(a.agent.busy).toBe(true);
-    expect(await a.next("turn")).toEqual({ outcome: "done" });
+    // The turn carries the agent's final reply.
+    expect(await a.next("turn")).toEqual({ outcome: "done", text: "Done." });
     expect(a.actions).toEqual(["Reading its assignment", "Reading The fictional register"]);
     expect(a.live.list()[0]!.latest!.text).toBe("Reading The fictional register");
     expect(a.agent.busy).toBe(false);
     // A waiting agent takes its next instruction as a new turn.
     a.agent.send(steps([write("checkpoint.json")]));
-    expect(await a.next("turn")).toEqual({ outcome: "done" });
+    expect(await a.next("turn")).toMatchObject({ outcome: "done" });
     expect(a.actions.at(-1)).toBe("Saving its progress");
     expect(a.turns).toEqual(["done", "done"]);
   });
@@ -84,9 +85,9 @@ describe.each(["claude", "codex"] as const)("agent supervisor with a %s agent", 
     const a = start(provider, steps([read("brief.json", 5000)]));
     await new Promise((done) => a.agent.once("action", done));
     a.agent.interrupt();
-    expect(await a.next("turn")).toEqual({ outcome: "interrupted" });
+    expect(await a.next("turn")).toMatchObject({ outcome: "interrupted" });
     a.agent.send(steps([read("types.ts")]));
-    expect(await a.next("turn")).toEqual({ outcome: "done" });
+    expect(await a.next("turn")).toMatchObject({ outcome: "done" });
   });
 
   it("stops an agent mid-run and removes it from the live panel", async () => {
@@ -226,9 +227,9 @@ describe("Claude adapter", () => {
       { actions: [] },
       { actions: [] },
       { actions: [] },
-      { actions: [], turn: { ok: true } },
+      { actions: [], turn: { ok: true, text: "STEERED" } },
       { actions: [] },
-      { actions: [], turn: { ok: false } },
+      { actions: [], turn: { ok: false, text: "" } },
     ]);
   });
 });

@@ -56,6 +56,8 @@ export function liveRows(state: ResearchState): LiveRow[] {
       who: "Coordinator",
       stage: `Not connected. ${plural(waiting, "note is", "notes are")} waiting for it.`,
     });
+  for (const helper of live.filter((w) => w.role === "helper"))
+    rows.push({ who: helper.name, stage: `Helping the coordinator: ${helper.task}`, latest: helper.latest?.text, since: helper.startedAt });
   for (const i of state.investigations.filter((i) => i.number && !i.closedAt)) {
     const batch = { id: i.id, number: i.number! };
     if (i.status === "running") rows.push(researcherRow(i, live, batch));
@@ -108,6 +110,7 @@ export function runningSummary(state: ResearchState): string {
   const builders = open.flatMap((i) => i.reviewFlow?.jobs || [])
     .filter((j) => ["queued", "running", "returned"].includes(j.status)).length;
   const writing = open.filter((i) => i.walkthroughRequestedAt).length;
+  const helping = (state.live || []).filter((w) => w.role === "helper").length;
   const waiting = unansweredNotes(state);
   const c = state.coordinator;
   return [
@@ -119,6 +122,7 @@ export function runningSummary(state: ResearchState): string {
     queued ? `${plural(queued, "batch", "batches")} waiting for a researcher` : "",
     builders ? `${plural(builders, "graph update", "graph updates")} building` : "",
     writing ? `${plural(writing, "walkthrough", "walkthroughs")} being written` : "",
+    helping ? `${plural(helping, "helper", "helpers")} working` : "",
   ].filter(Boolean).join(" · ");
 }
 

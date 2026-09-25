@@ -4,6 +4,7 @@ import type {
   ResearchState,
 } from "../domain/research";
 import { html, target } from "./finding-review";
+import { dispatchSettings } from "./dispatch-settings";
 
 const date = (value: string) =>
   new Date(value).toLocaleString(undefined, {
@@ -45,11 +46,17 @@ export function feedbackView(state: ResearchState): string {
   }</div>`;
 }
 
+// Whether the app's coordinator is running, and what that means, as settings says it.
+export function coordinatorStatus(coordinator: ResearchState["coordinator"]): { status: string; description: string } {
+  return coordinator?.connected
+    ? { status: "The coordinator is running", description: "It starts fresh each time the app opens this project, and handles new research assignments." }
+    : { status: "The coordinator is not running", description: coordinator?.problem || "It starts when the app opens this project. Saved work remains available." };
+}
+
 export function settingsView(state: ResearchState, i?: Investigation): string {
-  const researcher = state.researcher;
   const coordinator = state.coordinator;
   const execution = i?.executions?.at(-1);
   const minutes = state.researchSettings?.timeLimitMinutes ?? null;
   const timeLimit = `<section><h2>Time limit</h2><form id="time-limit-form"><label for="research-time-limit-mode">Per research pass</label><div class="setting-control"><select id="research-time-limit-mode"><option value="none" ${minutes === null ? "selected" : ""}>No time limit</option><option value="limited" ${minutes !== null ? "selected" : ""}>Set a limit</option></select><label class="time-limit-value" ${minutes === null ? "hidden" : ""}><input id="research-time-limit" type="number" min="1" step="1" required ${minutes === null ? "disabled" : ""} value="${minutes ?? 30}" aria-label="Time limit in minutes"> minutes</label><button>Save time limit</button></div><p class="page-context">Applies to new research and graph-building passes in this project. Running passes keep their current limit.</p></form></section>`;
-  return `<div class="settings-page"><header class="simple-heading"><h1>Research settings</h1><button data-view-work>Back to investigation</button></header><section><h2>Researcher preference</h2>${researcher ? `<form id="engine-form"><label for="research-engine">Use for new assignments</label><div class="setting-control"><select id="research-engine"><option value="manual" ${researcher.selected === "manual" ? "selected" : ""}>Coordinator's tools</option>${researcher.engines.map((e) => `<option value="${e.id}" ${e.id === researcher.selected ? "selected" : ""} ${!e.available ? "disabled" : ""}>${e.id === "codex" ? "Codex" : "Claude Code"}${e.available ? "" : " (not installed)"}</option>`).join("")}</select><button>Save preference</button></div></form>` : "<p>Researcher controls are unavailable.</p>"}</section>${timeLimit}<section><h2>Connection</h2><p data-coordinator-status>${coordinator?.connected ? `Connected to ${html(coordinator.name)}` : "Coordinator disconnected"}</p><p class="page-context">${coordinator?.connected ? "Your coordinator handles new research assignments." : "Open an agent in this repository to continue research. Saved work remains available."}</p></section>${i ? `<section><h2>This investigation</h2><dl class="settings-details"><dt>Source access</dt><dd>${i.scope.map((id) => html(state.collections.find((c) => c.id === id)?.name || id)).join(", ")}</dd>${execution ? `<dt>Last researcher</dt><dd>${html(execution.worker)}</dd>${execution.model !== "Runtime configured; not reported" ? `<dt>Model</dt><dd>${html(execution.model)}</dd>` : ""}` : ""}</dl></section>` : ""}</div>`;
+  return `<div class="settings-page"><header class="simple-heading"><h1>Research settings</h1><button data-view-work>Back to investigation</button></header>${dispatchSettings(state.dispatch, state.catalog)}${timeLimit}<section><h2>Coordinator</h2><p data-coordinator-status>${html(coordinatorStatus(coordinator).status)}</p><p class="page-context" data-coordinator-description>${html(coordinatorStatus(coordinator).description)}</p></section>${i ? `<section><h2>This investigation</h2><dl class="settings-details"><dt>Source access</dt><dd>${i.scope.map((id) => html(state.collections.find((c) => c.id === id)?.name || id)).join(", ")}</dd>${execution ? `<dt>Last researcher</dt><dd>${html(execution.worker)}</dd>${execution.model !== "Runtime configured; not reported" ? `<dt>Model</dt><dd>${html(execution.model)}</dd>` : ""}` : ""}</dl></section>` : ""}</div>`;
 }

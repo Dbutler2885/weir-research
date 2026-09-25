@@ -35,6 +35,10 @@ export class Coordinator {
     this.researchers = null;
     // The walkthrough writers, set once both exist, for sending a writer instructions.
     this.writers = null;
+    // The project's dispatch rules, which say which agent does each job.
+    this.dispatch = null;
+    // Helpers for small tasks, whose answers come back to the coordinator.
+    this.helpers = null;
   }
   // What the coordinator is doing, read from the command it just sent.
   noteAction(data) {
@@ -171,7 +175,8 @@ export class Coordinator {
       !investigations.length &&
       !changed.removedInvestigationIds.length &&
       !changed.decisionsChanged &&
-      !changed.candidatesChanged
+      !changed.candidatesChanged &&
+      !changed.dispatchChanged
     )
       return { revision: state.revision, unchanged: true };
     const conversation = conversationIndex(state);
@@ -186,6 +191,8 @@ export class Coordinator {
         unassignedAnnotations: conversation.unassignedAnnotations,
         pendingDecisions: conversation.pendingDecisions,
         ...(changed.decisionsChanged ? { decisions: conversation.recentDecisions } : {}),
+        // Who does which job, when the human changed it in settings.
+        ...(changed.dispatchChanged ? { dispatch: state.dispatch } : {}),
         ...(changed.candidatesChanged
           ? { candidates: this.candidates().map((c) => ({ id: c.id, investigationId: c.investigationId, title: c.proposal.title })) }
           : {}),
@@ -236,6 +243,16 @@ export class Coordinator {
     this.require(data.session);
     this.noteAction(data);
     if (data.action === "walkthrough-update") return this.writers.steer(data.investigationId, data.message);
+    if (data.action === "ask-helper") {
+      if (!this.helpers) throw new Error("Helpers are unavailable.");
+      return this.helpers.ask(data);
+    }
+    // The human's stated preference becomes a dispatch rule they can see in settings.
+    if (["set-role", "add-rule", "remove-rule"].includes(data.action)) {
+      if (!this.dispatch) throw new Error("Dispatch rules are unavailable.");
+      const { session, ...change } = data;
+      return { dispatch: this.dispatch.change(change, "coordinator") };
+    }
     if (["assign-walkthrough", "publish-walkthrough", "inspect-flow", "assign-graph", "graph-update", "request-graph-resume", "publish-graph-review", "answer-draft-feedback"].includes(data.action)) return flowCommand(this.store, data);
     if (data.action?.startsWith("organization-"))
       return organize(this.store, data);
@@ -329,12 +346,16 @@ export class Coordinator {
         });
         return { ...structuredClone(result), coordinatorBrief: data.brief };
       }
-      data.engine ||= this.store.state.engine;
-      if (!["codex", "claude"].includes(data.engine))
+      // What the coordinator names wins; otherwise the project's dispatch rules decide.
+      const choice = this.dispatch?.choose("researcher", data.engine ? { agent: data.engine, model: data.model, effort: data.effort } : null)
+        ?? (data.engine || this.store.state.engine ? { agent: data.engine || this.store.state.engine } : null);
+      if (!["codex", "claude"].includes(choice?.agent))
         throw new Error("Choose codex or claude for a managed researcher.");
       this.store.update((next) => {
         next.coordination.assignments[id] = {
-          engine: data.engine,
+          engine: choice.agent,
+          model: choice.model ?? null,
+          effort: choice.effort ?? null,
           phase: i.phase || "research",
           graphRequestedAt: i.graphRequest?.at,
           brief: data.brief,

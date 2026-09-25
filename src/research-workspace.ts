@@ -1,7 +1,9 @@
+import { menus, rowChoice } from "./ui/dispatch-settings";
 import {
   investigationSubject,
   feedbackView,
   settingsView,
+  coordinatorStatus,
 } from "./ui/investigation-view";
 import { evidenceCard } from "./ui/finding-review";
 import { sourceLibrary } from "./domain/findings";
@@ -716,22 +718,41 @@ export function mountResearchWorkspace(
           message((error as Error).message);
         }
       });
-    surface
-      .querySelector("#engine-form")
-      ?.addEventListener("submit", async (event) => {
-        event.preventDefault();
-        try {
-          await request("/api/engine", {
-            engine:
-              surface.querySelector<HTMLSelectElement>("#research-engine")!
-                .value,
-          });
-          await refresh();
-          message("Researcher preference saved.");
-        } catch (error) {
-          message((error as Error).message);
-        }
-      });
+    // Who does which job: each menu saves as it changes; the page redraws from the saved rules.
+    const dispatchChange = async (body: Record<string, unknown>, saved: string) => {
+      try {
+        await request("/api/dispatch", body);
+        await refresh();
+        message(saved);
+      } catch (error) {
+        message((error as Error).message);
+        await refresh();
+      }
+    };
+    surface.querySelectorAll<HTMLElement>("[data-dispatch-role]").forEach((row) =>
+      row.addEventListener("change", (event) => {
+        const field = (event.target as HTMLElement).dataset.field;
+        const choice = rowChoice(row, state.catalog!, field);
+        void dispatchChange({ action: "set-role", role: row.dataset.dispatchRole, ...(choice || {}) }, "Saved.");
+      }),
+    );
+    surface.querySelectorAll<HTMLButtonElement>("[data-remove-rule]").forEach((button) =>
+      button.addEventListener("click", () => void dispatchChange({ action: "remove-rule", ruleId: button.dataset.removeRule }, "Rule removed.")),
+    );
+    const ruleForm = surface.querySelector<HTMLFormElement>("#add-rule-form");
+    const ruleMenus = ruleForm?.querySelector<HTMLElement>("[data-rule-menus]");
+    ruleMenus?.addEventListener("change", (event) => {
+      const choice = rowChoice(ruleMenus, state.catalog!, (event.target as HTMLElement).dataset.field);
+      ruleMenus.innerHTML = menus(state.catalog!, choice || undefined, "Rule", false);
+    });
+    ruleForm?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const data = new FormData(ruleForm);
+      void dispatchChange(
+        { action: "add-rule", role: data.get("role"), when: data.get("when"), reason: data.get("reason"), ...rowChoice(ruleMenus!, state.catalog!) },
+        "Rule added.",
+      );
+    });
   }
   function renderSources() {
     if (selectedSource) {
@@ -1023,21 +1044,25 @@ export function mountResearchWorkspace(
         const description = surface.querySelector(
           "[data-coordinator-description]",
         );
-        if (status)
-          status.textContent = revision.coordinator.connected
-            ? "Coordinator connected"
-            : revision.coordinator.enabled
-              ? "Waiting for your coordinator"
-              : "Agent-led research available";
-        if (description)
-          description.textContent = revision.coordinator.connected
-            ? `${revision.coordinator.name} is supervising research and preparing proposals.`
-            : "Research and findings are saved. Open an agent in the research repository to continue.";
+        const said = coordinatorStatus(revision.coordinator);
+        if (status) status.textContent = said.status;
+        if (description) description.textContent = said.description;
       }
       updateRunning();
       if (revision.revision !== state.revision) {
         const previous = state;
         await refresh(false);
+        // Rules the coordinator changed show at once; a half-written rule is kept.
+        if (view === "settings" && JSON.stringify(state.dispatch) !== JSON.stringify(previous.dispatch)) {
+          const draft = surface.querySelector<HTMLFormElement>("#add-rule-form");
+          const kept = draft ? [...new FormData(draft)] : [];
+          renderView();
+          const form = surface.querySelector<HTMLFormElement>("#add-rule-form");
+          for (const [name, value] of kept) {
+            const field = form?.elements.namedItem(name) as HTMLInputElement | HTMLSelectElement | null;
+            if (field) field.value = String(value);
+          }
+        }
         const current = currentInvestigation();
         if (guidedReview && current) guidedReview.update(state, current);
         const changed = [...state.investigations].reverse().find(i => {

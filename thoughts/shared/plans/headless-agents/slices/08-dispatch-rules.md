@@ -1,7 +1,7 @@
 # Slice 08: Dispatch rules
 
 **Type**: AFK
-**Status**: Not started
+**Status**: Done
 
 ## Blocked by
 
@@ -17,12 +17,12 @@ See **Dispatch rules**.
 
 ## Acceptance criteria
 
-- [ ] A new project's rules use one CLI and its defaults for every role
-- [ ] A preference stated in the conversation becomes a visible entry in settings
-- [ ] The human can add, change and remove entries from settings menus
-- [ ] Menus list only models the installed CLIs offer
-- [ ] A malformed rule is refused with a clear message
-- [ ] A helper role exists for small tasks
+- [x] A new project's rules use one CLI and its defaults for every role
+- [x] A preference stated in the conversation becomes a visible entry in settings
+- [x] The human can add, change and remove entries from settings menus
+- [x] Menus list only models the installed CLIs offer
+- [x] A malformed rule is refused with a clear message
+- [x] A helper role exists for small tasks
 
 ## User stories addressed
 

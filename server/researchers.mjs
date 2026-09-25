@@ -282,7 +282,7 @@ Your final message should be a short completion status. The host will validate r
 `;
       writeFileSync(join(directory, "AGENTS.md"), instructions);
       placeSkills(directory, this.root, ["research-contract"]);
-      this.startAgent(task, engine, executable, instructions, web, brief);
+      this.startAgent(task, engine, executable, instructions, web, brief, assignment);
     } catch (error) {
       this.fail(
         task,
@@ -293,7 +293,7 @@ Your final message should be a short completion status. The host will validate r
     return true;
   }
   // Researchers keep their input open, so the coordinator can steer or stop them.
-  startAgent(task, engine, executable, instructions, web, brief) {
+  startAgent(task, engine, executable, instructions, web, brief, assignment) {
     const { id } = task;
     const name = engine === "codex" ? "Codex researcher" : "Claude researcher";
     task.agent = this.supervisor.start({
@@ -303,6 +303,8 @@ Your final message should be a short completion status. The host will validate r
       folder: task.directory,
       instructions,
       web,
+      model: assignment?.model,
+      effort: assignment?.effort,
       prompt: "Read brief.json and complete this bounded research pass. Write checkpoints and result.json as instructed.",
       live: { role: "researcher", name, investigationId: id },
       describe: fileDescriber(researcherFiles, this.titles(brief)),

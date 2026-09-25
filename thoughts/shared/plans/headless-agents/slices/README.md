@@ -13,7 +13,7 @@ Parent PRD: [Headless agents](../prd.md)
 | 05 | [Headless coordinator](05-headless-coordinator.md) | AFK | Done | 04 |
 | 06 | [Starting the app](06-starting-the-app.md) | AFK | Done | 05 |
 | 07 | [Progress without self-reporting](07-progress-without-self-reporting.md) | AFK | Done | 03 |
-| 08 | [Dispatch rules](08-dispatch-rules.md) | AFK | Not started | 05 |
+| 08 | [Dispatch rules](08-dispatch-rules.md) | AFK | Done | 05 |
 | 09 | [Setup screen](09-setup-screen.md) | HITL | Not started | 04 |
 | 10 | [Sample project](10-sample-project.md) | AFK | Not started | 09 |
 | 11 | [Research browser](11-research-browser.md) | AFK | Not started | 04 |

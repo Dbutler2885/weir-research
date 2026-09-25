@@ -24,6 +24,10 @@ import { WalkthroughWriters } from "./walkthrough-writers.mjs";
 import { CoordinatorHost } from "./coordinator-host.mjs";
 import { AgentSupervisor } from "./agents/supervisor.mjs";
 import { agentHomes } from "./agents/isolation.mjs";
+import { agentCatalog } from "./agents/catalog.mjs";
+import { DispatchRules } from "./dispatch.mjs";
+import { Helpers } from "./helpers.mjs";
+import { validateChoice } from "../src/domain/dispatch.ts";
 import { LiveActivity } from "./live-activity.mjs";
 import { projectSkills } from "./skills.mjs";
 import { flowCommand } from "./review-flow.mjs";
@@ -70,16 +74,19 @@ coordinator.researchers = researchers;
 const graphBuilders = new GraphBuilders(store, directory, root, { live, supervisor });
 const writers = new WalkthroughWriters(store, directory, root, { live, supervisor });
 coordinator.writers = writers;
+// What the installed agent CLIs offer, and the project's rules for which does each job.
+const catalog = agentCatalog({ findExecutable: researchers.findExecutable });
+const dispatch = new DispatchRules(store, catalog);
+dispatch.ensure();
+coordinator.dispatch = dispatch;
 process.on("exit", () => writers.stop());
 process.on("exit", () => graphBuilders.stop());
 process.on("exit", () => researchers.stop());
 // A coordinator command, from the app's coordinator or one attached from outside.
 function coordinatorCommand(data) {
-  if (
-    data.action === "assign" &&
-    !researchers.findExecutable(data.engine || store.state.engine)
-  )
-    throw new Error("Requested researcher CLI is not available.");
+  // An agent, model or effort named for one assignment must be one the installed CLIs offer.
+  if (["assign", "assign-graph", "assign-walkthrough", "ask-helper"].includes(data.action) && data.engine && data.engine !== "manual")
+    validateChoice({ agent: data.engine, model: data.model ?? null, effort: data.effort ?? null }, catalog, "The named agent");
   if (["claim-graph", "submit-graph-files"].includes(data.action)) {
     coordinator.require(data.session);
     coordinator.noteAction(data);
@@ -92,7 +99,10 @@ function coordinatorCommand(data) {
   return result;
 }
 // The app starts a fresh coordinator every time it opens the project.
-const coordinatorHost = new CoordinatorHost({ store, coordinator, supervisor, directory, root, handle: coordinatorCommand });
+const coordinatorHost = new CoordinatorHost({ store, coordinator, supervisor, directory, root, dispatch, handle: coordinatorCommand });
+const helpers = new Helpers(store, directory, { live, supervisor, dispatch, answer: (text) => coordinatorHost.tell(text) });
+coordinator.helpers = helpers;
+process.on("exit", () => helpers.stop());
 // For the context evaluation, the coordinator's folder is prepared for an agent it runs itself.
 if (process.env.RESEARCH_COORDINATOR_AGENT === "prepare") {
   const prompt = coordinatorHost.prepare();
@@ -275,6 +285,7 @@ const server = createServer(async (req, res) => {
         researcher: researchers.capabilities(),
         coordinator: coordinator.status(),
         live: live.list(),
+        catalog,
       });
     if (req.method === "GET" && url.pathname === "/api/revision")
       return json(res, 200, {
@@ -338,6 +349,8 @@ const server = createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/api/research-settings") {
       return json(res, 200, researchers.configure(await body(req)));
     }
+    if (req.method === "POST" && url.pathname === "/api/dispatch")
+      return json(res, 200, { dispatch: dispatch.change(await body(req), "human") });
     if (req.method === "POST" && url.pathname === "/api/engine") {
       const data = await body(req);
       researchers.choose(data.engine);

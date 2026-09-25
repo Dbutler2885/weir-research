@@ -121,7 +121,7 @@ Assign a researcher with:
 The brief is the place for the coordinator's cross-investigation context and research strategy.
 Read the indexed `phase` before assigning work: research passes return qualified findings without graph changes; graph passes represent exact kept `graphRequest.refs` and return coherent review groups.
 Use the contracts in `skills/research-contract/SKILL.md`; do not collapse these two tasks into a single proposal.
-If `engine` is omitted, the saved preference is used.
+If `engine` is omitted, the project's dispatch rules choose the agent, model and effort; name `engine`, `model` and `effort` when one of their conditional rules fits this assignment.
 Actual assignments are recorded under Investigations with their provider and model when known; missing model information remains explicitly unreported.
 Respect each investigation's source scope when sharing findings.
 At most two managed researchers run concurrently, with no time limit by default.
@@ -203,7 +203,7 @@ When the snapshot marks a batch `walkthroughRequested`, make sure its inspected 
 
 The brief carries what the writer cannot see for itself: your reconciliation, preserved ambiguities, and what the human asked.
 The app launches the writer with the batch's published findings and `skills/present-research/SKILL.md`; it appears in the live panel.
-If `engine` is omitted, the saved preference is used.
+If `engine` is omitted, the project's dispatch rules choose the agent, model and effort; name `engine`, `model` and `effort` when one of their conditional rules fits this assignment.
 To redirect a running writer, send `{"action":"walkthrough-update","investigationId":"...","message":"..."}`; it arrives at the writer's next step.
 The app checks the draft when the writer's turn ends and sends any problem back to it, up to three times.
 When the writer hands in a draft, `inspect-flow` shows it as `writer.draft`.

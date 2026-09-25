@@ -36,7 +36,7 @@ export const claudeAdapter = {
       read(event) {
         const actions = streamActions(event, describe);
         if (event.type !== "result") return { actions };
-        return { actions, turn: { ok: event.subtype === "success" } };
+        return { actions, turn: { ok: event.subtype === "success", text: typeof event.result === "string" ? event.result : "" } };
       },
     };
   },

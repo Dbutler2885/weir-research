@@ -53,6 +53,7 @@ export class WorkspaceStore {
         (state.conversation || []).filter((m) => m.decision).map((m) => [m.id, m.decision.status]),
       ),
       candidates: (state.coordination?.candidates || []).length,
+      dispatch: JSON.stringify(state.dispatch ?? null),
       investigations: new Map(state.investigations.map((i) => [i.id, fingerprint(i)])),
     });
     if (this.marks.length > 300) this.marks.shift();
@@ -75,6 +76,7 @@ export class WorkspaceStore {
         ([id, status]) => now.decisions.get(id) !== status,
       ),
       candidatesChanged: now.candidates !== mark.candidates,
+      dispatchChanged: now.dispatch !== mark.dispatch,
     };
   }
   save(next) {

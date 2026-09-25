@@ -182,6 +182,11 @@ export function coordinatorAction(data, state) {
     case "publish": return `Publishing findings for ${batch(data.investigationId)}`;
     case "revise": return `Revising the findings for ${batch(data.investigationId)}`;
     case "request-resume": return `Asking to resume ${batch(data.investigationId)}`;
+    case "ask-helper": return "Handing a small task to a helper";
+    case "set-role":
+    case "add-rule":
+    case "remove-rule":
+      return "Updating who does which job";
     case "assign-walkthrough": return `Assigning a walkthrough writer to ${batch(data.investigationId)}`;
     case "walkthrough-update": return `Sending instructions to the walkthrough writer for ${batch(data.investigationId)}`;
     case "publish-walkthrough": return `Publishing the walkthrough for ${batch(data.investigationId)}`;

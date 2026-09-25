@@ -50,7 +50,7 @@ const proposal = {
   changes: [],
 };
 describe("research coordination", () => {
-  it("answers a quiet wait with its revision alone and a wake with only what changed", () => {
+  it("says nothing changed with the revision alone, and otherwise sends only what changed", () => {
     const f = fixture();
     const start = f.coordinator.snapshot(f.secret).revision;
     // Nothing happened: the coordinator is told the revision and no more.
@@ -74,6 +74,15 @@ describe("research coordination", () => {
     // Findings are counted, not re-sent; inspection retrieves them.
     expect(second.changed.investigations[0]).not.toHaveProperty("findings");
     expect(second.changed.investigations[0]).toHaveProperty("findingCount");
+  });
+
+  it("tells the coordinator when the human changes who does which job", () => {
+    const f = fixture();
+    const start = f.coordinator.snapshot(f.secret).revision;
+    f.store.update((next: any) => {
+      next.dispatch = { default: { agent: "codex" }, roles: {}, rules: [] };
+    });
+    expect((f.coordinator.delta(f.secret, start) as any).changed.dispatch).toEqual({ default: { agent: "codex" }, roles: {}, rules: [] });
   });
 
   it("ignores its own replies but wakes when the human decides a request", () => {

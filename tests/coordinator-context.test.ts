@@ -109,13 +109,22 @@ describe("coordinator startup context", () => {
   it("includes live workers and the human's saved preferences", () => {
     const p = project();
     const id = p.open("The mill's builder", "Who built the mill?");
-    const state = { ...structuredClone(p.state), engine: "codex" as const };
+    const state = {
+      ...structuredClone(p.state),
+      dispatch: {
+        default: { agent: "claude" as const },
+        roles: { researcher: { agent: "codex" as const, model: "gpt-6-sol", effort: "high" } },
+        rules: [{ id: "r1", role: "helper" as const, when: "the task is a quick lookup", choose: { agent: "claude" as const, model: "haiku" }, reason: "It is cheap", by: "human" as const, at: "t" }],
+      },
+    };
     const context = buildCoordinatorContext(state, {
       workers: [{ role: "researcher", name: "Codex researcher", investigationId: id, startedAt: "t", latest: { at: "t", text: "Reading the parish register" } }],
       skills: [{ name: "present-research", description: "Write a walkthrough when the human asks for one." }],
     });
     expect(layer(context, "queue")).toContain("Worker: Codex researcher, Reading the parish register.");
-    expect(layer(context, "orientation")).toContain("researcher: codex");
+    expect(layer(context, "orientation")).toContain("- researcher: codex, gpt-6-sol, high effort");
+    expect(layer(context, "orientation")).toContain("- default: claude, its default model, its default effort");
+    expect(layer(context, "orientation")).toContain("- rule for helper, when the task is a quick lookup: claude, haiku, its default effort (It is cheap; id r1)");
     expect(layer(context, "more")).toContain("present-research: Write a walkthrough");
   });
 

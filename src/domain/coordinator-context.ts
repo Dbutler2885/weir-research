@@ -164,6 +164,20 @@ function queue(state: ResearchState, workers: LiveWorker[]): ContextLayer {
   );
 }
 
+// Who does which job. A rule's condition is yours to judge; name its choice when it fits.
+function dispatchText(state: ResearchState): string {
+  const d = state.dispatch;
+  if (!d) return "### Who does which job\n\nNo agent CLI is set up yet.";
+  const choice = (c: { agent: string; model?: string | null; effort?: string | null }) =>
+    [c.agent, c.model || "its default model", c.effort ? `${c.effort} effort` : "its default effort"].join(", ");
+  const lines = [
+    `- default: ${choice(d.default)}`,
+    ...Object.entries(d.roles).map(([role, c]) => `- ${role}: ${choice(c!)}`),
+    ...d.rules.map((r) => `- rule for ${r.role}, when ${r.when}: ${choice(r.choose)} (${r.reason}; id ${r.id})`),
+  ];
+  return `### Who does which job\n\n${lines.join("\n")}\nRoles without an entry use the default. When a rule's condition fits an assignment, name its agent, model and effort in the assign command.`;
+}
+
 function orientation(state: ResearchState): ContextLayer {
   const d = state.dataset;
   const counts = [
@@ -173,7 +187,6 @@ function orientation(state: ResearchState): ContextLayer {
     `${sourceLibrary(state).length} sources`,
   ].join(", ");
   const settings = [
-    `researcher: ${state.engine || "manual"}`,
     `automatic walkthrough: ${state.reviewSettings?.autoWalkthrough ? "on" : "off"}`,
     `automatic graph update: ${state.reviewSettings?.autoGraph ? "on" : "off"}`,
     `research time limit: ${state.researchSettings?.timeLimitMinutes ? `${state.researchSettings.timeLimitMinutes} minutes` : "none"}`,
@@ -183,6 +196,7 @@ function orientation(state: ResearchState): ContextLayer {
     `Project: ${clip(d.title, 300)}`,
     `Graph: ${counts}. Source collections: ${state.collections.map((c) => `${c.name} (${c.id})`).join(", ")}.`,
     `The human's settings, which you follow: ${settings}.`,
+    dispatchText(state),
   ];
   const map = coordination?.researchMap?.trim();
   blocks.push(

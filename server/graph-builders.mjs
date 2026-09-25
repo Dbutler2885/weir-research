@@ -237,7 +237,7 @@ export class GraphBuilders {
       task = this.prepare(id);
       writeFileSync(join(task.attempt, 'invocation.json'), JSON.stringify({engine: job.engine, cwd: task.work}, null, 2));
       task.agent = this.supervisor.start({
-        key: `graph:${id}`, provider: job.engine, executable, folder: task.work, web: false,
+        key: `graph:${id}`, provider: job.engine, executable, folder: task.work, web: false, model: job.model, effort: job.effort,
         prompt: task.prompt, log: join(task.attempt, 'stream.ndjson'),
         live: {role: 'builder', name: job.engine === 'codex' ? 'Codex graph builder' : 'Claude graph builder', investigationId: task.investigationId, jobId: id},
         describe: fileDescriber(builderFiles),

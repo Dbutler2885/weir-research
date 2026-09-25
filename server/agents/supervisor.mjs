@@ -163,7 +163,7 @@ class Agent extends EventEmitter {
           const outcome = this.interrupting ? "interrupted" : turn.ok ? "done" : "error";
           this.busy = false;
           this.interrupting = false;
-          this.emit("turn", { outcome });
+          this.emit("turn", { outcome, text: turn.text ?? "" });
         }
         this.closeWhenIdle();
       }

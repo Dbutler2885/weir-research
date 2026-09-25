@@ -32,6 +32,8 @@ export const codexAdapter = {
     let threadId = null;
     let turnId = null;
     let starting = false;
+    // The agent's latest reply, which ends its turn.
+    let reply = "";
     const waiting = [];
     const request = (method, params, then = () => {}) => {
       const id = ++nextId;
@@ -131,11 +133,15 @@ export const codexAdapter = {
           write({ jsonrpc: "2.0", id: message.id, error: { code: METHOD_NOT_FOUND, message: "Not supported by this app." } });
           return { actions: [] };
         }
-        if (message.method === "turn/started") turnId = message.params.turn.id;
+        if (message.method === "turn/started") {
+          turnId = message.params.turn.id;
+          reply = "";
+        }
+        if (message.method === "item/completed" && message.params?.item?.type === "agentMessage") reply = message.params.item.text || "";
         if (message.method === "turn/completed") {
           turnId = null;
           flush();
-          return { actions: [], turn: { ok: message.params.turn.status === "completed" } };
+          return { actions: [], turn: { ok: message.params.turn.status === "completed", text: reply } };
         }
         return { actions: streamActions(message, describe) };
       },

@@ -16,20 +16,23 @@ const coordinatorFiles = {
 // in its own sandboxed folder. It sends commands through a mailbox in that folder,
 // and the app sends it every change to the project as a message.
 export class CoordinatorHost {
-  constructor({store, coordinator, supervisor, directory, root, handle, findExecutable = executableOnPath, provider = null, debounce = 400}) {
-    Object.assign(this, {store, coordinator, supervisor, directory, root, handle, findExecutable, debounce});
+  constructor({store, coordinator, supervisor, directory, root, handle, findExecutable = executableOnPath, provider = null, dispatch = null, debounce = 400}) {
+    Object.assign(this, {store, coordinator, supervisor, directory, root, handle, findExecutable, dispatch, debounce});
     this.preferred = provider;
     this.agent = null;
     this.problem = null;
   }
-  // The coordinator runs on the saved provider when it is installed, otherwise on
-  // whichever agent CLI is.
-  provider() {
-    const saved = this.preferred || this.store.state.engine;
-    return [saved, 'claude', 'codex'].find((p) => ['claude', 'codex'].includes(p) && this.findExecutable(p)) || null;
+  // The coordinator runs on the agent the dispatch rules choose for it when that is
+  // installed, otherwise on whichever agent CLI is.
+  choice() {
+    const chosen = this.preferred ? {agent: this.preferred} : this.dispatch?.choose('coordinator');
+    if (chosen && this.findExecutable(chosen.agent)) return chosen;
+    const agent = [this.store.state.engine, 'claude', 'codex'].find((p) => ['claude', 'codex'].includes(p) && this.findExecutable(p));
+    return agent ? {agent} : null;
   }
   start() {
-    const provider = this.provider();
+    const choice = this.choice();
+    const provider = choice?.agent;
     if (!provider) {
       this.problem = 'No agent CLI is installed. Install Claude Code or Codex to start the coordinator.';
       this.coordinator.problem = this.problem;
@@ -43,6 +46,8 @@ export class CoordinatorHost {
       executable: this.findExecutable(provider),
       folder: this.folder,
       web: true,
+      model: choice.model,
+      effort: choice.effort,
       prompt,
       describe: fileDescriber(coordinatorFiles),
     });
@@ -104,6 +109,10 @@ export class CoordinatorHost {
   }
   status() {
     return {connected: Boolean(this.agent), listening: Boolean(this.agent) && !this.agent.busy, problem: this.problem};
+  }
+  // Something for the coordinator that is not in the project's state, such as a helper's answer.
+  tell(text) {
+    if (this.agent && !this.agent.finishing) this.agent.send(text);
   }
   schedule() {
     clearTimeout(this.timer);

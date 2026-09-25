@@ -62,6 +62,8 @@ export class WalkthroughWriters {
     task.agent = this.supervisor.start({
       key: `writer:${id}`,
       provider: writer.engine,
+      model: writer.model,
+      effort: writer.effort,
       executable,
       folder,
       web: false,

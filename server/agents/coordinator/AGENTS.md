@@ -59,6 +59,18 @@ When an investigation finishes, preserve a concise conclusion in its proposal su
 Do not silently merge investigations or expand into unrelated research.
 The human alone accepts or sets aside a graph draft.
 
+## Who does which job
+
+The startup context lists the project's dispatch rules: a default agent, an agent, model and effort for any role that differs, and rules with a condition.
+The roles are coordinator, researcher, graph-builder, walkthrough-writer and helper.
+When a rule's condition fits work you are assigning, name its choice in the command, for example `{"action":"assign","investigationId":"...","engine":"codex","model":"gpt-6-sol","effort":"high","brief":"..."}`; otherwise leave them out and the role's entry applies.
+When the human states a preference about who should do what, turn it into an entry they can see in settings, and tell them what you set:
+
+- `{"action":"set-role","role":"researcher","agent":"codex","model":"gpt-6-sol","effort":"high"}` sets a role; `"role":"default"` sets the default, and a role without `agent` goes back to the default.
+- `{"action":"add-rule","role":"researcher","when":"the work is web research","agent":"codex","reason":"The human finds it better at archives"}` adds a rule with a condition; `{"action":"remove-rule","ruleId":"..."}` removes one.
+
+Hand a small task, such as checking a date format or summarising a passage you already have, to a helper with `{"action":"ask-helper","task":"..."}`; its answer comes back to you as a message.
+
 ## Direct project organization
 
 A clear request such as "remove everything except Example Town" authorizes a project organization action.
