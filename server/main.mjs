@@ -22,6 +22,7 @@ import { ResearcherPool } from "./researchers.mjs";
 import { GraphBuilders } from "./graph-builders.mjs";
 import { WalkthroughWriters } from "./walkthrough-writers.mjs";
 import { AgentSupervisor } from "./agents/supervisor.mjs";
+import { agentHomes } from "./agents/isolation.mjs";
 import { LiveActivity } from "./live-activity.mjs";
 import { projectSkills } from "./skills.mjs";
 import { flowCommand } from "./review-flow.mjs";
@@ -60,7 +61,9 @@ const store = new WorkspaceStore(
 const live = new LiveActivity();
 const coordinator = new Coordinator(store, { workers: () => live.list(), skills: projectSkills(root) });
 // One supervisor launches and reads every agent the app runs.
-const supervisor = new AgentSupervisor({ live });
+// Codex agents share the app's own homes, beside the projects.
+const appDirectory = resolve(process.env.RESEARCH_HOME || join(root, ".research"));
+const supervisor = new AgentSupervisor({ live, homes: agentHomes(appDirectory) });
 const researchers = new ResearcherPool(store, directory, root, { coordinator, live, supervisor });
 coordinator.researchers = researchers;
 const graphBuilders = new GraphBuilders(store, directory, root, { live, supervisor });

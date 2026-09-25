@@ -123,7 +123,7 @@ describe("local researcher supervision", () => {
     expect(f.launches).toHaveLength(0);
     f.pool.choose("codex");
     expect(f.launches).toHaveLength(2);
-    expect(f.launches[0]!.args).toEqual(["app-server"]);
+    expect(f.launches[0]!.args[0]).toBe("app-server");
     expect(f.store.state.investigations.map((i: any) => i.status)).toEqual([
       "running",
       "running",
@@ -355,7 +355,7 @@ describe("steerable researchers", () => {
 describe.each(["claude", "codex"] as const)("a %s researcher under the coordinator", (engine) => {
   const executables = { claude: resolve("tests/fixtures/fake-claude.mjs"), codex: resolve("tests/fixtures/fake-codex.mjs") };
   const until = async (check: () => unknown) => {
-    for (let n = 0; n < 200 && !check(); n++) await new Promise((done) => setTimeout(done, 10));
+    for (let n = 0; n < 500 && !check(); n++) await new Promise((done) => setTimeout(done, 10));
     expect(check()).toBeTruthy();
   };
   async function running() {

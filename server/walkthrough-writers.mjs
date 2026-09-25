@@ -1,9 +1,10 @@
 import { spawn } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { executableOnPath } from './researchers.mjs';
 import { LiveActivity, fileDescriber, writerFiles } from './live-activity.mjs';
 import { AgentSupervisor } from './agents/supervisor.mjs';
+import { placeSkills } from './agents/isolation.mjs';
 import { validateWalkthrough } from './review-flow.mjs';
 import { sourceLibrary } from '../src/domain/findings.ts';
 
@@ -63,7 +64,6 @@ export class WalkthroughWriters {
       provider: writer.engine,
       executable,
       folder,
-      tools: ['Read', 'Write', 'Edit', 'Glob', 'Grep'],
       web: false,
       prompt: 'Read AGENTS.md and write the walkthrough as instructed.',
       live: {role: 'writer', name: writer.engine === 'codex' ? 'Codex walkthrough writer' : 'Claude walkthrough writer', investigationId: id},
@@ -71,6 +71,7 @@ export class WalkthroughWriters {
     });
     this.active.set(id, task);
     task.agent.on('turn', ({outcome}) => { if (outcome !== 'interrupted') this.turnEnded(task); });
+    task.agent.on('intruder', () => this.update(id, () => {}, 'The walkthrough writer tried to start another agent, and the app stopped it.'));
     task.agent.on('failed', (error) => this.pause(id, `The walkthrough writer could not start: ${error.message}`));
     task.agent.on('exit', () => {
       this.active.delete(id);
@@ -80,10 +81,8 @@ export class WalkthroughWriters {
   }
   // Everything the writer reads: the batch's published findings, the brief, and its instructions.
   prepare(folder, investigation, writer) {
-    mkdirSync(join(folder, 'present-research', 'references'), {recursive: true});
-    const skill = join(this.root, 'skills/present-research');
-    copyFileSync(join(skill, 'SKILL.md'), join(folder, 'present-research', 'SKILL.md'));
-    copyFileSync(join(skill, 'references', 'runtime.md'), join(folder, 'present-research', 'references', 'runtime.md'));
+    mkdirSync(folder, {recursive: true});
+    placeSkills(folder, this.root, ['present-research']);
     const current = investigation.reviewFlow.walkthroughs.at(-1);
     const materials = {
       batch: {number: investigation.number, title: investigation.title, questions: (investigation.questions || []).map((q) => q.title)},
@@ -97,7 +96,7 @@ export class WalkthroughWriters {
     };
     writeFileSync(join(folder, 'materials.json'), JSON.stringify(materials, null, 2));
     writeFileSync(join(folder, 'AGENTS.md'), `You are the walkthrough writer for ${investigation.number ? `batch ${investigation.number}` : 'this batch'}, not the coordinator.
-Read present-research/SKILL.md and its runtime reference, then materials.json.
+Load the present-research skill in this folder and read its runtime reference, then materials.json.
 materials.json holds the coordinator's brief, the batch's questions and the human's notes, the published findings with their evidence, the source library, and the current walkthrough when this is a revision.
 Follow the brief. Write the walkthrough object described in the runtime reference, and nothing else, to walkthrough.json in this folder.
 Each proposalIds entry is a proposal id from materials.json, and each evidenceRefs entry is that proposal's id, a slash, and one of its evidence ids.

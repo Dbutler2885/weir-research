@@ -1,7 +1,7 @@
 # Slice 04: Sandbox and isolation
 
 **Type**: AFK
-**Status**: Not started
+**Status**: Done
 
 ## Blocked by
 
@@ -16,11 +16,11 @@ The app's skills are placed in each agent's folder, and each agent's host stops 
 
 ## Acceptance criteria
 
-- [ ] A worker can run any command in its folder and reach the web, for both providers
-- [ ] A worker cannot read or write the human's files, the project's live state, originals, other agents' folders or sign-in files, for both providers
-- [ ] Neither provider loads the human's instructions, hooks, skills or MCP servers; both load the folder's instructions and skills
-- [ ] Starting `claude` or `codex` from a worker fails, and a started agent CLI is stopped and reported in the live panel
-- [ ] Claude Code agents use the human's existing sign-in; Codex agents use the app-owned Codex home
+- [x] A worker can run any command in its folder and reach the web, for both providers
+- [x] A worker cannot read or write the human's files, the project's live state, originals, other agents' folders or sign-in files, for both providers
+- [x] Neither provider loads the human's instructions, hooks, skills or MCP servers; both load the folder's instructions and skills
+- [x] Starting `claude` or `codex` from a worker fails, and a started agent CLI is stopped and reported in the live panel
+- [x] Claude Code agents use the human's existing sign-in; Codex agents use the app-owned Codex home
 
 ## User stories addressed
 

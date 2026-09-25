@@ -170,6 +170,7 @@ export async function openProject(p, { browser = true, build = true } = {}) {
       env: {
         ...process.env,
         RESEARCH_STATE_DIR: p.directory,
+        RESEARCH_HOME: home,
         // Reopen on the port this project used last, so an open browser tab survives a restart.
         RESEARCH_PORT: String(Number(connection?.url?.split(":").at(-1)) || 0),
       },

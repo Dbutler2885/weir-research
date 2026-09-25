@@ -249,11 +249,9 @@ export class GraphBuilders {
     let task;
     try {
       task = this.prepare(id);
-      const tools = ['Read','Write','Edit','Glob','Grep'];
-      const flags = job.engine === 'claude' ? ['--restricted','--tools',tools.join(','),'--strict-mcp-config','--mcp-config','{"mcpServers":{}}','--disable-slash-commands','--no-chrome'] : [];
-      writeFileSync(join(task.attempt, 'invocation.json'), JSON.stringify({engine: job.engine, tools, flags, cwd: task.work}, null, 2));
+      writeFileSync(join(task.attempt, 'invocation.json'), JSON.stringify({engine: job.engine, cwd: task.work}, null, 2));
       task.agent = this.supervisor.start({
-        key: `graph:${id}`, provider: job.engine, executable, folder: task.work, tools, flags, web: false,
+        key: `graph:${id}`, provider: job.engine, executable, folder: task.work, web: false,
         prompt: task.prompt, log: join(task.attempt, 'stream.ndjson'),
         live: {role: 'builder', name: job.engine === 'codex' ? 'Codex graph builder' : 'Claude graph builder', investigationId: task.investigationId, jobId: id},
         describe: fileDescriber(builderFiles),
@@ -263,6 +261,7 @@ export class GraphBuilders {
       task.agent.on('turn', ({outcome}) => { if (outcome !== 'interrupted') task.agent.finish(); });
       task.agent.on('failed', error => this.pause(id, `Builder could not start: ${error.message}. Saved files are retained.`));
       task.agent.on('exit', ({code}) => this.finished(task, code));
+      task.agent.on('intruder', () => this.store.update(next => this.log(next, id, 'The graph builder tried to start another agent, and the app stopped it.')));
     } catch (error) { this.pause(id, `Unable to start graph preparation: ${error.message}`); }
   }
   finished(task, code) {

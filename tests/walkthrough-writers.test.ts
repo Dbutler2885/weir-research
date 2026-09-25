@@ -71,7 +71,7 @@ describe("walkthrough writers", () => {
       brief: "Explain the location.",
       proposals: [{ id: f.research.proposalId, findings: [{ id: "location" }] }],
     });
-    expect(existsSync(join(folder, "present-research", "references", "runtime.md"))).toBe(true);
+    expect(existsSync(join(folder, ".claude", "skills", "present-research", "references", "runtime.md"))).toBe(true);
     await until(() => f.live.list()[0]?.latest?.text === "Reading the findings for this batch");
     const row = () => liveRows({ ...f.store.state, live: f.live.list() } as any).find((r) => r.batch && r.who.includes("walkthrough"));
     expect(row()).toMatchObject({ who: "Claude walkthrough writer", stage: "A walkthrough writer is working on it.", latest: "Reading the findings for this batch" });

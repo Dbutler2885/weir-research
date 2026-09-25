@@ -96,9 +96,18 @@ The PDF workflow is configured to run on macOS, Linux, and Windows in GitHub Act
 ## Research engines
 
 The default engine is Manual CLI handoff.
-Investigations also lets you select an installed Codex or Claude CLI using its existing account configuration.
+Investigations also lets you select an installed Codex or Claude CLI.
 Selecting an engine enables queued research and sends each assigned investigation's context and scoped sources to that provider.
-Initial CLI installation and sign-in remain prerequisites outside this application.
+Installing the CLIs remains a prerequisite outside this application.
+Claude agents use your existing Claude Code sign-in.
+Codex agents use the app's own Codex home, so they never load your personal Codex instructions, skills or servers; sign it in once with Codex's own sign-in:
+
+```sh
+npm run workspace -- sign-in codex
+```
+
+Every agent runs in its own folder under its CLI's sandbox, with any command and the web available there, and nothing else on your computer within reach.
+It loads the app's skills from its folder, never your personal instructions, hooks, skills or MCP servers, and an agent CLI started from inside one is stopped and reported.
 The process supervisor runs at most two researchers concurrently, with no time limit by default.
 Research settings offers an optional limit in whole minutes for new delegated passes in this project; running passes keep the limit they started with.
 Coordinators can request that paused work resume, with a reason shown in the investigation; research waits for the human to choose Resume research or Keep paused.

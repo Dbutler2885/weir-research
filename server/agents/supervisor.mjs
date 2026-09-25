@@ -1,4 +1,5 @@
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
+import { basename } from "node:path";
 import { EventEmitter } from "node:events";
 import { writeFileSync } from "node:fs";
 import { LiveActivity } from "../live-activity.mjs";
@@ -6,19 +7,66 @@ import { claudeAdapter } from "./claude.mjs";
 import { codexAdapter } from "./codex.mjs";
 
 const LOG_LIMIT = 2_000_000;
+const AGENT_CLIS = new Set(["claude", "codex"]);
+
+// The processes running beneath each agent, from one listing of the system's processes.
+function listProcesses() {
+  return new Promise((resolve) =>
+    execFile("ps", ["-Ao", "pid=,ppid=,command="], { maxBuffer: 20_000_000 }, (error, stdout) => {
+      if (error) return resolve([]);
+      resolve(
+        stdout.split("\n").flatMap((line) => {
+          const match = line.match(/^\s*(\d+)\s+(\d+)\s+(.*)$/);
+          return match ? [{ pid: Number(match[1]), ppid: Number(match[2]), command: match[3] }] : [];
+        }),
+      );
+    }),
+  );
+}
+// An agent CLI, whether run directly or as a script by an interpreter such as node.
+const INTERPRETERS = /^(node|bun|deno|sh|bash|zsh|dash|env|python3?)$/;
+export function agentCli(command) {
+  const [first = "", second] = command.split(/\s+/);
+  return [first, INTERPRETERS.test(basename(first)) ? second : null].some((part) => part && AGENT_CLIS.has(basename(part)));
+}
 
 // Launches and supervises agent processes. Each agent keeps its input open, so
 // it can be sent messages, steered mid-turn, interrupted and stopped; what it
 // does is read from its output stream and reported to the live activity model.
 export class AgentSupervisor {
-  constructor({ launch = spawn, live = new LiveActivity(), adapters = { claude: claudeAdapter, codex: codexAdapter }, stopGrace = 5000 } = {}) {
+  // Homes are the app's own Codex home and home folder, from agentHomes.
+  constructor({ launch = spawn, live = new LiveActivity(), adapters = { claude: claudeAdapter, codex: codexAdapter }, stopGrace = 5000, homes = null, watchInterval = 2000 } = {}) {
     this.launch = launch;
+    this.homes = homes;
     this.live = live;
     this.adapters = adapters;
     this.stopGrace = stopGrace;
+    this.agents = new Set();
+    this.watchInterval = watchInterval;
+  }
+  // Only the app starts agents. One started beneath an agent is stopped and reported.
+  async watch() {
+    const running = [...this.agents].filter((a) => a.child.pid && !a.ended);
+    if (!running.length) return;
+    const processes = await listProcesses();
+    const children = new Map();
+    for (const p of processes) children.set(p.ppid, [...(children.get(p.ppid) || []), p]);
+    for (const agent of running) {
+      const beneath = [...(children.get(agent.child.pid) || [])];
+      for (let i = 0; i < beneath.length; i++) beneath.push(...(children.get(beneath[i].pid) || []));
+      for (const p of beneath.filter((p) => agentCli(p.command))) {
+        try {
+          process.kill(p.pid, "SIGKILL");
+        } catch {
+          continue;
+        }
+        agent.emit("action", "Tried to start another agent; the app stopped it");
+        agent.emit("intruder", { command: p.command });
+      }
+    }
   }
   // Starts an agent in its folder and sends it its first message.
-  // Options: instructions, tools, flags, model, effort and web are passed to the
+  // Options: instructions, model, effort and web are passed to the
   // adapter. The raw stream is kept in the log file, by default beside the agent's
   // folder, where the agent does not read its own output back.
   start({ key, provider, executable, folder, env = process.env, prompt, live, describe, log = `${folder}.log`, ...options }) {
@@ -26,14 +74,26 @@ export class AgentSupervisor {
     if (!adapter) throw new Error(`No adapter for ${provider}.`);
     const child = this.launch(executable, adapter.args({ folder, ...options }), {
       cwd: folder,
-      env: { ...env },
+      env: adapter.env ? adapter.env({ ...env }, { homes: this.homes }) : { ...env },
       stdio: ["pipe", "pipe", "pipe"],
     });
     const agent = new Agent(key, child, this.stopGrace);
+    this.agents.add(agent);
+    if (!this.watcher) {
+      this.watcher = setInterval(() => this.watch(), this.watchInterval);
+      this.watcher.unref();
+    }
     agent.session = adapter.session({ write: (message) => agent.write(message), describe, folder, ...options });
     this.live.begin(key, live);
     agent.on("action", (text) => this.live.note(key, text));
-    agent.on("exit", () => this.live.end(key));
+    agent.on("exit", () => {
+      this.live.end(key);
+      this.agents.delete(agent);
+      if (!this.agents.size) {
+        clearInterval(this.watcher);
+        this.watcher = null;
+      }
+    });
     let logSize = 0;
     const append = (chunk) => {
       if ((logSize += chunk.length) <= LOG_LIMIT) writeFileSync(log, chunk, { flag: "a", mode: 0o600 });

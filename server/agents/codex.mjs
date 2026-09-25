@@ -1,4 +1,6 @@
 import { streamActions } from "../live-activity.mjs";
+import { AgentProblem } from "./problem.mjs";
+import { codexIsolationArgs } from "./isolation.mjs";
 
 // The oldest Codex whose app server this adapter was tested against. The app
 // server is experimental, so an older one, or one whose protocol no longer
@@ -7,7 +9,6 @@ export const TESTED_CODEX = "0.155.1";
 const MINIMUM = [0, 155, 0];
 const METHOD_NOT_FOUND = -32601;
 
-export class IncompatibleAgent extends Error {}
 
 export function appServerVersion(userAgent) {
   const match = String(userAgent || "").match(/\/(\d+)\.(\d+)\.(\d+)/);
@@ -18,8 +19,12 @@ export function appServerVersion(userAgent) {
 // started once with the folder, sandbox, approval policy and model; each message
 // then starts a turn, or steers the running turn.
 export const codexAdapter = {
-  args() {
-    return ["app-server"];
+  args({ folder }) {
+    return ["app-server", ...codexIsolationArgs(folder)];
+  },
+  // Codex agents use the app's own Codex home and home folder, never the human's.
+  env(base, { homes }) {
+    return homes ? { ...base, CODEX_HOME: homes.codexHome, HOME: homes.home } : base;
   },
   session({ write, describe, folder, instructions = "", model = "", effort = "", web = false }) {
     let nextId = 0;
@@ -56,15 +61,19 @@ export const codexAdapter = {
         request("initialize", { clientInfo: { name: "research-workspace", title: null, version: "1" }, capabilities: null }, (result) => {
           const version = appServerVersion(result.userAgent);
           if (!version || compare(version, MINIMUM) < 0)
-            throw new IncompatibleAgent(
+            throw new AgentProblem(
               `Codex ${version ? version.join(".") : "of an unknown version"} is older than this app supports. Update Codex to ${TESTED_CODEX} or later.`,
             );
           write({ jsonrpc: "2.0", method: "initialized" });
+          request("account/read", {}, (status) => {
+            if (!status.account && status.requiresOpenaiAuth)
+              throw new AgentProblem("Codex is not signed in for this app. Sign in with `npm run workspace -- sign-in codex`, then try again.");
+          });
           request(
             "thread/start",
             {
+              // No sandbox mode here: it would replace the folder's permission profile.
               cwd: folder,
-              sandbox: "workspace-write",
               approvalPolicy: "never",
               ...(model ? { model } : {}),
               ...(instructions ? { developerInstructions: instructions } : {}),
@@ -108,7 +117,7 @@ export const codexAdapter = {
               message.error.code === METHOD_NOT_FOUND
                 ? `The Codex app server no longer supports ${pending.method}; this app was tested with Codex ${TESTED_CODEX}.`
                 : `The Codex app server refused ${pending.method}: ${message.error.message}`;
-            return { actions: [], failure: new IncompatibleAgent(reason) };
+            return { actions: [], failure: new AgentProblem(reason) };
           }
           try {
             pending.then(message.result || {});

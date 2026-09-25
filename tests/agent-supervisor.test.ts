@@ -1,9 +1,9 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it } from "vitest";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { AgentSupervisor } from "../server/agents/supervisor.mjs";
+import { AgentSupervisor, agentCli } from "../server/agents/supervisor.mjs";
 import { claudeAdapter } from "../server/agents/claude.mjs";
 import { codexAdapter } from "../server/agents/codex.mjs";
 import { LiveActivity, fileDescriber, researcherFiles } from "../server/live-activity.mjs";
@@ -31,7 +31,7 @@ function start(provider: "claude" | "codex", prompt?: string, env: Record<string
   cleanups.push(() => rmSync(folder, { recursive: true, force: true }));
   cleanups.push(() => rmSync(`${folder}.log`, { force: true }));
   const live = new LiveActivity();
-  const supervisor = new AgentSupervisor({ live, stopGrace: 200 });
+  const supervisor = new AgentSupervisor({ live, stopGrace: 200, watchInterval: 100 });
   const agent = supervisor.start({
     key: "research:fixture",
     provider,
@@ -39,7 +39,6 @@ function start(provider: "claude" | "codex", prompt?: string, env: Record<string
     folder,
     env: { ...process.env, ...env },
     instructions: "Fixture instructions",
-    tools: ["Read", "Write"],
     prompt,
     live: { role: "researcher", name: "Fixture researcher", investigationId: "fixture" },
     describe: fileDescriber(researcherFiles, { "doc-1.pdf": "The fictional register" }),
@@ -117,6 +116,48 @@ describe.each(["claude", "codex"] as const)("agent supervisor with a %s agent", 
   });
 });
 
+describe("isolation", () => {
+  it("confines Codex to a permission profile for its folder, with the app's own homes", () => {
+    const folder = realpathSync(mkdtempSync(join(tmpdir(), "agent-")));
+    cleanups.push(() => rmSync(folder, { recursive: true, force: true }));
+    const args = codexAdapter.args({ folder }).join(" ");
+    expect(args).toContain('default_permissions="agent"');
+    expect(args).toContain(`":minimal"="read"`);
+    expect(args).toContain(`"${folder}"="write"`);
+    expect(args).toContain("permissions.agent.network={enabled=true}");
+    expect(codexAdapter.env({ PATH: "/bin", HOME: "/Users/someone" }, { homes: { codexHome: "/app/codex", home: "/app/home" } })).toEqual({
+      PATH: "/bin",
+      HOME: "/app/home",
+      CODEX_HOME: "/app/codex",
+    });
+  });
+  it("refuses a Codex home that is not signed in, saying how to sign in", async () => {
+    const a = start("codex", steps([]), { FAKE_CODEX_SIGNED_OUT: "1" });
+    const failure = await a.next("failed");
+    expect(failure.message).toContain("Codex is not signed in for this app");
+    expect(failure.message).toContain("npm run workspace -- sign-in codex");
+  });
+  it("recognises an agent CLI however it is run, and nothing that merely names one", () => {
+    expect(agentCli("/usr/local/bin/codex exec hi")).toBe(true);
+    expect(agentCli("node /home/u/.nvm/bin/claude -p hi")).toBe(true);
+    expect(agentCli("/bin/sh /tmp/x/claude")).toBe(true);
+    expect(agentCli("grep claude notes.txt")).toBe(false);
+    expect(agentCli("/usr/bin/codex-linux-sandbox --x")).toBe(false);
+  });
+  it("stops an agent CLI started beneath an agent and reports it", async () => {
+    const bin = mkdtempSync(join(tmpdir(), "agent-bin-"));
+    cleanups.push(() => rmSync(bin, { recursive: true, force: true }));
+    const claude = join(bin, "claude");
+    writeFileSync(claude, "#!/bin/sh\nsleep 30\n");
+    chmodSync(claude, 0o755);
+    const a = start("claude", steps([{ tool: "Bash", input: { command: "claude" }, run: [claude], delay: 5000 }]));
+    const intruder = await a.next("intruder");
+    expect(intruder.command).toContain(claude);
+    expect(a.actions).toContain("Tried to start another agent; the app stopped it");
+    expect(a.live.list()[0]!.latest!.text).toBe("Tried to start another agent; the app stopped it");
+  });
+});
+
 describe("Codex app server compatibility", () => {
   it("refuses an app server older than the tested protocol, naming the version", async () => {
     const a = start("codex", steps([]), { FAKE_CODEX_VERSION: "0.120.0" });
@@ -138,12 +179,25 @@ describe("Claude adapter", () => {
     const written: any[] = [];
     return { written, session: claudeAdapter.session({ write: (m: any) => written.push(m), describe: describe_ }) };
   };
-  it("launches in print mode with stream-json input and output", () => {
-    const args = claudeAdapter.args({ instructions: "Be careful", tools: ["Read", "Write"], model: "sonnet", effort: "high" });
+  it("launches in print mode with stream-json input and output, confined to its folder", () => {
+    const folder = realpathSync(mkdtempSync(join(tmpdir(), "agent-")));
+    cleanups.push(() => rmSync(folder, { recursive: true, force: true }));
+    const args = claudeAdapter.args({ folder, instructions: "Be careful", model: "sonnet", effort: "high", web: true });
     expect(args.join(" ")).toContain("--print --input-format stream-json --output-format stream-json --verbose");
     expect(args).toEqual(
-      expect.arrayContaining(["--allowedTools", "Read,Write", "--append-system-prompt", "Be careful", "--model", "sonnet", "--effort", "high"]),
+      expect.arrayContaining(["--append-system-prompt", "Be careful", "--model", "sonnet", "--effort", "high", "--setting-sources", "project", "--strict-mcp-config"]),
     );
+    const settings = JSON.parse(args[args.indexOf("--settings") + 1]!);
+    expect(settings.sandbox).toMatchObject({
+      enabled: true,
+      allowUnsandboxedCommands: false,
+      filesystem: { denyRead: [homedir()], allowWrite: [folder] },
+      network: { allowedDomains: ["*"] },
+    });
+    expect(settings.permissions.allow).toEqual(["Bash", `Read(/${folder}/**)`, `Edit(/${folder}/**)`, `Write(/${folder}/**)`, "WebSearch", "WebFetch"]);
+    expect(settings.permissions.deny).toEqual(["Agent", "Task"]);
+    const local = JSON.parse(claudeAdapter.args({ folder }).find((a: string) => a.includes("sandbox"))!);
+    expect(local.permissions.allow).not.toContain("WebSearch");
   });
   it("writes messages as user messages and interrupts with a control request", () => {
     const s = session();
@@ -203,6 +257,15 @@ describe("Codex adapter", () => {
       "turn/interrupt": () => session.interrupt(),
     };
     let starts = 0;
+    // The recording has no sign-in check, so the adapter's requests are numbered one
+    // higher; a recorded response goes to the adapter's request of the same kind.
+    const nth = (list: any[], m: any) => list.filter((c) => c.method === m.method && c.id !== undefined).indexOf(m);
+    const answer = (m: any) => {
+      if (m.id === undefined || m.method) return m;
+      const asked = client.find((c) => c.id === m.id);
+      const mine = written.filter((w) => w.method === asked.method && w.id !== undefined)[nth(client, asked)];
+      return { ...m, id: mine.id };
+    };
     session.open();
     for (const { dir, m } of recorded) {
       if (dir === "out") {
@@ -213,24 +276,28 @@ describe("Codex adapter", () => {
         }
         continue;
       }
-      const result = session.read(m);
+      const signIn = written.find((w) => w.method === "account/read" && !w.answered);
+      if (signIn) {
+        signIn.answered = true;
+        expect(session.read({ jsonrpc: "2.0", id: signIn.id, result: { account: { type: "chatgpt" }, requiresOpenaiAuth: true } }).failure).toBeUndefined();
+      }
+      const result = session.read(answer(m));
       expect(result.failure).toBeUndefined();
       actions.push(...result.actions);
       if (result.turn) turns.push(result.turn.ok);
     }
     // The adapter wrote what the recorded client wrote, in the same order.
-    // Only the client's name, the web setting and the probe's model differ.
+    // Only the client's name, the web setting, the probe's model and sandbox, and
+    // the sign-in check differ.
     const shape = (m: any) => {
-      const { clientInfo, config, model, ...params } = m.params || {};
-      return JSON.parse(JSON.stringify({ method: m.method, id: m.id, params }));
+      const { clientInfo, config, model, sandbox, ...params } = m.params || {};
+      return JSON.parse(JSON.stringify({ method: m.method, params }));
     };
-    expect(written.map(shape)).toEqual(client.map(shape));
-    expect(written.find((m) => m.method === "thread/start").params).toMatchObject({
-      cwd: "/work",
-      sandbox: "workspace-write",
-      approvalPolicy: "never",
-      developerInstructions: "You are a test agent.",
-    });
+    expect(written.filter((m) => m.method !== "account/read").map(shape)).toEqual(client.map(shape));
+    const thread = written.find((m) => m.method === "thread/start").params;
+    expect(thread).toMatchObject({ cwd: "/work", approvalPolicy: "never", developerInstructions: "You are a test agent." });
+    // A sandbox mode would replace the folder's permission profile.
+    expect(thread.sandbox).toBeUndefined();
     expect(actions).toEqual([]);
     expect(turns).toEqual([true, false]);
   });

@@ -1,7 +1,8 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { join } from "node:path";
 import {
   root,
+  home,
   projects,
   project,
   createProject,
@@ -9,6 +10,7 @@ import {
   openProject,
 } from "./workspace-lib.mjs";
 import { printView } from "./coordinator-view.mjs";
+import { agentHomes } from "../server/agents/isolation.mjs";
 const [command, ...args] = process.argv.slice(2);
 try {
   let result;
@@ -43,6 +45,16 @@ try {
         "Usage: workspace create <id> <dataset.json> [display name]",
       );
     else result = createProject(args[0], args[2] || args[0], args[1]);
+  } else if (command === "sign-in") {
+    // Codex agents use the app's own Codex home; this runs Codex's own sign-in for it.
+    if (args[0] !== "codex") throw new Error("Usage: workspace sign-in codex");
+    const homes = agentHomes(home);
+    const login = spawnSync("codex", ["login"], {
+      stdio: "inherit",
+      env: { ...process.env, CODEX_HOME: homes.codexHome, HOME: homes.home },
+    });
+    if (login.error || login.status !== 0) throw new Error("Codex sign-in did not complete.");
+    process.exit(0);
   } else if (command === "open")
     result = await openProject(project(args.find((a) => !a.startsWith("--"))), {
       browser: !args.includes("--no-browser") && !process.env.RESEARCH_NO_BROWSER,
@@ -54,6 +66,7 @@ try {
         "resume [project-id] [--no-browser]",
         "projects",
         "open [project-id] [--no-browser]",
+        "sign-in codex (sign in the app's own Codex home)",
         'create "research topic"',
         "create <id> <dataset.json> [display name] (existing dataset import)",
       ],

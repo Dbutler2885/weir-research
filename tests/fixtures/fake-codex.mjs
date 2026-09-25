@@ -3,8 +3,8 @@
 // A turn whose text is "steps: [...]" runs those steps; a step is {command}
 // or {change: file}, with optional delay and writes: {file: text}. turn/steer
 // replaces the remaining steps at the next step, and turn/interrupt ends the
-// turn. FAKE_CODEX_VERSION sets the reported version, and FAKE_CODEX_MISSING
-// names a method to refuse.
+// turn. FAKE_CODEX_VERSION sets the reported version, FAKE_CODEX_MISSING names
+// a method to refuse, and FAKE_CODEX_SIGNED_OUT reports no sign-in.
 import { writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 
@@ -55,6 +55,8 @@ createInterface({ input: process.stdin })
       return out({ id, error: { code: -32601, message: `Unknown method ${method}` } });
     if (method === "initialize")
       return out({ id, result: { userAgent: `research-workspace/${process.env.FAKE_CODEX_VERSION || "0.155.1"} (fake)`, platformFamily: "unix" } });
+    if (method === "account/read")
+      return out({ id, result: { account: process.env.FAKE_CODEX_SIGNED_OUT ? null : { type: "chatgpt" }, requiresOpenaiAuth: true } });
     if (method === "thread/start") {
       out({ id, result: { thread: { id: threadId, cwd: params.cwd } } });
       return notify("thread/started", { thread: { id: threadId } });

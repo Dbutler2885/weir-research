@@ -2,8 +2,10 @@
 // A stand-in for Claude Code in print mode with stream-json input and output.
 // A message "steps: [...]" runs those tool steps as one turn; any other message
 // runs the steps in the file named by FAKE_CLAUDE_STEPS, or none. A step is
-// {tool, input, delay, writes: {file: text}}. A message arriving mid-turn
-// replaces the remaining steps at the next step, as Claude's does.
+// {tool, input, delay, writes: {file: text}, run: [command, ...args]}, where
+// run starts a process beneath it. A message arriving mid-turn replaces the
+// remaining steps at the next step, as Claude's does.
+import { spawn } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 
@@ -27,6 +29,7 @@ async function turn(steps) {
   for (let i = 0; i < steps.length; i++) {
     const step = steps[i];
     out({ type: "assistant", message: { content: [{ type: "tool_use", id: `tool-${++n}`, name: step.tool, input: step.input || {} }] } });
+    if (step.run) spawn(step.run[0], step.run.slice(1), { stdio: "ignore" });
     const until = Date.now() + (step.delay || 0);
     while (Date.now() < until && !interrupted) await sleep(5);
     if (interrupted) {

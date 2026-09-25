@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { streamActions } from "../live-activity.mjs";
+import { claudeIsolationArgs } from "./isolation.mjs";
 
 // Claude Code in print mode, speaking stream-json both ways with its input kept
 // open. A message written mid-turn reaches it after its current tool step.
 export const claudeAdapter = {
-  // Flags are extra Claude options a role needs, such as narrowing its tool set.
-  args({ instructions, tools, flags = [], model, effort }) {
+  // The agent is confined to its folder; web adds the web tools.
+  args({ folder, instructions = "", model = "", effort = "", web = false }) {
     return [
       "--print",
       "--input-format",
@@ -17,9 +18,8 @@ export const claudeAdapter = {
       "dontAsk",
       ...(model ? ["--model", model] : []),
       ...(effort ? ["--effort", effort] : []),
-      ...(tools ? ["--allowedTools", tools.join(",")] : []),
+      ...claudeIsolationArgs(folder, { web }),
       ...(instructions ? ["--append-system-prompt", instructions] : []),
-      ...flags,
     ];
   },
   // One agent's conversation over its input and output.
