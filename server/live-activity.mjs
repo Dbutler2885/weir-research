@@ -148,7 +148,6 @@ export const builderFiles = {
   "validation.txt": { read: "Reading the problems found in its last draft" },
   "checkpoint.md": { read: "Reading its saved progress", write: "Saving its progress" },
   "submission.txt": { read: null, write: "Handing in the draft" },
-  "status.txt": { read: null, write: null },
 };
 
 // A line for what the coordinator is doing, read from the command it just sent.

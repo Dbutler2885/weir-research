@@ -1,7 +1,7 @@
 # Slice 07: Progress without self-reporting
 
 **Type**: AFK
-**Status**: Not started
+**Status**: Done
 
 ## Blocked by
 
@@ -15,9 +15,9 @@ See **Progress without self-reporting**.
 
 ## Acceptance criteria
 
-- [ ] No worker instruction asks for status files, and the app no longer polls them
-- [ ] Live panel progress for every role comes from the stream
-- [ ] Checkpoints contain discoveries, not running commentary
+- [x] No worker instruction asks for status files, and the app no longer polls them
+- [x] Live panel progress for every role comes from the stream
+- [x] Checkpoints contain discoveries, not running commentary
 
 ## User stories addressed
 

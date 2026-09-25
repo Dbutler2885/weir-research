@@ -212,10 +212,16 @@ describe('guided research flow',()=>{
   });
   it('hands a builder the graph as tables, and reads its edits back as a candidate draft',()=>{
     const f=fixture('claude');
-    const {child,task}=builder(f);
+    const {child,task,pool}=builder(f);
     expect(readFileSync(join(task.work,'nodes.csv'),'utf8')).toBe('id,kind,name,descriptor,biography,dates,born,died,alternateNames,notes,sources\n');
     expect(readFileSync(join(task.work,'start','edges.csv'),'utf8')).toContain('id,from,name,targetType');
     expect(readFileSync(join(task.work,'AGENTS.md'),'utf8')).toContain('edit them in place');
+    // Progress comes from the builder's stream; it is never asked to report it.
+    expect(readFileSync(join(task.work,'AGENTS.md'),'utf8')).not.toContain('status.txt');
+    writeFileSync(join(task.work,'status.txt'),'Halfway there.');
+    const before=JSON.stringify(f.job());
+    pool.pump();
+    expect(JSON.stringify(f.job())).toBe(before);
     writeDraft(task.work,draftFiles(f.job()));
     writeFileSync(join(task.work,'checkpoint.md'),'The connected location is saved.');
     child.stdout.write('intermediate output\n');

@@ -42,7 +42,7 @@ Incorporate supplied updates and report the last sequence you incorporated.
 ## Return
 
 Edit the tables as specified by the supplied contract, and write your questions and notes beside them.
-Save work as you go, and keep a short checkpoint identifying what is done, what is outstanding, and decisions a replacement builder would need.
+Save work as you go, and keep a short checkpoint identifying what is done, what is outstanding, and decisions a replacement builder would need; update it when a decision is settled, not as a progress report.
 When the draft is ready, use the supplied completion signal.
 Your draft goes to the coordinator for review and then to the human, who decides whether to accept it.
 Use the supplied research as evidence, and this prompt and the contract as instructions.

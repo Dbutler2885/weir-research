@@ -13,7 +13,7 @@ You never describe your changes; the comparison does.
 - `packet.json`: the research to represent: the question, the walkthrough when there is one, the findings, the evidence registry, the source library, and coordinator updates.
 - `graph-research.json`: the evidence and sources the graph already cites. Read only.
 - `updates.json`: sequenced coordinator updates, which can arrive while you work.
-- `checkpoint.md`, `notes.md` and `status.txt`: your working state.
+- `checkpoint.md` and `notes.md`: your working state, for recovery.
 
 ## The tables
 

@@ -33,8 +33,7 @@ describe("reading what a worker is doing from its output", () => {
     expect(streamActions(tool("Read", { file_path: "/x/work/packet.json" }), builder)).toEqual(["Reading the research for this batch"]);
     expect(streamActions(tool("Edit", { file_path: "/x/work/edges.csv" }), builder)).toEqual(["Editing the edges table"]);
     expect(streamActions(tool("Grep", { pattern: "Wolff & Ressing" }), builder)).toEqual(["Searching for “Wolff & Ressing”"]);
-    // Its own status file and its thinking are not actions to report.
-    expect(streamActions(tool("Write", { file_path: "status.txt" }), builder)).toEqual([]);
+    // Its thinking is not an action to report.
     expect(streamActions({ type: "assistant", message: { content: [{ type: "text", text: "Thinking" }] } }, builder)).toEqual([]);
   });
   it("names Codex's commands, file changes, and searches", () => {

@@ -70,6 +70,9 @@ describe("local researcher supervision", () => {
     expect(f.store.state.investigations[0].status).toBe("running");
     expect(f.launches[0]!.args.join(" ")).toContain("No elapsed-time limit");
     expect(f.launches[0]!.args.join(" ")).not.toContain("within ten minutes");
+    // Checkpoints hold discoveries; progress comes from the stream.
+    expect(f.launches[0]!.args.join(" ")).toContain("not progress reports");
+    expect(f.launches[0]!.args.join(" ")).not.toMatch(/status\.(txt|json)/);
   });
   it("persists optional limits, snapshots each pass, and retains checkpoints on expiry", () => {
     const f = fixture();

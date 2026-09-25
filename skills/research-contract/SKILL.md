@@ -26,7 +26,7 @@ Do not claim that work is running before a researcher has claimed it.
 Alternatively, the user selects an installed Codex or Claude engine in Investigations.
 The local supervisor prepares a scoped task directory and launches up to two researchers, with no time limit by default.
 The human may configure a time limit for new managed passes in Research settings.
-Follow the deadline in your pass instructions when one is set, checkpoint regularly, and finish the bounded assignment when complete even without a deadline.
+Follow the deadline in your pass instructions when one is set, and finish the bounded assignment when complete even without a deadline.
 This uses the existing CLI account and sends the assigned research context and scoped sources to its model service.
 The application does not collect account credentials.
 Managed researchers write `checkpoint.json` and `result.json` in their task directory; the supervisor validates and imports those files through the same domain contract.
@@ -72,8 +72,8 @@ An inconclusive investigation is a valid outcome.
 
 ## Checkpoint during research
 
-Save meaningful discoveries, inspected sources, unsuccessful searches, and the next useful steps.
-Do not wait until the final report to save the recovery handoff.
+Save a checkpoint when you make a real discovery and before you stop: inspected sources, unsuccessful searches, and the next useful steps.
+A checkpoint is recovery material for a replacement worker, not a progress report; the app reads what you are doing from your output.
 Write a JSON file containing these fields, then call the CLI with its path.
 
 ```json
