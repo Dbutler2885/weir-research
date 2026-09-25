@@ -1,7 +1,11 @@
 import { execFile, spawn } from "node:child_process";
-import { basename } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { EventEmitter } from "node:events";
-import { writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createConnection } from "node:net";
+import { randomUUID } from "node:crypto";
+import { fileURLToPath } from "node:url";
+import { AgentProblem } from "./problem.mjs";
 import { LiveActivity } from "../live-activity.mjs";
 import { claudeAdapter } from "./claude.mjs";
 import { codexAdapter } from "./codex.mjs";
@@ -34,8 +38,10 @@ export function agentCli(command) {
 // it can be sent messages, steered mid-turn, interrupted and stopped; what it
 // does is read from its output stream and reported to the live activity model.
 export class AgentSupervisor {
-  // Homes are the app's own Codex home and home folder, from agentHomes.
-  constructor({ launch = spawn, live = new LiveActivity(), adapters = { claude: claudeAdapter, codex: codexAdapter }, stopGrace = 5000, homes = null, watchInterval = 2000, quotaWait = { unknown: 30 * 60_000, margin: 60_000 } } = {}) {
+  // Homes are the app's own Codex home and home folder, from agentHomes. With hosts,
+  // each agent runs under its own host process, which can outlive the app; the
+  // registry folder records them and the socket folder holds their sockets.
+  constructor({ hosts = /** @type {any} */ (null), launch = spawn, live = new LiveActivity(), adapters = { claude: claudeAdapter, codex: codexAdapter }, stopGrace = 5000, homes = null, watchInterval = 2000, quotaWait = { unknown: 30 * 60_000, margin: 60_000 } } = {}) {
     this.launch = launch;
     this.homes = homes;
     this.live = live;
@@ -46,10 +52,20 @@ export class AgentSupervisor {
     this.quotaWait = quotaWait;
     // The latest usage each provider reported, for showing remaining quota.
     this.usage = /** @type {Record<string, any>} */ ({});
+    this.hosts = hosts;
+    if (hosts) {
+      mkdirSync(hosts.registry, { recursive: true, mode: 0o700 });
+      mkdirSync(hosts.sockets, { recursive: true, mode: 0o700 });
+      // The heartbeat that keeps hosted agents running while the app is.
+      this.beat = setInterval(() => {
+        for (const agent of this.agents) agent.heartbeat?.();
+      }, hosts.heartbeat ?? 3000);
+      this.beat.unref();
+    }
   }
   // Only the app starts agents. One started beneath an agent is stopped and reported.
   async watch() {
-    const running = [...this.agents].filter((a) => a.child.pid && !a.ended);
+    const running = [...this.agents].filter((a) => a.child?.pid && !a.ended);
     if (!running.length) return;
     const processes = await listProcesses();
     const children = new Map();
@@ -72,38 +88,24 @@ export class AgentSupervisor {
   // Options: instructions, model, effort and web are passed to the
   // adapter. The raw stream is kept in the log file, by default beside the agent's
   // folder, where the agent does not read its own output back.
-  start({ key, provider, executable, folder, env = process.env, prompt, live, describe, log = `${folder}.log`, ...options }) {
+  start({ key, provider, executable, folder, env = process.env, prompt, live, describe, log = `${folder}.log`, meta = {}, ...options }) {
     const adapter = this.adapters[provider];
     if (!adapter) throw new Error(`No adapter for ${provider}.`);
+    if (this.hosts) return this.watchAgent(this.startHosted({ key, provider, executable, folder, env, prompt, describe, log, meta, options }), { key, provider, live });
     const child = this.launch(executable, adapter.args({ folder, ...options }), {
       cwd: folder,
       env: adapter.env ? adapter.env({ ...env }, { homes: this.homes }) : { ...env },
       stdio: ["pipe", "pipe", "pipe"],
     });
     const agent = new Agent(key, child, this.stopGrace, this.quotaWait);
-    this.agents.add(agent);
     if (!this.watcher) {
       this.watcher = setInterval(() => this.watch(), this.watchInterval);
       this.watcher.unref();
     }
     agent.session = adapter.session({ write: (message) => agent.write(message), describe, folder, ...options });
-    // An agent with no live entry, such as the coordinator, reports its actions itself.
-    if (live) {
+    this.watchAgent(agent, { key, provider, live });
       this.live.begin(key, live);
-      agent.on("action", (text) => this.live.note(key, text));
-      agent.on("paused", ({ reason }) => this.live.note(key, reason));
-    }
-    agent.on("usage", (usage) => {
-      this.usage[provider] = { ...usage, at: Date.now() };
-    });
-    agent.on("exit", () => {
-      if (live) this.live.end(key);
-      this.agents.delete(agent);
-      if (!this.agents.size) {
-        clearInterval(this.watcher);
-        this.watcher = null;
-      }
-    });
+
     let logSize = 0;
     // The log is for diagnosis only; losing it, say because its folder was removed, stops nothing.
     const append = (chunk) => {
@@ -120,6 +122,203 @@ export class AgentSupervisor {
     agent.session.open?.();
     if (prompt) agent.send(prompt);
     return agent;
+  }
+  // The live panel, usage and bookkeeping that every agent gets, local or hosted.
+  watchAgent(agent, { key, provider, live }) {
+    this.agents.add(agent);
+    // An agent with no live entry, such as the coordinator, reports its actions itself.
+    if (live) {
+      this.live.begin(key, live);
+      agent.on("action", (text) => this.live.note(key, text));
+      agent.on("current", (text) => this.live.note(key, text));
+      agent.on("paused", ({ reason }) => this.live.note(key, reason));
+    }
+    agent.on("usage", (usage) => {
+      this.usage[provider] = { ...usage, at: Date.now() };
+    });
+    agent.on("exit", () => {
+      if (live) this.live.end(key);
+      this.agents.delete(agent);
+      // A hosted agent's files go once every listener has handled its end.
+      if (agent.record) setImmediate(() => this.forget(agent.record));
+      if (!this.agents.size && this.watcher) {
+        clearInterval(this.watcher);
+        this.watcher = null;
+      }
+    });
+    return agent;
+  }
+  // Starts an agent under its own host process, which the app then talks to.
+  startHosted({ key, provider, executable, folder, env, prompt, describe, log, meta, options }) {
+    const id = randomUUID().slice(0, 8);
+    const registry = join(this.hosts.registry, `${id}.json`);
+    const record = { id, key, provider, meta, socket: join(this.hosts.sockets, `${id}.sock`), events: join(this.hosts.registry, `${id}.events.jsonl`), startedAt: Date.now() };
+    writeFileSync(record.events, "", { mode: 0o600 });
+    writeFileSync(registry, JSON.stringify(record, null, 2), { mode: 0o600 });
+    const spec = {
+      registry,
+      socket: record.socket,
+      events: record.events,
+      homes: this.homes,
+      quotaWait: this.quotaWait,
+      stopGrace: this.stopGrace,
+      watchInterval: this.watchInterval,
+      heartbeatTimeout: this.hosts.timeout ?? 15_000,
+      describe: { names: describe?.names || {}, titles: describe?.titles || {} },
+      start: { key, provider, executable, folder, prompt, log, ...options },
+    };
+    const specFile = join(this.hosts.registry, `${id}.spec.json`);
+    writeFileSync(specFile, JSON.stringify(spec), { mode: 0o600 });
+    const host = spawn(process.execPath, ["--no-warnings", HOST, specFile], { cwd: folder, env: { ...env }, detached: true, stdio: "ignore" });
+    host.unref();
+    return new HostedAgent(record, { from: 0 });
+  }
+  // Agents whose hosts are still running, or that ended while the app was closed,
+  // for the role that started them to take back.
+  hosted(filter = (/** @type {any} */ _record) => true) {
+    if (!this.hosts) return [];
+    return readdirSync(this.hosts.registry)
+      .filter((name) => /^[0-9a-f]{8}\.json$/.test(name))
+      .map((name) => {
+        try {
+          return JSON.parse(readFileSync(join(this.hosts.registry, name), "utf8"));
+        } catch {
+          return null;
+        }
+      })
+      .filter((record) => record && filter(record));
+  }
+  // Takes back an agent from its host, getting every event the app has not handled.
+  reattach(record, { live } = {}) {
+    const agent = new HostedAgent(record, { from: record.acked || 0 });
+    return this.watchAgent(agent, { key: record.key, provider: record.provider, live });
+  }
+  // Stops a host that no role takes back, such as a coordinator from an earlier opening.
+  dismiss(record) {
+    this.reattach(record).stop();
+  }
+  // On quitting with workers kept running: their hosts carry on without the app.
+  keep(filter = (/** @type {any} */ _record) => true) {
+    for (const agent of this.agents) if (agent.record && filter(agent.record)) agent.keep();
+  }
+  // The files of a host that has ended and been handled.
+  forget(record) {
+    for (const suffix of [".json", ".events.jsonl", ".spec.json"]) rmSync(join(this.hosts.registry, `${record.id}${suffix}`), { force: true });
+  }
+}
+
+const HOST = join(dirname(fileURLToPath(import.meta.url)), "host.mjs");
+
+// The app's side of a hosted agent: the same interface as a local one, carried over
+// the host's socket. Each event is acknowledged once handled, so nothing is lost or
+// handled twice across a restart.
+class HostedAgent extends EventEmitter {
+  constructor(record, { from }) {
+    super();
+    this.record = record;
+    this.key = record.key;
+    this.busy = false;
+    this.paused = null;
+    this.finishing = false;
+    this.ended = false;
+    this.queue = [];
+    this.connect(from, 0);
+  }
+  connect(from, tries) {
+    if (this.ended) return;
+    const socket = createConnection(this.record.socket);
+    socket.on("connect", () => {
+      this.socket = socket;
+      socket.write(`${JSON.stringify({ op: "attach", from })}\n`);
+      socket.write(`${JSON.stringify({ op: "heartbeat" })}\n`);
+      for (const line of this.queue.splice(0)) socket.write(line);
+    });
+    let pending = "";
+    socket.on("data", (chunk) => {
+      pending += chunk.toString();
+      const lines = pending.split("\n");
+      pending = lines.pop();
+      for (const line of lines) if (line) this.receive(JSON.parse(line));
+    });
+    socket.on("error", () => {});
+    socket.on("close", () => {
+      if (this.ended) return;
+      this.socket = null;
+      // The host may still be starting, or it has gone; its saved events say which.
+      if (tries < 100 && !this.hostGone()) setTimeout(() => this.connect(this.lastSeq ?? from, tries + 1), 100);
+      else this.replayEnded(this.lastSeq ?? from);
+    });
+  }
+  hostGone() {
+    try {
+      const record = JSON.parse(readFileSync(join(dirname(this.record.events), `${this.record.id}.json`), "utf8"));
+      if (record.ended) return true;
+      if (!record.pid) return false;
+      process.kill(record.pid, 0);
+      return false;
+    } catch {
+      return true;
+    }
+  }
+  // A host that ended while the app was away left its last events on disk.
+  replayEnded(from) {
+    try {
+      for (const line of readFileSync(this.record.events, "utf8").split("\n").filter(Boolean)) {
+        const event = JSON.parse(line);
+        if (event.seq > from) this.receive(event);
+      }
+    } catch {
+      /* No saved events. */
+    }
+    if (!this.ended) this.receive({ seq: 0, type: "exit", data: { code: null, stopped: false }, state: {} });
+  }
+  receive(event) {
+    if (event.state) {
+      this.busy = Boolean(event.state.busy);
+      this.paused = event.state.paused || null;
+      this.finishing = this.finishing || Boolean(event.state.finishing);
+    }
+    if (event.seq) this.lastSeq = event.seq;
+    // On attaching, what the agent is doing now shows at once; it is not a new action.
+    if (event.type === "state" && event.state?.latest) this.emit("current", event.state.latest);
+    if (event.type === "state" || event.type === "refused") return;
+    if (event.type === "exit") this.ended = true;
+    const data = event.type === "failed" ? Object.assign(event.data.problem ? new AgentProblem(event.data.message) : new Error(event.data.message)) : event.data;
+    this.emit(event.type, data);
+    if (event.seq) this.command({ op: "ack", seq: event.seq });
+  }
+  command(command) {
+    const line = `${JSON.stringify(command)}\n`;
+    if (this.socket) this.socket.write(line);
+    else this.queue.push(line);
+  }
+  send(text) {
+    if (this.finishing) throw new Error("This agent has already closed its input.");
+    this.command({ op: "send", text });
+    this.busy = true;
+  }
+  steer(text) {
+    this.send(text);
+  }
+  interrupt() {
+    this.command({ op: "interrupt" });
+  }
+  finish() {
+    this.finishing = true;
+    this.command({ op: "finish" });
+  }
+  stop() {
+    if (this.kept) return;
+    this.finishing = true;
+    this.command({ op: "stop" });
+  }
+  heartbeat() {
+    if (this.socket) this.command({ op: "heartbeat" });
+  }
+  // Kept running: the host carries on when the app closes, so closing does not stop it.
+  keep() {
+    this.kept = true;
+    this.command({ op: "keep" });
   }
 }
 

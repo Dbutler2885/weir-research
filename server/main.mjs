@@ -12,6 +12,7 @@ import {
   closeSync,
   unlinkSync,
 } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, resolve, extname, basename, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes, createHash } from "node:crypto";
@@ -58,8 +59,22 @@ process.on("exit", () => {
   if (existsSync(lock) && readFileSync(lock, "utf8") === String(process.pid))
     unlinkSync(lock);
 });
-process.on("SIGTERM", () => process.exit(0));
-process.on("SIGINT", () => process.exit(0));
+// Closing stops the app's agents, except workers the human chose to keep running;
+// their stop reaches the hosts before the app exits.
+let closing = false;
+function close() {
+  if (closing) return;
+  closing = true;
+  for (const stop of [() => coordinatorHost.stop(), () => helpers.stop(), () => researchers.stop(), () => graphBuilders.stop(), () => writers.stop()])
+    try {
+      stop();
+    } catch {
+      /* Closing carries on. */
+    }
+  setTimeout(() => process.exit(0), 300);
+}
+process.on("SIGTERM", close);
+process.on("SIGINT", close);
 const store = new WorkspaceStore(
   directory,
   JSON.parse(readFileSync(join(root, "src/data/empty.json"), "utf8")),
@@ -69,7 +84,13 @@ const coordinator = new Coordinator(store, { workers: () => live.list(), skills:
 // One supervisor launches and reads every agent the app runs.
 // Codex agents share the app's own homes, beside the projects.
 const appDirectory = resolve(process.env.RESEARCH_HOME || join(root, ".research"));
-const supervisor = new AgentSupervisor({ live, homes: agentHomes(appDirectory) });
+// Each agent runs under its own host process, recorded beside the projects, so a
+// worker the human keeps running outlives the app and is taken back when it opens.
+const supervisor = new AgentSupervisor({
+  live,
+  homes: agentHomes(appDirectory),
+  hosts: { registry: join(appDirectory, "agent-hosts"), sockets: join(tmpdir(), `research-agents-${process.getuid?.() ?? "user"}`) },
+});
 // One research browser for the app, with its own profile, shared by every project.
 const researchBrowser = new ResearchBrowser(appDirectory, { root });
 const researchers = new ResearcherPool(store, directory, root, { coordinator, live, supervisor, browser: researchBrowser });
@@ -354,6 +375,15 @@ const server = createServer(async (req, res) => {
     }
     if (req.method === "POST" && url.pathname === "/api/research-settings") {
       return json(res, 200, researchers.configure(await body(req)));
+    }
+    // Quitting from the app: workers are kept running or stopped, as the human chose.
+    if (req.method === "POST" && url.pathname === "/api/quit") {
+      const { keep } = await body(req);
+      const kept = keep ? supervisor.hosted((r) => r.meta?.project === directory && ["researcher", "builder", "writer"].includes(r.meta?.role) && !r.ended).length : 0;
+      if (keep) supervisor.keep((r) => r.meta?.project === directory && ["researcher", "builder", "writer"].includes(r.meta?.role));
+      json(res, 200, { closing: true, kept });
+      setTimeout(close, 100);
+      return;
     }
     // The human opens the research browser to sign in to archives once.
     if (req.method === "POST" && url.pathname === "/api/research-browser") {

@@ -120,13 +120,28 @@ function newest(path) {
     ? Math.max(0, ...readdirSync(path).map((n) => newest(join(path, n))))
     : statSync(path).mtimeMs;
 }
-// Stops a project's service, and with it the agents it runs.
-export async function stopProject(p) {
+// Workers of a project that are running now, which the human may keep running.
+export function runningWorkers(p) {
+  const registry = join(home, "agent-hosts");
+  if (!existsSync(registry)) return 0;
+  return readdirSync(registry)
+    .filter((name) => /^[0-9a-f]{8}\.json$/.test(name))
+    .map((name) => read(join(registry, name), null))
+    .filter((r) => r && !r.ended && r.meta?.project === p.directory && ["researcher", "builder", "writer"].includes(r.meta?.role)).length;
+}
+// Stops a project's service, and with it the agents it runs, except workers kept running.
+export async function stopProject(p, { keepWorkers = false } = {}) {
   const lock = join(p.directory, "server.lock");
   if (!existsSync(lock)) return { stopped: false };
   const pid = Number(readFileSync(lock, "utf8"));
+  const connection = read(join(p.directory, "connection.json"), null);
+  let asked = false;
+  if (connection?.url)
+    asked = await fetch(`${connection.url}/api/quit`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ keep: keepWorkers }) })
+      .then((r) => r.ok)
+      .catch(() => false);
   try {
-    process.kill(pid, "SIGTERM");
+    if (!asked) process.kill(pid, "SIGTERM");
   } catch (error) {
     if (error.code === "ESRCH") return { stopped: false };
     throw error;

@@ -31,6 +31,9 @@ export class CoordinatorHost {
     return agent ? {agent} : null;
   }
   start() {
+    // Every opening starts a fresh coordinator; one left from an earlier opening stops.
+    for (const record of this.supervisor.hosted((r) => r.meta?.project === this.directory && ['coordinator', 'helper'].includes(r.meta?.role)))
+      this.supervisor.dismiss(record);
     const choice = this.choice();
     const provider = choice?.agent;
     if (!provider) {
@@ -46,6 +49,7 @@ export class CoordinatorHost {
       executable: this.findExecutable(provider),
       folder: this.folder,
       web: true,
+      meta: {project: this.directory, role: 'coordinator'},
       model: choice.model,
       effort: choice.effort,
       prompt,

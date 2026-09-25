@@ -18,7 +18,7 @@ Parent PRD: [Headless agents](../prd.md)
 | 10 | [Sample project](10-sample-project.md) | AFK | Not started | 09 |
 | 11 | [Research browser](11-research-browser.md) | AFK | Done | 04 |
 | 12 | [Quota](12-quota.md) | AFK | Done | 03 |
-| 13 | [Detached workers](13-detached-workers.md) | AFK | Not started | 12 |
+| 13 | [Detached workers](13-detached-workers.md) | AFK | Done | 12 |
 | 14 | [Queue controls](14-queue-controls.md) | AFK | Not started | 05 + coordinator context queue |
 | 15 | [Context size](15-context-size.md) | HITL | Not started | 05 |
 | 16 | [Migration and cleanup](16-migration-and-cleanup.md) | AFK | Not started | 05, 03 |

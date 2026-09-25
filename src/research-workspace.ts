@@ -1,4 +1,5 @@
 import { menus, rowChoice } from "./ui/dispatch-settings";
+import { closedNotice, quitDialog } from "./ui/quit-dialog";
 import {
   investigationSubject,
   feedbackView,
@@ -91,7 +92,7 @@ export function mountResearchWorkspace(
     )
     .join(
       "",
-    )}</div><div class="workspace-actions"><button type="button" data-view="feedback" class="feedback-destination">Feedback <span data-count="feedback"></span></button><button type="button" class="running-indicator" data-running popovertarget="live-panel" hidden></button><span class="local-indicator" title="Saved on this computer">Saved</span><button type="button" data-organize-project>Organize</button><button type="button" data-add-instruction role="switch" aria-checked="false" aria-controls="notes-sidebar"><span class="annotation-switch" aria-hidden="true"></span>Annotations <span data-count="queue" title="Queued annotations"></span></button></div>`;
+    )}</div><div class="workspace-actions"><button type="button" data-view="feedback" class="feedback-destination">Feedback <span data-count="feedback"></span></button><button type="button" class="running-indicator" data-running popovertarget="live-panel" hidden></button><span class="local-indicator" title="Saved on this computer">Saved</span><button type="button" data-organize-project>Organize</button><button type="button" data-add-instruction role="switch" aria-checked="false" aria-controls="notes-sidebar"><span class="annotation-switch" aria-hidden="true"></span>Annotations <span data-count="queue" title="Queued annotations"></span></button><button type="button" data-quit-app>Quit</button></div>`;
   shell.insertBefore(nav, graph);
   const surface = document.createElement("section");
   surface.className = "research-surface";
@@ -515,11 +516,36 @@ export function mountResearchWorkspace(
     },
     true,
   );
+  // Quitting asks whether running workers carry on without the app.
+  const quit = document.createElement("dialog");
+  quit.className = "quit-dialog";
+  document.body.append(quit);
+  function openQuit() {
+    quit.innerHTML = quitDialog(state);
+    quit.showModal();
+  }
+  quit.addEventListener("click", async (event) => {
+    const choice = (event.target as Element).closest<HTMLButtonElement>("[data-quit]")?.dataset.quit;
+    if (!choice) return;
+    if (choice === "cancel") return quit.close();
+    try {
+      const { kept } = await request("/api/quit", { keep: choice === "keep" });
+      quit.close();
+      document.body.innerHTML = closedNotice(kept);
+    } catch (error) {
+      quit.close();
+      message((error as Error).message);
+    }
+  });
   nav.addEventListener("click", (event) => {
     const button = (event.target as Element).closest<HTMLButtonElement>(
       "button",
     );
     if (button?.hasAttribute("data-running")) return;
+    if (button?.hasAttribute("data-quit-app")) {
+      openQuit();
+      return;
+    }
     if (button?.dataset.view) {
       // Choosing a tab starts somewhere new; the earlier place no longer applies.
       returnPlace = undefined;

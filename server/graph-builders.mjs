@@ -43,7 +43,19 @@ export class GraphBuilders {
     this.corrections = new Map();
     this.maxCorrections = 3;
     this.stopped = false;
-    for (const i of store.state.investigations) for (const j of i.reviewFlow?.jobs || []) if (j.status === 'running') {
+    // Builders that kept running while the app was closed are taken back.
+    const kept = supervisor.hosted(r => r.meta?.project === directory && r.meta?.role === 'builder');
+    for (const i of store.state.investigations) for (const j of i.reviewFlow?.jobs || []) {
+      const record = kept.find(r => r.meta.jobId === j.id && r.meta.token === j.runToken);
+      if (j.status !== 'running' || !record) continue;
+      const task = {...record.meta.task, packet: structuredClone(j.packet), packets: [structuredClone(j.packet)]};
+      task.agent = supervisor.reattach(record, {live: {role: 'builder', name: j.engine === 'codex' ? 'Codex graph builder' : 'Claude graph builder', investigationId: i.id, jobId: j.id}});
+      this.active.set(j.id, task);
+      this.follow(task);
+      kept.splice(kept.indexOf(record), 1);
+    }
+    for (const record of kept) supervisor.dismiss(record);
+    for (const i of store.state.investigations) for (const j of i.reviewFlow?.jobs || []) if (j.status === 'running' && !this.active.has(j.id)) {
       store.update(next => {
         const job = next.investigations.find(x => x.id === i.id).reviewFlow.jobs.find(x => x.id === j.id);
         job.status = 'paused'; job.recoverable = true;
@@ -241,30 +253,38 @@ export class GraphBuilders {
         prompt: task.prompt, log: join(task.attempt, 'stream.ndjson'),
         live: {role: 'builder', name: job.engine === 'codex' ? 'Codex graph builder' : 'Claude graph builder', investigationId: task.investigationId, jobId: id},
         describe: fileDescriber(builderFiles),
+        // What the app needs to take this builder back if it outlives the app.
+        meta: {project: this.directory, role: 'builder', jobId: id, token: task.token, task: {id, investigationId: task.investigationId, directory: task.directory, work: task.work, attempt: task.attempt, attemptNumber: task.attemptNumber, token: task.token, started: task.started, timeLimitMinutes: task.timeLimitMinutes}},
       });
       this.active.set(id, task);
-      // A builder works in one turn; when it ends, the draft is read.
-      task.agent.on('turn', ({outcome}) => { if (outcome !== 'interrupted') task.agent.finish(); });
-      task.agent.on('failed', error => this.pause(id, `Builder could not start: ${error.message}. Saved files are retained.`));
-      task.agent.on('exit', ({code}) => this.finished(task, code));
-      // A usage-limit pause keeps the builder and its attempts; it carries on at the reset.
-      task.agent.on('paused', ({reason}) => {
-        task.pausedAt = Date.now();
-        this.store.update(next => {
-          const j = next.investigations.flatMap(i => i.reviewFlow?.jobs || []).find(j => j.id === id);
-          j.progress = reason;
-          this.log(next, id, `Graph builder ${reason.charAt(0).toLowerCase()}${reason.slice(1)}`);
-        });
-      });
-      task.agent.on('resumed', () => {
-        task.started += Date.now() - (task.pausedAt ?? Date.now());
-        this.store.update(next => {
-          next.investigations.flatMap(i => i.reviewFlow?.jobs || []).find(j => j.id === id).progress = 'Writing the graph draft.';
-          this.log(next, id, 'The usage limit reset; the graph builder carries on.');
-        });
-      });
-      task.agent.on('intruder', () => this.store.update(next => this.log(next, id, 'The graph builder tried to start another agent, and the app stopped it.')));
+      this.follow(task);
     } catch (error) { this.pause(id, `Unable to start graph preparation: ${error.message}`); }
+  }
+  // How the builders follow an agent, whether started here or taken back.
+  follow(task) {
+    const id = task.id;
+    // A builder works in one turn; when it ends, the draft is read.
+    task.agent.on('turn', ({outcome}) => { if (outcome !== 'interrupted') task.agent.finish(); });
+    task.agent.on('failed', error => this.pause(id, `Builder could not start: ${error.message}. Saved files are retained.`));
+    task.agent.on('exit', ({code}) => this.finished(task, code));
+    // A usage-limit pause keeps the builder and its attempts; it carries on at the reset.
+    task.agent.on('paused', ({reason}) => {
+      task.pausedAt = Date.now();
+      this.store.update(next => {
+        const j = next.investigations.flatMap(i => i.reviewFlow?.jobs || []).find(j => j.id === id);
+        j.progress = reason;
+        this.log(next, id, `Graph builder ${reason.charAt(0).toLowerCase()}${reason.slice(1)}`);
+      });
+    });
+    task.agent.on('resumed', () => {
+      task.started += Date.now() - (task.pausedAt ?? Date.now());
+      task.pausedAt = null;
+      this.store.update(next => {
+        next.investigations.flatMap(i => i.reviewFlow?.jobs || []).find(j => j.id === id).progress = 'Writing the graph draft.';
+        this.log(next, id, 'The usage limit reset; the graph builder carries on.');
+      });
+    });
+    task.agent.on('intruder', () => this.store.update(next => this.log(next, id, 'The graph builder tried to start another agent, and the app stopped it.')));
   }
   finished(task, code) {
     const id = task.id;

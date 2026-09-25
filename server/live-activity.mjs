@@ -114,6 +114,9 @@ function commandAction(command, describe) {
 // Plain names for the files a worker touches, so a line reads as what it is doing.
 export function fileDescriber(names = {}, titles = {}) {
   return {
+    // Kept so a host process can rebuild the same describer.
+    names,
+    titles,
     file(path, mode) {
       if (!path) return null;
       const name = basename(String(path));

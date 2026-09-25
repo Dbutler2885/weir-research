@@ -18,10 +18,22 @@ export class WalkthroughWriters {
     Object.assign(this, {store, directory, root, findExecutable, live, supervisor});
     this.active = new Map();
     this.stopped = false;
-    // A writer interrupted by a restart starts its walkthrough again.
-    for (const i of store.state.investigations)
-      if (i.reviewFlow?.writer?.status === 'running')
-        this.update(i.id, (w) => { w.status = 'queued'; w.progress = 'The app restarted; starting the walkthrough again.'; });
+    // A writer that kept running while the app was closed is taken back; one that
+    // did not starts its walkthrough again.
+    const kept = supervisor.hosted((r) => r.meta?.project === directory && r.meta?.role === 'writer');
+    for (const i of store.state.investigations) {
+      const writer = i.reviewFlow?.writer;
+      if (writer?.status !== 'running') continue;
+      const record = kept.find((r) => r.meta.investigationId === i.id && r.meta.writerId === writer.id);
+      if (record) {
+        const task = {id: i.id, writerId: writer.id, folder: record.meta.folder};
+        task.agent = supervisor.reattach(record, {live: {role: 'writer', name: writer.engine === 'codex' ? 'Codex walkthrough writer' : 'Claude walkthrough writer', investigationId: i.id}});
+        this.active.set(i.id, task);
+        this.follow(task);
+        kept.splice(kept.indexOf(record), 1);
+      } else this.update(i.id, (w) => { w.status = 'queued'; w.progress = 'The app restarted; starting the walkthrough again.'; });
+    }
+    for (const record of kept) supervisor.dismiss(record);
     this.timer = setInterval(() => this.pump(), 1500);
   }
   writer(id) {
@@ -70,8 +82,15 @@ export class WalkthroughWriters {
       prompt: 'Read AGENTS.md and write the walkthrough as instructed.',
       live: {role: 'writer', name: writer.engine === 'codex' ? 'Codex walkthrough writer' : 'Claude walkthrough writer', investigationId: id},
       describe: fileDescriber(writerFiles),
+      // What the app needs to take this writer back if it outlives the app.
+      meta: {project: this.directory, role: 'writer', investigationId: id, writerId: writer.id, folder},
     });
     this.active.set(id, task);
+    this.follow(task);
+  }
+  // How the writers follow an agent, whether started here or taken back.
+  follow(task) {
+    const {id} = task;
     task.agent.on('turn', ({outcome}) => { if (outcome !== 'interrupted') this.turnEnded(task); });
     task.agent.on('paused', ({reason}) => this.update(id, (w) => { w.progress = reason; }, `Walkthrough writer ${reason.charAt(0).toLowerCase()}${reason.slice(1)}`));
     task.agent.on('resumed', () => this.update(id, (w) => { w.progress = 'Writing the walkthrough.'; }, 'The usage limit reset; the walkthrough writer carries on.'));

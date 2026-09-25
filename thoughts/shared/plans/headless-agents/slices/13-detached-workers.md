@@ -1,7 +1,7 @@
 # Slice 13: Detached workers
 
 **Type**: AFK
-**Status**: Not started
+**Status**: Done
 
 ## Blocked by
 
@@ -16,11 +16,11 @@ See **Detached workers** and **Quota**.
 
 ## Acceptance criteria
 
-- [ ] Quitting asks whether workers should keep running
-- [ ] Workers stop when the app closes or crashes unless kept running
-- [ ] Reopening reconnects to kept-running workers and shows their activity
-- [ ] A kept-running worker finishes with the instructions and app version it started with
-- [ ] A kept-running worker that hits its quota resumes at the reset time with the app closed
+- [x] Quitting asks whether workers should keep running
+- [x] Workers stop when the app closes or crashes unless kept running
+- [x] Reopening reconnects to kept-running workers and shows their activity
+- [x] A kept-running worker finishes with the instructions and app version it started with
+- [x] A kept-running worker that hits its quota resumes at the reset time with the app closed
 
 ## User stories addressed
 

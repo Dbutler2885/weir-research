@@ -16,7 +16,8 @@ npm start -- "Example Town industrial history"
 The first run installs the app's dependencies.
 With a topic, it starts a new project; without one, it reopens your last project, or asks what you would like to research.
 It opens the project in your browser and keeps running after the command exits.
-`npm run workspace -- stop` stops a project's service and the agents it runs.
+Quit from the app's header, or with `npm run workspace -- stop`; either asks whether workers still running should keep going.
+A kept worker carries on alone, including waiting out a usage limit, and the app takes it back when it opens the project again; workers not kept stop when the app closes or crashes.
 
 When the app opens a project, it starts a fresh research coordinator for it, which picks up from the project's saved state.
 You write to the coordinator from the browser; it assigns researchers, graph builders and walkthrough writers, which the app launches and shows in the live panel.

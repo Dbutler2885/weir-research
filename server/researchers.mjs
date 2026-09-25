@@ -62,7 +62,19 @@ export class ResearcherPool {
     this.findExecutable = findExecutable;
     this.active = new Map();
     this.stopped = false;
+    // Researchers that kept running while the app was closed are taken back.
+    const kept = supervisor.hosted((r) => r.meta?.project === directory && r.meta?.role === "researcher");
     for (const i of [...store.state.investigations]) {
+      const record = kept.find((r) => r.meta.investigationId === i.id && r.meta.token === i.lease?.token);
+      if (i.status === "running" && record) {
+        const task = { id: i.id, token: record.meta.token, directory: record.meta.directory, started: record.meta.started, timeLimitMinutes: record.meta.timeLimitMinutes, lastCheckpoint: undefined, terminated: false };
+        const name = record.meta.engine === "codex" ? "Codex researcher" : "Claude researcher";
+        task.agent = supervisor.reattach(record, { live: { role: "researcher", name, investigationId: i.id } });
+        this.active.set(i.id, task);
+        this.follow(task, record.meta.engine);
+        kept.splice(kept.indexOf(record), 1);
+        continue;
+      }
       if (
         i.status === "running" &&
         !coordinator?.candidates().some((c) => c.investigationId === i.id) &&
@@ -80,6 +92,8 @@ export class ResearcherPool {
         );
       }
     }
+    // A researcher whose batch moved on while the app was closed is stopped.
+    for (const record of kept) supervisor.dismiss(record);
     this.timer = setInterval(() => this.pump(), 2000);
   }
   capabilities() {
@@ -332,7 +346,13 @@ Your final message should be a short completion status. The host will validate r
       prompt: "Read brief.json and complete this bounded research pass. Write checkpoints and result.json as instructed.",
       live: { role: "researcher", name, investigationId: id },
       describe: fileDescriber(researcherFiles, this.titles(brief)),
+      // What the app needs to take this researcher back if it outlives the app.
+      meta: { project: this.directory, role: "researcher", investigationId: id, token: task.token, directory: task.directory, started: task.started, timeLimitMinutes: task.timeLimitMinutes, engine },
     });
+    this.follow(task, engine);
+  }
+  // How the pool follows a researcher's agent, whether it started it or took it back.
+  follow(task, engine) {
     task.agent.on("turn", ({ outcome }) => this.turnEnded(task, outcome));
     task.agent.on("failed", (error) =>
       this.fail(

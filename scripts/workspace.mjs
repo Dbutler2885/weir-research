@@ -1,9 +1,11 @@
 import { spawnSync } from "node:child_process";
+import { createInterface } from "node:readline/promises";
 import {
   home,
   projects,
   project,
   stopProject,
+  runningWorkers,
   createProject,
   createTopicProject,
   openProject,
@@ -42,7 +44,19 @@ try {
     });
     if (login.error || login.status !== 0) throw new Error("Codex sign-in did not complete.");
     process.exit(0);
-  } else if (command === "stop") result = await stopProject(project(args[0]));
+  } else if (command === "stop") {
+    // Workers that are running can be kept running after the app closes; ask when unsaid.
+    const p = project(args.find((a) => !a.startsWith("--")));
+    let keepWorkers = args.includes("--keep-workers");
+    const running = runningWorkers(p);
+    if (running && !keepWorkers && !args.includes("--stop-workers") && process.stdin.isTTY) {
+      const ask = createInterface({ input: process.stdin, output: process.stdout });
+      const answer = await ask.question(`${running === 1 ? "A worker is" : `${running} workers are`} still running. Keep ${running === 1 ? "it" : "them"} running after the app closes? (y/N) `);
+      ask.close();
+      keepWorkers = /^y/i.test(answer.trim());
+    }
+    result = { ...(await stopProject(p, { keepWorkers })), keptWorkers: keepWorkers ? running : 0 };
+  }
   else if (command === "open")
     result = await openProject(project(args.find((a) => !a.startsWith("--"))), {
       browser: !args.includes("--no-browser") && !process.env.RESEARCH_NO_BROWSER,
@@ -54,7 +68,7 @@ try {
         "resume [project-id] [--no-browser]",
         "projects",
         "open [project-id] [--no-browser]",
-        "stop [project-id]",
+        "stop [project-id] [--keep-workers | --stop-workers]",
         "sign-in codex (sign in the app's own Codex home)",
         'create "research topic"',
         "create <id> <dataset.json> [display name] (existing dataset import)",

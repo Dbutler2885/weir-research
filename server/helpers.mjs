@@ -38,6 +38,7 @@ Work only in this folder. Do not start other agents.
       effort: choice.effort,
       prompt: task.trim(),
       live: {role: 'helper', name: choice.agent === 'codex' ? 'Codex helper' : 'Claude helper', task: summary},
+      meta: {project: this.directory, role: 'helper'},
       describe: fileDescriber({'AGENTS.md': {read: 'Reading its instructions'}}),
     });
     this.active.set(id, agent);
