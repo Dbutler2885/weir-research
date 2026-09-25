@@ -27,6 +27,7 @@ import { agentHomes } from "./agents/isolation.mjs";
 import { agentCatalog } from "./agents/catalog.mjs";
 import { DispatchRules } from "./dispatch.mjs";
 import { Helpers } from "./helpers.mjs";
+import { ResearchBrowser } from "./research-browser.mjs";
 import { validateChoice } from "../src/domain/dispatch.ts";
 import { LiveActivity } from "./live-activity.mjs";
 import { projectSkills } from "./skills.mjs";
@@ -69,7 +70,9 @@ const coordinator = new Coordinator(store, { workers: () => live.list(), skills:
 // Codex agents share the app's own homes, beside the projects.
 const appDirectory = resolve(process.env.RESEARCH_HOME || join(root, ".research"));
 const supervisor = new AgentSupervisor({ live, homes: agentHomes(appDirectory) });
-const researchers = new ResearcherPool(store, directory, root, { coordinator, live, supervisor });
+// One research browser for the app, with its own profile, shared by every project.
+const researchBrowser = new ResearchBrowser(appDirectory, { root });
+const researchers = new ResearcherPool(store, directory, root, { coordinator, live, supervisor, browser: researchBrowser });
 coordinator.researchers = researchers;
 const graphBuilders = new GraphBuilders(store, directory, root, { live, supervisor });
 const writers = new WalkthroughWriters(store, directory, root, { live, supervisor });
@@ -287,6 +290,7 @@ const server = createServer(async (req, res) => {
         live: live.list(),
         catalog,
         usage: supervisor.usage,
+        researchBrowser: { available: Boolean(researchBrowser.chrome) },
       });
     if (req.method === "GET" && url.pathname === "/api/revision")
       return json(res, 200, {
@@ -350,6 +354,12 @@ const server = createServer(async (req, res) => {
     }
     if (req.method === "POST" && url.pathname === "/api/research-settings") {
       return json(res, 200, researchers.configure(await body(req)));
+    }
+    // The human opens the research browser to sign in to archives once.
+    if (req.method === "POST" && url.pathname === "/api/research-browser") {
+      const address = await researchBrowser.open();
+      await fetch(`${address}/json/new?about:blank`, { method: "PUT" }).catch(() => {});
+      return json(res, 200, { open: true });
     }
     if (req.method === "POST" && url.pathname === "/api/dispatch")
       return json(res, 200, { dispatch: dispatch.change(await body(req), "human") });

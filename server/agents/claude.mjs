@@ -21,7 +21,7 @@ export function claudeUsage(info) {
 // open. A message written mid-turn reaches it after its current tool step.
 export const claudeAdapter = {
   // The agent is confined to its folder; web adds the web tools.
-  args({ folder, instructions = "", model = "", effort = "", web = false }) {
+  args({ folder, instructions = "", model = "", effort = "", web = false, browser = null }) {
     return [
       "--print",
       "--input-format",
@@ -33,7 +33,7 @@ export const claudeAdapter = {
       "dontAsk",
       ...(model ? ["--model", model] : []),
       ...(effort ? ["--effort", effort] : []),
-      ...claudeIsolationArgs(folder, { web }),
+      ...claudeIsolationArgs(folder, { web, browser }),
       ...(instructions ? ["--append-system-prompt", instructions] : []),
     ];
   },

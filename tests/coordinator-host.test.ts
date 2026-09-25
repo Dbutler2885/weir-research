@@ -56,7 +56,8 @@ function fixture(steps: object[] = []) {
   };
   const received = (host: CoordinatorHost) => {
     const file = join(host.folder!, "received.jsonl");
-    return existsSync(file) ? readFileSync(file, "utf8").trim().split("\n").map((l) => JSON.parse(l)) : [];
+    // Only whole lines: the fake may be writing the next one.
+    return existsSync(file) ? readFileSync(file, "utf8").split("\n").slice(0, -1).map((l) => JSON.parse(l)) : [];
   };
   return { store, coordinator, open, received, commands };
 }

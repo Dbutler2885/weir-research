@@ -18,6 +18,12 @@ import { AgentSupervisor } from "./agents/supervisor.mjs";
 import { AgentProblem } from "./agents/problem.mjs";
 import { placeSkills } from "./agents/isolation.mjs";
 
+const BROWSER_INSTRUCTIONS = `
+The research browser is available through your browser tools, for pages that need a real browser or a sign-in the human made there.
+Open your own tab with new_page, with background set to true, use its page ID in every call, and close it when you are done. Other workers use the same browser; never touch their tabs.
+If a page needs a sign-in, do not sign in yourself: ask for access help in checkpoint.json as described above.
+`;
+
 export function executableOnPath(name) {
   for (const dir of (process.env.PATH || "").split(delimiter)) {
     const file = join(dir, name);
@@ -42,11 +48,14 @@ export class ResearcherPool {
       coordinator = null,
       live = new LiveActivity(),
       supervisor = new AgentSupervisor({ launch, live }),
+      browser = null,
     } = {},
   ) {
     this.store = store;
     this.live = live;
     this.supervisor = supervisor;
+    // The research browser, shared by researchers whose work reaches the web.
+    this.browser = browser;
     this.coordinator = coordinator;
     this.directory = directory;
     this.root = root;
@@ -283,7 +292,20 @@ Your final message should be a short completion status. The host will validate r
 `;
       writeFileSync(join(directory, "AGENTS.md"), instructions);
       placeSkills(directory, this.root, ["research-contract"]);
-      this.startAgent(task, engine, executable, instructions, web, brief, assignment);
+      // A web researcher gets the research browser; it launches once the browser is up.
+      this.active.set(id, task);
+      const launch = (browser) => {
+        if (task.terminated || !this.current(task)) return this.active.delete(id);
+        try {
+          this.startAgent(task, engine, executable, instructions, web, brief, assignment, browser);
+        } catch (error) {
+          this.fail(task, `Unable to start the researcher: ${error.message}`);
+          this.active.delete(id);
+        }
+      };
+      if (web && this.browser?.chrome)
+        this.browser.open().then((url) => launch(this.browser.mcpServer(url)), () => launch(null));
+      else launch(null);
     } catch (error) {
       this.fail(
         task,
@@ -294,7 +316,7 @@ Your final message should be a short completion status. The host will validate r
     return true;
   }
   // Researchers keep their input open, so the coordinator can steer or stop them.
-  startAgent(task, engine, executable, instructions, web, brief, assignment) {
+  startAgent(task, engine, executable, instructions, web, brief, assignment, browser) {
     const { id } = task;
     const name = engine === "codex" ? "Codex researcher" : "Claude researcher";
     task.agent = this.supervisor.start({
@@ -302,15 +324,15 @@ Your final message should be a short completion status. The host will validate r
       provider: engine,
       executable,
       folder: task.directory,
-      instructions,
+      instructions: browser ? `${instructions}${BROWSER_INSTRUCTIONS}` : instructions,
       web,
+      browser,
       model: assignment?.model,
       effort: assignment?.effort,
       prompt: "Read brief.json and complete this bounded research pass. Write checkpoints and result.json as instructed.",
       live: { role: "researcher", name, investigationId: id },
       describe: fileDescriber(researcherFiles, this.titles(brief)),
     });
-    this.active.set(id, task);
     task.agent.on("turn", ({ outcome }) => this.turnEnded(task, outcome));
     task.agent.on("failed", (error) =>
       this.fail(
@@ -381,6 +403,7 @@ Your final message should be a short completion status. The host will validate r
   running(id) {
     const task = this.active.get(id);
     if (!task || !this.current(task)) throw new Error("No researcher is running for this batch.");
+    if (!task.agent) throw new Error("The researcher is still starting; try again in a moment.");
     return task;
   }
   // The coordinator redirects a running researcher; it takes effect at the researcher's next step.

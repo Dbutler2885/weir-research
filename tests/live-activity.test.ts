@@ -46,6 +46,12 @@ describe("reading what a worker is doing from its output", () => {
     expect(streamActions(tool("Read", { file_path: "documents/doc-1.pdf" }), researcher)).toEqual(["Reading The fictional register"]);
     expect(streamActions(tool("WebFetch", { url: "https://www.example.org/a" }), researcher)).toEqual(["Reading a page on example.org"]);
   });
+  it("names research browser steps by the site they are on", () => {
+    const researcher = fileDescriber({});
+    expect(streamActions(tool("mcp__browser__new_page", { url: "https://www.archive.example/register", background: true }), researcher)).toEqual(["Opening archive.example in the research browser"]);
+    expect(streamActions(tool("mcp__browser__take_snapshot", { pageId: 3 }), researcher)).toEqual(["Reading a page in the research browser"]);
+    expect(streamActions({ method: "item/started", params: { item: { type: "mcpToolCall", server: "browser", tool: "navigate_page", arguments: { url: "https://archive.example/a" } } } }, researcher)).toEqual(["Opening archive.example in the research browser"]);
+  });
   it("reads lines split across chunks", () => {
     const seen: string[] = [];
     const follow = streamReader(builder, (text: string) => seen.push(text));

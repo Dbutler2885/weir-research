@@ -68,6 +68,7 @@ export function streamActions(event, describe) {
     if (item.type === "fileChange" && !started)
       return (item.changes || []).map((c) => describe.file(c.path, "write")).filter(Boolean);
     if (item.type === "webSearch" && !started && item.query) return [`Searching the web for ${quoted(item.query)}`];
+    if (item.type === "mcpToolCall" && item.server === "browser" && started) return [browserAction(item.tool, item.arguments || {})].filter(Boolean);
     return [];
   }
   if (event.type === "item.started" || event.type === "item.completed") {
@@ -89,6 +90,15 @@ function toolAction(name, input, describe) {
   if (name === "WebFetch") return `Reading a page on ${host(input.url)}`;
   if (name === "Task" || name === "Agent") return "Handing a part of the work to a helper";
   if (name === "Bash") return commandAction(input.command, describe);
+  if (name.startsWith("mcp__browser__")) return browserAction(name.slice("mcp__browser__".length), input);
+  return null;
+}
+
+// A research browser step, named by the site it is on.
+function browserAction(tool, input) {
+  if (tool === "new_page" || tool === "navigate_page") return input.url ? `Opening ${host(input.url)} in the research browser` : "Opening a page in the research browser";
+  if (tool === "take_snapshot" || tool === "evaluate_script" || tool === "take_screenshot") return "Reading a page in the research browser";
+  if (tool === "click" || tool === "fill" || tool === "fill_form" || tool === "press_key") return "Working with a page in the research browser";
   return null;
 }
 

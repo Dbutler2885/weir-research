@@ -718,6 +718,14 @@ export function mountResearchWorkspace(
           message((error as Error).message);
         }
       });
+    surface.querySelector("[data-open-research-browser]")?.addEventListener("click", async () => {
+      try {
+        await request("/api/research-browser", {});
+        message("The research browser is open. Sign in to your archives there.");
+      } catch (error) {
+        message((error as Error).message);
+      }
+    });
     // Who does which job: each menu saves as it changes; the page redraws from the saved rules.
     const dispatchChange = async (body: Record<string, unknown>, saved: string) => {
       try {

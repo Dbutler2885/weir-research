@@ -2,7 +2,7 @@
 // sandbox arguments and homes, and checks what a command in it can reach. It
 // runs commands directly, so it needs neither a sign-in nor a model.
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, realpathSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import assert from "node:assert/strict";
@@ -19,6 +19,7 @@ const folder = join(app, "agents", "one");
 const other = join(app, "agents", "two");
 mkdirSync(folder, { recursive: true });
 mkdirSync(other, { recursive: true });
+writeFileSync(join(folder, "AGENTS.md"), "Fictional agent instructions.\n");
 const homes = agentHomes(app);
 const server = spawn("codex", codexAdapter.args({ folder }), {
   cwd: folder,
@@ -46,6 +47,10 @@ const exec = async (...command) => (await request("command/exec", { command, cwd
 try {
   await request("initialize", { clientInfo: { name: "isolation-test", title: null, version: "1" }, capabilities: null });
   server.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method: "initialized" })}\n`);
+  // A thread starts inside the repository, reading only the folder's own instructions.
+  const thread = await request("thread/start", { cwd: realpathSync(folder), approvalPolicy: "never" });
+  assert.ok(thread.result, `a thread starts in the agent's folder: ${JSON.stringify(thread.error)}`);
+  assert.deepEqual(thread.result.instructionSources, [join(realpathSync(folder), "AGENTS.md")]);
   const account = (await request("account/read", {})).result;
   assert.equal(account.account, null, "The app's Codex home starts signed out, separate from the human's.");
   assert.equal((await exec("/bin/sh", "-c", "echo ok > made.txt && cat made.txt")).stdout, "ok\n");
@@ -59,6 +64,9 @@ try {
   assert.equal(web.stdout, "200", "the web is reachable");
   console.log("Codex isolation: own folder, node and the web reachable; home, Codex sign-in and other agents' folders out of reach: passed.");
 } finally {
+  // Codex writes to its home as it closes; remove the folders once it has exited.
+  const exited = new Promise((resolve) => server.once("exit", resolve));
   server.kill();
-  rmSync(app, { recursive: true, force: true });
+  await exited;
+  rmSync(app, { recursive: true, force: true, maxRetries: 5 });
 }

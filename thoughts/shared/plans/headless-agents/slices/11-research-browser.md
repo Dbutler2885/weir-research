@@ -1,7 +1,7 @@
 # Slice 11: Research browser
 
 **Type**: AFK
-**Status**: Not started
+**Status**: Done
 
 ## Blocked by
 
@@ -16,11 +16,11 @@ See **Research browser**.
 
 ## Acceptance criteria
 
-- [ ] Workers reach the research browser from inside their sandbox
-- [ ] A sign-in made once is available to every worker
-- [ ] Each worker uses its own window or tab
-- [ ] The human's own browser profiles are never touched
-- [ ] An integration test covers the shared profile, per-worker windows and separation
+- [x] Workers reach the research browser from inside their sandbox
+- [x] A sign-in made once is available to every worker
+- [x] Each worker uses its own window or tab
+- [x] The human's own browser profiles are never touched
+- [x] An integration test covers the shared profile, per-worker windows and separation
 
 ## User stories addressed
 

@@ -100,6 +100,8 @@ npm run workspace -- sign-in codex
 
 Every agent runs in its own folder under its CLI's sandbox, with any command and the web available there, and nothing else on your computer within reach.
 It loads the app's skills from its folder, never your personal instructions, hooks, skills or MCP servers, and an agent CLI started from inside one is stopped and reported.
+Researchers working on the web share one research browser: Google Chrome with the app's own profile, separate from your browsers, reached through Chrome DevTools MCP.
+Open it from Research settings and sign in to archives once; every researcher can then use those sign-ins, each in its own tab.
 The process supervisor runs at most two researchers concurrently, with no time limit by default.
 Research settings offers an optional limit in whole minutes for new delegated passes in this project; running passes keep the limit they started with.
 Coordinators can request that paused work resume, with a reason shown in the investigation; research waits for the human to choose Resume research or Keep paused.

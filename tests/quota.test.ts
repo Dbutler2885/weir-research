@@ -78,7 +78,7 @@ describe("an agent that reaches its usage limit", () => {
     const events: string[] = [];
     for (const name of ["paused", "resumed", "turn", "exit"]) agent.on(name, () => events.push(name));
     const received = () =>
-      existsSync(join(folder, "received.jsonl")) ? readFileSync(join(folder, "received.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l).text) : [];
+      existsSync(join(folder, "received.jsonl")) ? readFileSync(join(folder, "received.jsonl"), "utf8").split("\n").slice(0, -1).map((l) => JSON.parse(l).text) : [];
     return { agent, live, supervisor, events, received };
   }
   const until = async (check: () => unknown) => {

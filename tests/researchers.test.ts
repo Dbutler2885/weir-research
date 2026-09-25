@@ -408,3 +408,31 @@ describe.each(["claude", "codex"] as const)("a %s researcher under the coordinat
     expect(r.pool.live.list()).toEqual([]);
   });
 });
+
+describe("the research browser for web researchers", () => {
+  it("gives a web researcher the browser, and tells it to keep to its own tab", async () => {
+    const f = fixture();
+    // A stand-in for the app's research browser.
+    const server = { command: "/bin/node", args: ["chrome-devtools-mcp.js", "--browserUrl", "http://127.0.0.1:9333"], env: {} };
+    f.pool.browser = { chrome: "/chrome", open: async () => "http://127.0.0.1:9333", mcpServer: () => server } as any;
+    f.queue();
+    f.pool.choose("claude");
+    await new Promise((done) => setTimeout(done, 10));
+    const args = f.launches[0]!.args;
+    expect(JSON.parse(args[args.indexOf("--mcp-config") + 1]!)).toEqual({ mcpServers: { browser: server } });
+    expect(JSON.parse(args[args.indexOf("--settings") + 1]!).permissions.allow).toContain("mcp__browser");
+    expect(args.join(" ")).toContain("Open your own tab with new_page");
+  });
+
+  it("gives a researcher confined to local documents no browser", async () => {
+    const f = fixture();
+    let opened = false;
+    f.pool.browser = { chrome: "/chrome", open: async () => ((opened = true), "http://127.0.0.1:9333"), mcpServer: () => ({}) } as any;
+    f.store.command({ type: "annotate", question: "Local only", target: { label: "R" }, dispatch: true, scope: ["imports"] });
+    f.pool.choose("claude");
+    await new Promise((done) => setTimeout(done, 10));
+    expect(opened).toBe(false);
+    const args = f.launches[0]!.args;
+    expect(JSON.parse(args[args.indexOf("--mcp-config") + 1]!)).toEqual({ mcpServers: {} });
+  });
+});
