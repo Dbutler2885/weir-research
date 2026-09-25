@@ -13,13 +13,16 @@ import {
   searchContext,
 } from "./research-context.mjs";
 import { coordinatorAction } from "./live-activity.mjs";
+import { buildCoordinatorContext } from "../src/domain/coordinator-context.ts";
 
 // Durable research state belongs to the store; session liveness belongs to this server.
 export class Coordinator {
   // Ownership of the project and being live are separate: a coordinator busy
   // writing for ten minutes still owns its project, but is not listening.
-  constructor(store, { now = Date.now, ttl = 120_000, ownership = 1_800_000 } = {}) {
+  constructor(store, { now = Date.now, ttl = 120_000, ownership = 1_800_000, workers = () => [], skills = [] } = {}) {
     this.store = store;
+    this.workers = workers;
+    this.skills = skills;
     this.now = now;
     this.ttl = ttl;
     this.ownership = ownership;
@@ -201,6 +204,7 @@ export class Coordinator {
       preferredEngine: state.engine || "manual",
       coordinator: this.status(),
       conversation: conversationIndex(state),
+      context: buildCoordinatorContext(state, { workers: this.workers(), skills: this.skills }),
     };
   }
   assignment(id) {

@@ -43,6 +43,11 @@ beforeEach(() => {
   }).state;
   state = transition(state, {
     type: "open-batch",
+    brief: {
+      purpose: "Identify the fictional workshop's founder.",
+      scope: "The founding only.",
+      direction: "Read the register entry.",
+    },
     title: "The workshop's founder",
     questions: [
       {

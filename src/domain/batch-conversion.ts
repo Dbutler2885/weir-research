@@ -54,8 +54,10 @@ export function convertToBatches(source: ResearchState): ResearchState {
         ...i.proposals.map((p) => p.createdAt),
         ...i.annotations.map((a) => a.dispatchedAt!),
       ].some((at) => at > review.createdAt);
-    if (review && review.status !== "pending" && !continued)
+    if (review && review.status !== "pending" && !continued) {
       i.closedAt = i.events.at(-1)?.at || review.createdAt;
+      i.status = "closed";
+    }
     i.events.push({
       at: new Date().toISOString(),
       message: `Converted to batch ${i.number}.`,

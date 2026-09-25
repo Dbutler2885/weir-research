@@ -57,7 +57,7 @@ try {
     );
   } else {
     console.log(
-      "research status\nresearch claim <worker-name> [investigation-id]\nresearch checkpoint <payload.json>\nresearch propose <payload.json>\n\nRead docs/research-agent.md before claiming work. Workers cannot accept proposals.",
+      "research status\nresearch claim <worker-name> [investigation-id]\nresearch checkpoint <payload.json>\nresearch propose <payload.json>\n\nRead skills/research-contract/SKILL.md before claiming work. Workers cannot accept proposals.",
     );
     if (command) process.exitCode = 1;
   }

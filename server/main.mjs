@@ -21,6 +21,7 @@ import { Coordinator } from "./coordinator.mjs";
 import { ResearcherPool } from "./researchers.mjs";
 import { GraphBuilderPool } from "./graph-builders.mjs";
 import { LiveActivity } from "./live-activity.mjs";
+import { projectSkills } from "./skills.mjs";
 import { flowCommand } from "./review-flow.mjs";
 import { humanConversationCommands } from "../src/domain/conversation.ts";
 
@@ -54,8 +55,8 @@ const store = new WorkspaceStore(
   directory,
   JSON.parse(readFileSync(join(root, "src/data/empty.json"), "utf8")),
 );
-const coordinator = new Coordinator(store);
 const live = new LiveActivity();
+const coordinator = new Coordinator(store, { workers: () => live.list(), skills: projectSkills(root) });
 const researchers = new ResearcherPool(store, directory, root, { coordinator, live });
 const graphBuilders = new GraphBuilderPool(store, directory, root, { live });
 process.on("exit", () => graphBuilders.stop());

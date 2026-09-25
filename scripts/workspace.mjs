@@ -8,6 +8,7 @@ import {
   createTopicProject,
   openProject,
 } from "./workspace-lib.mjs";
+import { printView } from "./coordinator-view.mjs";
 const [command, ...args] = process.argv.slice(2);
 try {
   let result;
@@ -19,7 +20,7 @@ try {
     const created =
       command === "start" ? createTopicProject(topic) : project(topic);
     const opened = await openProject(created, {
-      browser: !args.includes("--no-browser"),
+      browser: !args.includes("--no-browser") && !process.env.RESEARCH_NO_BROWSER,
     });
     const attached = JSON.parse(
       execFileSync(
@@ -44,7 +45,7 @@ try {
     else result = createProject(args[0], args[2] || args[0], args[1]);
   } else if (command === "open")
     result = await openProject(project(args.find((a) => !a.startsWith("--"))), {
-      browser: !args.includes("--no-browser"),
+      browser: !args.includes("--no-browser") && !process.env.RESEARCH_NO_BROWSER,
     });
   else
     result = {
@@ -58,7 +59,7 @@ try {
       ],
       note: "Projects include their dataset, sources, investigations, and review history. Start from a topic with no records. Existing structured datasets can also be imported.",
     };
-  console.log(JSON.stringify(result, null, 2));
+  printView(result);
 } catch (error) {
   console.error(error.message);
   process.exitCode = 1;

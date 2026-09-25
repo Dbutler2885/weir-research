@@ -56,7 +56,7 @@ Start/open may have created and registered a project before a later browser or a
 For missing dependencies run `npm ci` and retry the failed operation.
 For an active coordinator, leave its session alone.
 For provider login failures, use the provider's normal login process and preserve queued work.
-Consult `docs/coordinator.md` only for operations or errors not covered here.
+Consult `skills/coordinate-research/SKILL.md` only for operations or errors not covered here.
 
 ## Everyday research commands
 
@@ -72,8 +72,8 @@ Use `npm run coordinator -- <command> --session <sessionFile>`.
 
 Inspection commands use `{"action":"inspect","kind":"investigation","id":"..."}` or `kind` of `entity`, `source`, `candidate`, `map`, or `investigations`.
 Entity inspection also needs `table`; source inspection supports `offset` and `limit` for reading just the relevant passage.
-Load `docs/coordinator.md` when preparing the first delegated research assignment or reconciling returned findings.
-Load `docs/research-agent.md` when you need the evidence/proposal contract, not at empty-project startup.
+Load `skills/coordinate-research/SKILL.md` when preparing the first delegated research assignment or reconciling returned findings.
+Load `skills/research-contract/SKILL.md` when you need the evidence/proposal contract, not at empty-project startup.
 
 ## Direct project organization
 
@@ -125,9 +125,9 @@ If another coordinator is live, report that fact and leave its session alone.
 ## Research and synthesis
 
 Only sent annotations authorize research; the snapshot's `conversation` index lists those not yet placed in a batch.
-Answer each send in the Annotations conversation and group the work into batches as described in `docs/coordinator.md`.
+Answer each send in the Annotations conversation and group the work into batches as described in `skills/coordinate-research/SKILL.md`.
 After publishing inspected findings, announce the batch with `batch-ready` when its research is complete.
-When the human requests a walkthrough, fork yourself to write it and keep coordinating, as described in `docs/coordinator.md`; the fork loads `skills/present-research/SKILL.md`, and you publish its draft.
+When the human requests a walkthrough, fork yourself to write it and keep coordinating, as described in `skills/coordinate-research/SKILL.md`; the fork loads `skills/present-research/SKILL.md`, and you publish its draft.
 Supervise a requested graph update with `skills/prepare-research-graph/SKILL.md`.
 Walkthroughs and graph updates are independent, and each waits for the human's request unless they have turned on automatic review.
 Queued but unsent annotations are the human's scratch pad, not assignments.
@@ -135,7 +135,9 @@ Before restarting any paused investigation, ask through `{"action":"request-resu
 Keep the investigation paused until approval; silence is not consent, and a declined request must not be repeatedly reissued without a new reason or human instruction.
 All follow-ups on a proposal remain attached to that investigation and immutable proposal revision.
 Read across investigations to spot overlapping leads, identity conflicts, and reusable evidence, while preserving each investigation's identity and source scope.
-Record coordinating decisions and the next useful steps in the durable handoff.
+Give every batch a brief when you open it, and update its direction with `set-brief` whenever the work changes course.
+The batches, their briefs and their statuses are the queue a fresh coordinator starts from, so keep them current as you work.
+Use the handoff only for notes the queue cannot express.
 Maintain a short research map with the project purpose, major entities and research threads, open uncertainties, and stable IDs pointing to useful investigations and sources.
 If the map is absent, create a small initial map from the stated research purpose and a few relevant records; do not survey the whole project first.
 Treat the map as a navigation aid, not as evidence or a substitute for inspecting sources.
@@ -143,7 +145,7 @@ When an investigation finishes, preserve a concise, discoverable conclusion in i
 Retrieve those findings when a later question touches the same entities; check their review status before treating them as accepted research.
 Do not silently merge investigations or expand into unrelated research.
 
-Delegate independent research to harness-native subagents when available, or use the managed Codex/Claude researcher adapter described in `docs/coordinator.md`.
+Delegate independent research to harness-native subagents when available, or use the managed Codex/Claude researcher adapter described in `skills/coordinate-research/SKILL.md`.
 Choose the user's saved researcher preference when using managed workers.
 Do not launch an external provider that the user has declined or that approval review has blocked.
 The manual/native route is not a way to bypass such a block.
@@ -164,7 +166,7 @@ Graph construction uses the separate durable builder job described in `skills/pr
 The older `graphRequest` proposal API remains available for legacy reviews.
 Do not ask one pass to both develop historical conclusions and design their graph representation.
 Keeping a finding preserves its qualification, including reported, disputed, and unresolved accounts.
-Read `docs/research-agent.md` for these contracts before publishing.
+Read `skills/research-contract/SKILL.md` for these contracts before publishing.
 Use the saved provider preference for managed assignments; when it specifies a provider, do not silently substitute native delegation.
 Access-help checkpoints pause only the affected investigation and expose a browser resume action.
 Interface feedback is separate from research; inspect it with `{"action":"inspect","kind":"interface-feedback"}` during development, never treat it as a historical assignment.

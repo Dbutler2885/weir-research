@@ -318,7 +318,12 @@ describe("research coordination", () => {
     expect(JSON.stringify(index)).not.toContain("Unique archival passage");
     expect(JSON.stringify(index)).not.toContain("lease");
     expect(index.project.researchMap).toContain("resolve identities");
-    expect(JSON.stringify(index).length).toBeLessThan(6000);
+    // The old index and the layered context are two views of the same project; each stays small.
+    const { context, ...oldIndex } = index as any;
+    expect(JSON.stringify(oldIndex).length).toBeLessThan(6000);
+    expect(context.text).toContain("resolve identities");
+    expect(context.text).not.toContain("Unique archival passage");
+    expect(context.text.length).toBeLessThan(6000);
     const source = f.run({
       action: "inspect",
       kind: "source",

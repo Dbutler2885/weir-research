@@ -1,3 +1,8 @@
+---
+name: research-contract
+description: "The evidence, checkpoint and proposal contract for research findings: sources and quotations, qualification of statements, and what a proposal must contain. Load it before publishing findings or briefing a researcher."
+---
+
 # Research coordinator and investigator contract
 
 This workspace is intelligent research software, not a chat transcript.
@@ -6,7 +11,7 @@ Keep user-facing output attached to the relevant research objects.
 
 ## Start and claim work
 
-The normal entry point is an agent opened in this repository, following `AGENTS.md` and `docs/coordinator.md`.
+The normal entry point is an agent opened in this repository, following `AGENTS.md` and `skills/coordinate-research/SKILL.md`.
 That agent opens a project, attaches as coordinator, and remains in the browser-event loop.
 The independent mode below is also available through `npm start` before coordinator supervision is enabled.
 An agent started in this repository reads this contract, then uses the research CLI.
@@ -150,6 +155,6 @@ This runtime adopts Firstmate's brief, supervision-state, checkpoint, and recove
 It does not vendor or run Firstmate's fleet scripts.
 It does not create Git worktrees, branches, PRs, or software-delivery tasks for research.
 The current launcher maps local CLI processes and completion files onto this contract.
-Agent-led sessions now use the coordinator contract in `docs/coordinator.md` for project recovery, research assignment, and synthesis before publication.
+Agent-led sessions now use the coordinator contract in `skills/coordinate-research/SKILL.md` for project recovery, research assignment, and synthesis before publication.
 The current coding agent supplies that judgment; the service does not launch a separate coordinating model.
 Keep that launcher replaceable; the workspace must remain intelligible after changing the coordinating model or harness.

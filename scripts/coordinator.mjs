@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { project, read, save } from "./workspace-lib.mjs";
-import { snapshotView } from "./coordinator-view.mjs";
+import { snapshotView, printView, layered } from "./coordinator-view.mjs";
 const args = process.argv.slice(2);
 function option(name) {
   const at = args.indexOf(name);
@@ -109,10 +109,15 @@ try {
       );
     } else if (result && "project" in result && "revision" in result) {
       const snapshotFile = `${file}.snapshot.json`;
+      // Until the layered context is switched on, the saved snapshot matches what was printed.
+      if (!layered()) delete result.context;
       save(snapshotFile, result);
       session.lastRead = result.revision;
       save(file, session);
-      console.log(JSON.stringify(snapshotView(result, file, snapshotFile, session.cursor), null, 2));
+      const view = snapshotView(result, file, snapshotFile, session.cursor);
+      // Attach output is read back by the workspace command, which prints it.
+      if (action === "attach") console.log(JSON.stringify(view, null, 2));
+      else printView(view);
     } else {
       // Claims contain a private lease and a large brief; keep them on disk for deliberate delegation.
       if (result?.investigation?.lease) {

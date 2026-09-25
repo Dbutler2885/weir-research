@@ -11,6 +11,7 @@ import {
 import { join } from "node:path";
 import { initialState, transition } from "../src/domain/research.ts";
 import { needsGraphUpgrade, upgradeGraphState } from "../src/domain/graph-upgrade.ts";
+import { repairClosedBatches } from "../src/domain/conversation.ts";
 
 export class WorkspaceStore {
   constructor(directory, dataset) {
@@ -31,6 +32,7 @@ export class WorkspaceStore {
       if (!existsSync(backup)) writeFileSync(backup, readFileSync(this.path), { mode: 0o600 });
       this.save(upgradeGraphState(this.state));
     }
+    if (repairClosedBatches(this.state)) this.save(this.state);
     this.marks = [];
     this.mark(this.state);
   }

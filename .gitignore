@@ -7,7 +7,8 @@ coverage/
 
 # Private research, annotations, agent sessions, and local tooling
 /tmp/
-/.claude/
+/.claude/*
+!/.claude/skills/
 /.codex/
 /.lavish/
 .env

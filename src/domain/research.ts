@@ -21,7 +21,7 @@ import {
   humanConversationCommands,
   coordinatorConversationCommands,
 } from "./conversation.ts";
-import type { Message, Question } from "./conversation.ts";
+import type { Brief, Message, Question } from "./conversation.ts";
 
 export type Table = "people" | "contextEntities" | "claims" | "sources";
 export interface AnnotationTarget {
@@ -89,6 +89,7 @@ export interface Proposal {
 // that one walkthrough and one graph update explain.
 export interface Investigation {
   number?: number;
+  brief?: Brief;
   questions?: Question[];
   readyAt?: string;
   closedAt?: string;
@@ -293,7 +294,8 @@ export interface ResearchCommand {
     | "add-to-batch"
     | "batch-ready"
     | "request-approval"
-    | "retitle";
+    | "retitle"
+    | "set-brief";
   investigationId?: string;
   [key: string]: unknown;
 }

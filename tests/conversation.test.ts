@@ -7,6 +7,7 @@ import {
 } from "../src/domain/research";
 import {
   batchStatus,
+  repairClosedBatches,
   unassignedAnnotations,
 } from "../src/domain/conversation";
 import empty from "../src/data/empty.json";
@@ -80,6 +81,11 @@ describe("project-wide queue and conversation", () => {
 });
 
 describe("coordinator batches", () => {
+  const brief = {
+    purpose: "Find who built the fictional Harbour Mill.",
+    scope: "The mill's construction only, not its later owners.",
+    direction: "Start with the parish building register.",
+  };
   function sendTwo() {
     run({ type: "queue-annotation", question: "Who built the mill?", references: [topic()] });
     run({ type: "queue-annotation", question: "Was the builder local?", references: [] });
@@ -91,6 +97,7 @@ describe("coordinator batches", () => {
     const [a, b] = sendTwo();
     const { investigationId } = run({
       type: "open-batch",
+      brief,
       title: "The mill's builder",
       questions: [{ title: "Who built the Harbour Mill?", annotationIds: [a, b] }],
     });
@@ -103,11 +110,33 @@ describe("coordinator batches", () => {
     expect(batchStatus(batch)).toBe("in progress");
   });
 
+  it("requires a brief to open a batch and keeps it current", () => {
+    const [a] = sendTwo();
+    expect(() =>
+      run({ type: "open-batch", title: "No brief", questions: [{ title: "Q", annotationIds: [a] }] }),
+    ).toThrow("brief");
+    const { investigationId } = run({
+      type: "open-batch",
+      brief,
+      title: "The mill's builder",
+      questions: [{ title: "Who built it?", annotationIds: [a] }],
+    });
+    run({ type: "set-brief", investigationId, brief: { direction: "The register is lost; try the 1880 newspaper." } });
+    const batch = state.investigations[0]!;
+    expect(batch.brief).toMatchObject({
+      purpose: brief.purpose,
+      scope: brief.scope,
+      direction: "The register is lost; try the 1880 newspaper.",
+    });
+    expect(batch.events.at(-1)!.message).toContain("try the 1880 newspaper");
+    expect(() => run({ type: "set-brief", investigationId, brief: { direction: "" } })).toThrow("direction");
+  });
+
   it("does not place an annotation in two batches", () => {
     const [a] = sendTwo();
-    run({ type: "open-batch", title: "One", questions: [{ title: "Q", annotationIds: [a] }] });
+    run({ type: "open-batch", brief, title: "One", questions: [{ title: "Q", annotationIds: [a] }] });
     expect(() =>
-      run({ type: "open-batch", title: "Two", questions: [{ title: "Q", annotationIds: [a] }] }),
+      run({ type: "open-batch", brief, title: "Two", questions: [{ title: "Q", annotationIds: [a] }] }),
     ).toThrow("not yet placed in a batch");
   });
 
@@ -115,6 +144,7 @@ describe("coordinator batches", () => {
     const [a, b] = sendTwo();
     const { investigationId } = run({
       type: "open-batch",
+      brief,
       title: "The mill's builder",
       questions: [{ title: "Who built it?", annotationIds: [a] }],
     });
@@ -131,6 +161,7 @@ describe("coordinator batches", () => {
     const [a] = sendTwo();
     const { investigationId } = run({
       type: "open-batch",
+      brief,
       title: "draft title",
       questions: [{ title: "draft question", annotationIds: [a] }],
     });
@@ -147,6 +178,7 @@ describe("coordinator batches", () => {
     const [a, b] = sendTwo();
     const { investigationId } = run({
       type: "open-batch",
+      brief,
       title: "Closed",
       questions: [{ title: "Q", annotationIds: [a] }],
     });
@@ -156,10 +188,20 @@ describe("coordinator batches", () => {
     ).toThrow("closed");
   });
 
+  it("repairs a batch closed without its status", () => {
+    const [a] = sendTwo();
+    run({ type: "open-batch", brief, title: "Old", questions: [{ title: "Q", annotationIds: [a] }] });
+    state.investigations[0]!.closedAt = new Date().toISOString();
+    expect(repairClosedBatches(state)).toBe(1);
+    expect(state.investigations[0]!.status).toBe("closed");
+    expect(repairClosedBatches(state)).toBe(0);
+  });
+
   it("announces a ready batch in the conversation", () => {
     const [a] = sendTwo();
     const { investigationId } = run({
       type: "open-batch",
+      brief,
       title: "Ready",
       questions: [{ title: "Q", annotationIds: [a] }],
     });
@@ -172,6 +214,7 @@ describe("coordinator batches", () => {
     const [a] = sendTwo();
     const { investigationId } = run({
       type: "open-batch",
+      brief,
       title: "Mill",
       questions: [{ title: "Q", annotationIds: [a] }],
     });

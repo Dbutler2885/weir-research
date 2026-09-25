@@ -21,7 +21,7 @@ npm run workspace -- resume
 
 The start and resume commands build when necessary, start or reuse the project's service, open its URL, and return the coordinator session and compact project context.
 New projects live under `.research/projects/`, alongside the registry and outside version control.
-See [the coordinator guide](docs/coordinator.md) for project creation, assignment, event waiting, and recovery.
+See [the coordinator guide](skills/coordinate-research/SKILL.md) for project creation, assignment, event waiting, and recovery.
 Closing the agent conversation ends active coordination; the next agent recovers saved work when it attaches.
 
 ## Start the workspace directly
@@ -114,7 +114,7 @@ npm run research -- checkpoint /path/to/checkpoint.json
 npm run research -- propose /path/to/proposal.json
 ```
 
-See [the research-agent contract](docs/research-agent.md) for the proposal format, source expectations, and recovery behavior.
+See [the research-agent contract](skills/research-contract/SKILL.md) for the proposal format, source expectations, and recovery behavior.
 The supervisor implements a narrow research workflow inspired by Firstmate; it does not run Firstmate's fleet or Git worktrees.
 The agent-led mode adds coordinator briefs, project-wide handoffs, and a synthesis step before researcher findings become human-review proposals.
 In that mode, the engine selector is a preference for the coordinator; it does not dispatch work on its own.

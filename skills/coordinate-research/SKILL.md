@@ -1,3 +1,8 @@
+---
+name: coordinate-research
+description: "Coordinator operations beyond startup: attaching and the wait loop, organizing the graph, answering the conversation, opening batches with briefs, assigning researchers, reconciling and publishing findings, and forking to write a walkthrough. Load it before the first delegation or when an operation is not covered by the startup instructions."
+---
+
 # Agent-led research sessions
 
 The coding agent opened in this repository becomes the research coordinator through `AGENTS.md` (also available as `CLAUDE.md`).
@@ -136,9 +141,13 @@ Answer every send in the conversation with your plan for it: a direct answer, re
 Send these through the coordinator `command` interface:
 
 - `{"action":"reply","text":"...","references":[{"label":"...","table":"contextEntities","recordId":"..."}]}` answers in the conversation; references become links the human can follow.
-- `{"action":"open-batch","title":"...","questions":[{"title":"Coordinator-written heading","annotationIds":["..."]}],"scope":["web","imports"]}` opens a numbered batch from sent annotations.
+- `{"action":"open-batch","title":"...","brief":{"purpose":"...","scope":"...","direction":"..."},"questions":[{"title":"Coordinator-written heading","annotationIds":["..."]}],"scope":["web","imports"]}` opens a numbered batch from sent annotations.
   A batch is research one walkthrough and one graph update can coherently explain.
+  The brief is required: its purpose, what is in and out of the batch, and where the work is heading now.
+  A later coordinator starting fresh relies on it to know what the batch is for and where new notes belong.
   The returned `investigationId` is the batch; assign or claim it as described below.
+- `{"action":"set-brief","investigationId":"...","brief":{"direction":"..."}}` updates a brief; send only the fields that changed.
+  Update the direction whenever the human redirects a batch or a pass changes what comes next.
 - `{"action":"add-to-batch","investigationId":"...","questions":[{"questionId":"existing","annotationIds":["..."]},{"title":"New heading","annotationIds":["..."]}]}` places later annotations that address an open batch's work.
 - `{"action":"batch-ready","investigationId":"...","text":"..."}` tells the human a batch is ready to review; never leave a finished batch unannounced.
 - `{"action":"retitle","investigationId":"...","title":"...","questions":[{"questionId":"...","title":"..."}]}` rewrites batch and question headings, for example the placeholder headings of converted projects, which repeat the human's own words.
@@ -171,7 +180,7 @@ For an installed managed researcher, use:
 
 The brief is the place for the coordinator's cross-investigation context and research strategy.
 Read the indexed `phase` before assigning work: research passes return qualified findings without graph changes; graph passes represent exact kept `graphRequest.refs` and return coherent review groups.
-Use the contracts in `docs/research-agent.md`; do not collapse these two tasks into a single proposal.
+Use the contracts in `skills/research-contract/SKILL.md`; do not collapse these two tasks into a single proposal.
 If `engine` is omitted for a managed assignment, the saved browser preference is used.
 Choose native delegation only when the saved preference is manual or the human explicitly asks for that route.
 Actual assignments are recorded under Investigations with their provider and model when known; missing model information remains explicitly unreported.
@@ -222,7 +231,7 @@ Write the synthesis through:
 
 Omit `proposal` to publish the exact inspected candidate unchanged.
 For coordinator-owned/native work, omit `candidateId` and provide the reconciled proposal.
-Follow `docs/research-agent.md` for full evidence and change schemas.
+Follow `skills/research-contract/SKILL.md` for full evidence and change schemas.
 Publishing revalidates the current lease, exact before records, source references, and quoted text before creating an immutable proposal revision.
 It does not change accepted research.
 When the batch's research is complete, announce it with `batch-ready`.
