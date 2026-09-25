@@ -211,7 +211,7 @@ export class GraphBuilders {
       const fresh = job.updates.slice(known);
       if (task.agent && fresh.length) task.agent.steer(updateMessage(fresh));
     }
-    if (task.timeLimitMinutes !== null && Date.now() - task.started >= task.timeLimitMinutes * 60_000) {
+    if (task.timeLimitMinutes !== null && !task.pausedAt && Date.now() - task.started >= task.timeLimitMinutes * 60_000) {
       this.pause(task.id, `Graph preparation paused at the ${task.timeLimitMinutes}-minute limit. Saved files are retained.`);
       this.terminate(task);
     }
@@ -247,6 +247,22 @@ export class GraphBuilders {
       task.agent.on('turn', ({outcome}) => { if (outcome !== 'interrupted') task.agent.finish(); });
       task.agent.on('failed', error => this.pause(id, `Builder could not start: ${error.message}. Saved files are retained.`));
       task.agent.on('exit', ({code}) => this.finished(task, code));
+      // A usage-limit pause keeps the builder and its attempts; it carries on at the reset.
+      task.agent.on('paused', ({reason}) => {
+        task.pausedAt = Date.now();
+        this.store.update(next => {
+          const j = next.investigations.flatMap(i => i.reviewFlow?.jobs || []).find(j => j.id === id);
+          j.progress = reason;
+          this.log(next, id, `Graph builder ${reason.charAt(0).toLowerCase()}${reason.slice(1)}`);
+        });
+      });
+      task.agent.on('resumed', () => {
+        task.started += Date.now() - (task.pausedAt ?? Date.now());
+        this.store.update(next => {
+          next.investigations.flatMap(i => i.reviewFlow?.jobs || []).find(j => j.id === id).progress = 'Writing the graph draft.';
+          this.log(next, id, 'The usage limit reset; the graph builder carries on.');
+        });
+      });
       task.agent.on('intruder', () => this.store.update(next => this.log(next, id, 'The graph builder tried to start another agent, and the app stopped it.')));
     } catch (error) { this.pause(id, `Unable to start graph preparation: ${error.message}`); }
   }

@@ -138,16 +138,34 @@ export const codexAdapter = {
           reply = "";
         }
         if (message.method === "item/completed" && message.params?.item?.type === "agentMessage") reply = message.params.item.text || "";
+        if (message.method === "account/rateLimits/updated") return { actions: [], usage: codexUsage(message.params.rateLimits || {}) };
         if (message.method === "turn/completed") {
           turnId = null;
           flush();
-          return { actions: [], turn: { ok: message.params.turn.status === "completed", text: reply } };
+          const failure = message.params.turn.error?.codexErrorInfo;
+          const quota = failure === "usageLimitExceeded" || failure === "rateLimitExceeded";
+          return { actions: [], turn: { ok: message.params.turn.status === "completed", quota, text: reply } };
         }
         return { actions: streamActions(message, describe) };
       },
     };
   },
 };
+
+// Codex's rate-limit report: how much of each window is used, and when it resets.
+export function codexUsage(limits) {
+  const windows = [limits.primary, limits.secondary].filter(Boolean).map((w) => ({
+    name: !w.windowDurationMins ? "usage" : w.windowDurationMins % 1440 === 0 ? (w.windowDurationMins === 10080 ? "weekly" : `${w.windowDurationMins / 1440}-day`) : `${Math.round(w.windowDurationMins / 60)}-hour`,
+    used: w.usedPercent / 100,
+    resetsAt: w.resetsAt ? w.resetsAt * 1000 : null,
+  }));
+  const full = windows.filter((w) => w.used >= 1);
+  return {
+    exhausted: Boolean(limits.rateLimitReachedType) || full.length > 0,
+    resetsAt: full.length ? Math.max(...full.map((w) => w.resetsAt || 0)) || null : null,
+    windows,
+  };
+}
 
 function compare(a, b) {
   for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] - b[i];

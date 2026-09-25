@@ -35,7 +35,7 @@ export function agentCli(command) {
 // does is read from its output stream and reported to the live activity model.
 export class AgentSupervisor {
   // Homes are the app's own Codex home and home folder, from agentHomes.
-  constructor({ launch = spawn, live = new LiveActivity(), adapters = { claude: claudeAdapter, codex: codexAdapter }, stopGrace = 5000, homes = null, watchInterval = 2000 } = {}) {
+  constructor({ launch = spawn, live = new LiveActivity(), adapters = { claude: claudeAdapter, codex: codexAdapter }, stopGrace = 5000, homes = null, watchInterval = 2000, quotaWait = { unknown: 30 * 60_000, margin: 60_000 } } = {}) {
     this.launch = launch;
     this.homes = homes;
     this.live = live;
@@ -43,6 +43,9 @@ export class AgentSupervisor {
     this.stopGrace = stopGrace;
     this.agents = new Set();
     this.watchInterval = watchInterval;
+    this.quotaWait = quotaWait;
+    // The latest usage each provider reported, for showing remaining quota.
+    this.usage = /** @type {Record<string, any>} */ ({});
   }
   // Only the app starts agents. One started beneath an agent is stopped and reported.
   async watch() {
@@ -77,7 +80,7 @@ export class AgentSupervisor {
       env: adapter.env ? adapter.env({ ...env }, { homes: this.homes }) : { ...env },
       stdio: ["pipe", "pipe", "pipe"],
     });
-    const agent = new Agent(key, child, this.stopGrace);
+    const agent = new Agent(key, child, this.stopGrace, this.quotaWait);
     this.agents.add(agent);
     if (!this.watcher) {
       this.watcher = setInterval(() => this.watch(), this.watchInterval);
@@ -88,7 +91,11 @@ export class AgentSupervisor {
     if (live) {
       this.live.begin(key, live);
       agent.on("action", (text) => this.live.note(key, text));
+      agent.on("paused", ({ reason }) => this.live.note(key, reason));
     }
+    agent.on("usage", (usage) => {
+      this.usage[provider] = { ...usage, at: Date.now() };
+    });
     agent.on("exit", () => {
       if (live) this.live.end(key);
       this.agents.delete(agent);
@@ -117,11 +124,15 @@ export class AgentSupervisor {
 }
 
 class Agent extends EventEmitter {
-  constructor(key, child, stopGrace) {
+  constructor(key, child, stopGrace, quotaWait) {
     super();
     this.key = key;
     this.child = child;
     this.stopGrace = stopGrace;
+    this.quotaWait = quotaWait;
+    // Set while the provider's usage limit holds the agent; messages wait for it.
+    this.paused = null;
+    this.held = [];
     this.busy = false;
     this.interrupting = false;
     this.closed = false;
@@ -152,12 +163,21 @@ class Agent extends EventEmitter {
         } catch (error) {
           result = { actions: [], failure: error };
         }
-        const { actions, turn, failure } = result;
+        const { actions, turn, failure, usage } = result;
         for (const text of actions) this.emit("action", text);
+        if (usage) {
+          this.usage = usage;
+          this.emit("usage", usage);
+        }
         if (failure) {
           this.emit("failed", failure);
           this.stop();
           return;
+        }
+        // A turn the usage limit stopped is not over: the agent waits and carries on.
+        if (turn?.quota && !this.interrupting) {
+          this.pauseForQuota();
+          continue;
         }
         if (turn) {
           const outcome = this.interrupting ? "interrupted" : turn.ok ? "done" : "error";
@@ -177,8 +197,31 @@ class Agent extends EventEmitter {
   // Starts a turn when the agent is waiting, or reaches it at its next step.
   send(text) {
     if (this.finishing) throw new Error("This agent has already closed its input.");
+    if (this.paused) {
+      this.held.push(text);
+      return;
+    }
     this.session.send(text);
     this.busy = true;
+  }
+  // Waits until the reported reset, or a while when none was reported, then carries on.
+  pauseForQuota() {
+    const now = Date.now();
+    const reported = this.usage?.exhausted && this.usage.resetsAt > now ? this.usage.resetsAt : null;
+    const resetsAt = reported ?? now + this.quotaWait.unknown;
+    const at = new Date(resetsAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+    const reason = `Paused: the usage limit is reached${reported ? "" : " and no reset time was given"}. It carries on at ${at}.`;
+    this.paused = { resetsAt, reason };
+    this.busy = false;
+    this.emit("paused", this.paused);
+    this.resumeTimer = setTimeout(() => this.resume(), Math.max(0, resetsAt - now) + (reported ? this.quotaWait.margin : 0));
+  }
+  resume() {
+    if (!this.paused || this.finishing) return;
+    this.paused = null;
+    const held = this.held.splice(0);
+    this.emit("resumed");
+    this.send(["The usage limit has reset. Carry on with your assignment from where you stopped.", ...held].join("\n\n"));
   }
   // Redirects a running turn; the adapter delivers it at the agent's next step.
   steer(text) {
@@ -207,6 +250,7 @@ class Agent extends EventEmitter {
   stop() {
     if (this.stopped) return;
     this.stopped = true;
+    clearTimeout(this.resumeTimer);
     this.finishing = true;
     this.close();
     if (this.child.exitCode !== null) return;
@@ -219,6 +263,7 @@ class Agent extends EventEmitter {
   exited(code) {
     if (this.ended) return;
     this.ended = true;
+    clearTimeout(this.resumeTimer);
     this.busy = false;
     this.emit("exit", { code, stopped: this.stopped });
   }

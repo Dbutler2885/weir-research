@@ -308,6 +308,30 @@ describe('a running builder', () => {
   });
 });
 
+describe('a builder that reaches its usage limit', () => {
+  it('pauses with the reason and keeps every attempt, rather than failing', async () => {
+    const f = fixture('claude');
+    const {child, pool} = builder(f);
+    const before = {corrections: f.job().corrections || 0, attempt: f.job().attempt};
+    // Recorded lines from a builder that hit its limit, with the reset moved into the future.
+    const resetsAt = Math.floor(Date.now() / 1000) + 3600;
+    for (const line of readFileSync(resolve('tests/fixtures/claude-quota.jsonl'), 'utf8').trim().split('\n')) {
+      const event = JSON.parse(line);
+      if (event.rate_limit_info) event.rate_limit_info.resetsAt = resetsAt;
+      child.stdout.write(`${JSON.stringify(event)}\n`);
+    }
+    await new Promise(done => setImmediate(done));
+    expect(f.job().status).toBe('running');
+    expect(f.job().progress).toMatch(/^Paused: the usage limit is reached\. It carries on at /);
+    expect({corrections: f.job().corrections || 0, attempt: f.job().attempt}).toEqual(before);
+    expect(child.stdin.writableEnded).toBe(false);
+    expect(f.store.state.investigations[0].events.at(-1).message).toMatch(/^Graph builder paused: the usage limit is reached/);
+    // The time limit does not run out while it waits.
+    pool.pump();
+    expect(f.job().status).toBe('running');
+  });
+});
+
 describe('validation feedback', () => {
   it('sends a draft that does not hold together back to the builder with every problem', () => {
     const f = fixture('claude');

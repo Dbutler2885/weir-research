@@ -1294,7 +1294,8 @@ dialog .muted {
   margin-top: 18px;
 }
 .live-now,
-.live-recent {
+.live-recent,
+.live-usage {
   margin: 0;
   padding: 0;
   list-style: none;
@@ -1342,6 +1343,11 @@ dialog .muted {
 }
 .live-empty {
   margin: 0;
+  color: var(--ink-soft);
+}
+.live-usage li {
+  padding: 3px 0;
+  line-height: 1.4;
   color: var(--ink-soft);
 }
 .live-recent li {

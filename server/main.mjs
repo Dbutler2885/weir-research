@@ -286,6 +286,7 @@ const server = createServer(async (req, res) => {
         coordinator: coordinator.status(),
         live: live.list(),
         catalog,
+        usage: supervisor.usage,
       });
     if (req.method === "GET" && url.pathname === "/api/revision")
       return json(res, 200, {
@@ -293,6 +294,7 @@ const server = createServer(async (req, res) => {
         datasetRevision: store.state.datasetRevision,
         coordinator: coordinator.status(),
         live: live.list(),
+        usage: supervisor.usage,
       });
     if (req.method === "GET" && url.pathname.startsWith("/api/documents/")) {
       const doc = store.state.documents.find(

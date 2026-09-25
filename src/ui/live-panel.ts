@@ -129,6 +129,23 @@ export function runningSummary(state: ResearchState): string {
 const clock = (iso: string) =>
   new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 
+const labels: Record<string, string> = { claude: "Claude Code", codex: "Codex" };
+const resetTime = (ms: number | null, now: number) => {
+  if (!ms) return "";
+  const at = new Date(ms);
+  const time = at.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  return ms - now < 20 * 3_600_000 ? time : `${at.toLocaleDateString("en-US", { weekday: "short" })} ${time}`;
+};
+// How much of each agent's usage limit is used, where the agent reports it.
+export function usageLines(state: ResearchState, now = Date.now()): string[] {
+  return Object.entries(state.usage || {}).map(([agent, u]) => {
+    const name = labels[agent] || agent;
+    if (u!.exhausted) return `${name}: the usage limit is reached${u!.resetsAt ? `; it resets at ${resetTime(u!.resetsAt, now)}` : ""}.`;
+    const windows = u!.windows.map((w) => `${Math.round(w.used * 100)}% of the ${w.name} limit${w.resetsAt ? ` (resets ${resetTime(w.resetsAt, now)})` : ""}`);
+    return `${name}: ${windows.join(", ") || "usage not reported"} used.`;
+  });
+}
+
 export function livePanel(state: ResearchState, now = Date.now()): string {
   const rows = liveRows(state);
   const recent = state.investigations
@@ -152,5 +169,6 @@ export function livePanel(state: ResearchState, now = Date.now()): string {
         )
         .join("")}</ol>`
     : "";
-  return `<h2>Now</h2>${now_}${history ? `<h2>Recent</h2>${history}` : ""}<button type="button" class="text-action" data-live-all>All activity</button>`;
+  const usage = usageLines(state, now);
+  return `<h2>Now</h2>${now_}${history ? `<h2>Recent</h2>${history}` : ""}${usage.length ? `<h2>Usage</h2><ul class="live-usage">${usage.map((u) => `<li>${html(u)}</li>`).join("")}</ul>` : ""}<button type="button" class="text-action" data-live-all>All activity</button>`;
 }

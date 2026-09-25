@@ -147,6 +147,7 @@ export class ResearcherPool {
         this.checkpoint(task);
         if (
           task.timeLimitMinutes !== null &&
+          !task.pausedAt &&
           Date.now() - task.started >= task.timeLimitMinutes * 60_000
         ) {
           this.fail(
@@ -320,6 +321,16 @@ Your final message should be a short completion status. The host will validate r
       ),
     );
     task.agent.on("exit", ({ code }) => this.closed(task, code, engine));
+    // A usage-limit pause is not a failure, and its wait does not count against a time limit.
+    task.agent.on("paused", ({ reason }) => {
+      task.pausedAt = Date.now();
+      this.note(task, `The researcher is paused: ${reason.replace(/^Paused: /, "")}`);
+    });
+    task.agent.on("resumed", () => {
+      task.started += Date.now() - (task.pausedAt ?? Date.now());
+      task.pausedAt = null;
+      this.note(task, "The usage limit reset; the researcher carries on.");
+    });
     task.agent.on("intruder", () => this.note(task, "The researcher tried to start another agent, and the app stopped it."));
   }
   // A researcher that has written its result is done; one that has not waits for the coordinator.

@@ -73,6 +73,8 @@ export class WalkthroughWriters {
     });
     this.active.set(id, task);
     task.agent.on('turn', ({outcome}) => { if (outcome !== 'interrupted') this.turnEnded(task); });
+    task.agent.on('paused', ({reason}) => this.update(id, (w) => { w.progress = reason; }, `Walkthrough writer ${reason.charAt(0).toLowerCase()}${reason.slice(1)}`));
+    task.agent.on('resumed', () => this.update(id, (w) => { w.progress = 'Writing the walkthrough.'; }, 'The usage limit reset; the walkthrough writer carries on.'));
     task.agent.on('intruder', () => this.update(id, () => {}, 'The walkthrough writer tried to start another agent, and the app stopped it.'));
     task.agent.on('failed', (error) => this.pause(id, `The walkthrough writer could not start: ${error.message}`));
     task.agent.on('exit', () => {

@@ -54,6 +54,8 @@ export class CoordinatorHost {
     this.agent = agent;
     agent.on('action', (text) => this.coordinator.noteText(text));
     agent.on('turn', () => this.flush());
+    agent.on('paused', ({reason}) => this.coordinator.noteText(reason));
+    agent.on('resumed', () => this.coordinator.noteText('The usage limit reset; carrying on.'));
     agent.on('failed', (error) => { this.problem = `The coordinator could not start: ${error.message}`; });
     agent.on('exit', () => {
       if (this.agent !== agent) return;

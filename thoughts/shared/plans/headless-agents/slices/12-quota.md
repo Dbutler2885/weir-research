@@ -1,7 +1,7 @@
 # Slice 12: Quota
 
 **Type**: AFK
-**Status**: Not started
+**Status**: Done
 
 ## Blocked by
 
@@ -15,11 +15,11 @@ See **Quota**.
 
 ## Acceptance criteria
 
-- [ ] Quota exhaustion shows as a pause with reason and reset time, not a failure
-- [ ] Paused work resumes on its own when quota returns
-- [ ] A graph builder's retries are unchanged by a quota pause
-- [ ] Remaining quota appears where reported
-- [ ] Recognition is tested against recorded provider output
+- [x] Quota exhaustion shows as a pause with reason and reset time, not a failure
+- [x] Paused work resumes on its own when quota returns
+- [x] A graph builder's retries are unchanged by a quota pause
+- [x] Remaining quota appears where reported
+- [x] Recognition is tested against recorded provider output
 
 ## User stories addressed
 

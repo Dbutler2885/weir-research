@@ -1035,6 +1035,7 @@ export function mountResearchWorkspace(
       const revision = await request("/api/revision");
       // Live activity changes between revisions; take it from every poll.
       state.live = revision.live;
+      state.usage = revision.usage;
       if (revision.coordinator) {
         // Attaching or dropping does not change the revision, so refresh the drawer here.
         const wasConnected = state.coordinator?.connected;

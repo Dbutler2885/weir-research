@@ -3,9 +3,10 @@
 // A message "steps: [...]" runs those tool steps as one turn; any other message
 // runs the steps in the file named by FAKE_CLAUDE_STEPS, or none. A step is
 // {tool, input, delay, writes: {file: text}, run: [command, ...args]}, where
-// run starts a process beneath it. A message arriving mid-turn replaces the
-// remaining steps at the next step, as Claude's does. FAKE_CLAUDE_RECORD keeps
-// every message received in received.jsonl.
+// run starts a process beneath it, and {quota: seconds} hits the usage limit.
+// A message arriving mid-turn replaces the remaining steps at the next step, as
+// Claude's does. FAKE_CLAUDE_RECORD keeps every message received in
+// received.jsonl.
 import { spawn } from "node:child_process";
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
@@ -29,6 +30,14 @@ async function turn(steps) {
   let n = 0;
   for (let i = 0; i < steps.length; i++) {
     const step = steps[i];
+    // {quota: seconds} hits the usage limit, reporting a reset that many seconds away, as Claude does.
+    if (step.quota) {
+      const resetsAt = Math.floor(Date.now() / 1000) + step.quota;
+      out({ type: "rate_limit_event", rate_limit_info: { status: "rejected", resetsAt, rateLimitType: "five_hour", unifiedWindows: { five_hour: { utilization: 1, resetsAt } } } });
+      out({ type: "assistant", message: { model: "<synthetic>", content: [{ type: "text", text: "You've hit your session limit" }] }, error: "rate_limit" });
+      out({ type: "result", subtype: "success", is_error: true, result: "You've hit your session limit", api_error_status: 429 });
+      return;
+    }
     out({ type: "assistant", message: { content: [{ type: "tool_use", id: `tool-${++n}`, name: step.tool, input: step.input || {} }] } });
     if (step.run) spawn(step.run[0], step.run.slice(1), { stdio: "ignore" });
     const until = Date.now() + (step.delay || 0);

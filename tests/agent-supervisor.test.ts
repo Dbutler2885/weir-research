@@ -224,12 +224,12 @@ describe("Claude adapter", () => {
     expect(recorded.map((e) => s.session.read(e))).toEqual([
       { actions: [] },
       { actions: ["Reading its assignment"] },
+      { actions: [], usage: { exhausted: false, resetsAt: null, windows: [] } },
       { actions: [] },
       { actions: [] },
+      { actions: [], turn: { ok: true, quota: false, text: "STEERED" } },
       { actions: [] },
-      { actions: [], turn: { ok: true, text: "STEERED" } },
-      { actions: [] },
-      { actions: [], turn: { ok: false, text: "" } },
+      { actions: [], turn: { ok: false, quota: false, text: "" } },
     ]);
   });
 });

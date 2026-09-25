@@ -214,11 +214,20 @@ export interface ResearchState {
   // Which agent, model and effort does each job, and what the installed CLIs offer.
   dispatch?: Dispatch;
   catalog?: Catalog;
+  // The latest usage each agent CLI reported, where it reports any.
+  usage?: Partial<Record<"claude" | "codex", Usage>>;
   researcher?: {
     selected: "manual" | "codex" | "claude";
     engines: { id: string; available: boolean }[];
     limit: number;
   };
+}
+
+export interface Usage {
+  exhausted: boolean;
+  resetsAt: number | null;
+  windows: { name: string; used: number; resetsAt: number | null }[];
+  at: number;
 }
 
 export interface LiveWorker {
