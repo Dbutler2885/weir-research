@@ -11,10 +11,9 @@ Keep user-facing output attached to the relevant research objects.
 
 ## Start and claim work
 
-The normal entry point is an agent opened in this repository, following `AGENTS.md` and `skills/coordinate-research/SKILL.md`.
-That agent opens a project, attaches as coordinator, and remains in the browser-event loop.
+The app opens a project and starts its coordinator, which assigns each batch to a researcher the app launches.
+A researcher works in its own folder, from the brief and scoped sources the app prepared there.
 The independent mode below is also available through `npm start` before coordinator supervision is enabled.
-An agent started in this repository reads this contract, then uses the research CLI.
 
 ```sh
 npm run research -- status
@@ -155,6 +154,6 @@ This runtime adopts Firstmate's brief, supervision-state, checkpoint, and recove
 It does not vendor or run Firstmate's fleet scripts.
 It does not create Git worktrees, branches, PRs, or software-delivery tasks for research.
 The current launcher maps local CLI processes and completion files onto this contract.
-Agent-led sessions now use the coordinator contract in `skills/coordinate-research/SKILL.md` for project recovery, research assignment, and synthesis before publication.
-The current coding agent supplies that judgment; the service does not launch a separate coordinating model.
+Agent-led sessions use the coordinator contract in `skills/coordinate-research/SKILL.md` for project recovery, research assignment, and synthesis before publication.
+The app starts the coordinating agent itself, as it does every worker.
 Keep that launcher replaceable; the workspace must remain intelligible after changing the coordinating model or harness.

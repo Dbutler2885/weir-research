@@ -21,6 +21,7 @@ import { Coordinator } from "./coordinator.mjs";
 import { ResearcherPool } from "./researchers.mjs";
 import { GraphBuilders } from "./graph-builders.mjs";
 import { WalkthroughWriters } from "./walkthrough-writers.mjs";
+import { CoordinatorHost } from "./coordinator-host.mjs";
 import { AgentSupervisor } from "./agents/supervisor.mjs";
 import { agentHomes } from "./agents/isolation.mjs";
 import { LiveActivity } from "./live-activity.mjs";
@@ -72,6 +73,32 @@ coordinator.writers = writers;
 process.on("exit", () => writers.stop());
 process.on("exit", () => graphBuilders.stop());
 process.on("exit", () => researchers.stop());
+// A coordinator command, from the app's coordinator or one attached from outside.
+function coordinatorCommand(data) {
+  if (
+    data.action === "assign" &&
+    !researchers.findExecutable(data.engine || store.state.engine)
+  )
+    throw new Error("Requested researcher CLI is not available.");
+  if (["claim-graph", "submit-graph-files"].includes(data.action)) {
+    coordinator.require(data.session);
+    coordinator.noteAction(data);
+    return graphBuilders.native(data);
+  }
+  const result = coordinator.command(data);
+  researchers.pump();
+  graphBuilders.pump();
+  writers.pump();
+  return result;
+}
+// The app starts a fresh coordinator every time it opens the project.
+const coordinatorHost = new CoordinatorHost({ store, coordinator, supervisor, directory, root, handle: coordinatorCommand });
+// For the context evaluation, the coordinator's folder is prepared for an agent it runs itself.
+if (process.env.RESEARCH_COORDINATOR_AGENT === "prepare") {
+  const prompt = coordinatorHost.prepare();
+  writeFileSync(join(directory, "coordinator", "prepared.json"), JSON.stringify({ folder: coordinatorHost.folder, prompt }));
+} else if (process.env.RESEARCH_COORDINATOR_AGENT !== "0") coordinatorHost.start();
+process.on("exit", () => coordinatorHost.stop());
 const token = randomBytes(32).toString("hex");
 const coordinatorToken = randomBytes(32).toString("hex");
 const documentsDir = join(directory, "documents");
@@ -229,46 +256,7 @@ const server = createServer(async (req, res) => {
       const data = await body(req);
       if (data.action === "attach")
         return json(res, 200, coordinator.attach(data.name, data.session));
-      if (data.action === "wait") {
-        coordinator.require(data.session);
-        const since = Number(data.since);
-        if (!Number.isInteger(since) || since < -1)
-          throw new Error("Valid revision cursor required.");
-        // Long waits are cheap now that a quiet one answers with its revision alone.
-        const deadline =
-          Date.now() + Math.min(300_000, Math.max(0, Number(data.timeout) || 0));
-        coordinator.waiting++;
-        try {
-          while (
-            store.state.revision === since &&
-            Date.now() < deadline &&
-            !res.destroyed
-          ) {
-            await new Promise((resolve) => setTimeout(resolve, 200));
-            coordinator.require(data.session);
-          }
-        } finally {
-          coordinator.waiting--;
-        }
-        if (res.destroyed) return;
-        if (store.state.revision === since) coordinator.quietAt = coordinator.now();
-        return json(res, 200, coordinator.delta(data.session, since));
-      }
-      if (
-        data.action === "assign" &&
-        !researchers.findExecutable(data.engine || store.state.engine)
-      )
-        throw new Error("Requested researcher CLI is not available.");
-      if (["claim-graph", "submit-graph-files"].includes(data.action)) {
-        coordinator.require(data.session);
-        coordinator.noteAction(data);
-        return json(res, 200, graphBuilders.native(data));
-      }
-      const result = coordinator.command(data);
-      researchers.pump();
-      graphBuilders.pump();
-      writers.pump();
-      return json(res, 200, result ?? null);
+      return json(res, 200, coordinatorCommand(data) ?? null);
     }
     if (
       req.method === "POST" &&

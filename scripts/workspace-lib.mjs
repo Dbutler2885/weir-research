@@ -120,6 +120,27 @@ function newest(path) {
     ? Math.max(0, ...readdirSync(path).map((n) => newest(join(path, n))))
     : statSync(path).mtimeMs;
 }
+// Stops a project's service, and with it the agents it runs.
+export async function stopProject(p) {
+  const lock = join(p.directory, "server.lock");
+  if (!existsSync(lock)) return { stopped: false };
+  const pid = Number(readFileSync(lock, "utf8"));
+  try {
+    process.kill(pid, "SIGTERM");
+  } catch (error) {
+    if (error.code === "ESRCH") return { stopped: false };
+    throw error;
+  }
+  for (let n = 0; n < 100; n++) {
+    try {
+      process.kill(pid, 0);
+    } catch {
+      return { stopped: true };
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error("The project's service did not stop.");
+}
 export async function openProject(p, { browser = true, build = true } = {}) {
   const artifact = join(root, "dist/index.html");
   if (

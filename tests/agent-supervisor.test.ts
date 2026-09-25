@@ -26,12 +26,12 @@ const providers = {
 };
 const steps = (list: object[]) => `steps:${JSON.stringify(list)}`;
 
-function start(provider: "claude" | "codex", prompt?: string, env: Record<string, string> = {}) {
+function start(provider: "claude" | "codex", prompt?: string, env: Record<string, string> = {}, watchInterval = 2000) {
   const folder = mkdtempSync(join(tmpdir(), "agent-"));
   cleanups.push(() => rmSync(folder, { recursive: true, force: true }));
   cleanups.push(() => rmSync(`${folder}.log`, { force: true }));
   const live = new LiveActivity();
-  const supervisor = new AgentSupervisor({ live, stopGrace: 200, watchInterval: 100 });
+  const supervisor = new AgentSupervisor({ live, stopGrace: 200, watchInterval });
   const agent = supervisor.start({
     key: "research:fixture",
     provider,
@@ -150,7 +150,8 @@ describe("isolation", () => {
     const claude = join(bin, "claude");
     writeFileSync(claude, "#!/bin/sh\nsleep 30\n");
     chmodSync(claude, 0o755);
-    const a = start("claude", steps([{ tool: "Bash", input: { command: "claude" }, run: [claude], delay: 5000 }]));
+    // Watching often only here: each look lists every process on the machine.
+    const a = start("claude", steps([{ tool: "Bash", input: { command: "claude" }, run: [claude], delay: 5000 }]), {}, 100);
     const intruder = await a.next("intruder");
     expect(intruder.command).toContain(claude);
     expect(a.actions).toContain("Tried to start another agent; the app stopped it");
@@ -194,7 +195,7 @@ describe("Claude adapter", () => {
       filesystem: { denyRead: [homedir()], allowWrite: [folder] },
       network: { allowedDomains: ["*"] },
     });
-    expect(settings.permissions.allow).toEqual(["Bash", `Read(/${folder}/**)`, `Edit(/${folder}/**)`, `Write(/${folder}/**)`, "WebSearch", "WebFetch"]);
+    expect(settings.permissions.allow).toEqual(["Bash", `Read(/${folder}/**)`, `Edit(/${folder}/**)`, "WebSearch", "WebFetch"]);
     expect(settings.permissions.deny).toEqual(["Agent", "Task"]);
     const local = JSON.parse(claudeAdapter.args({ folder }).find((a: string) => a.includes("sandbox"))!);
     expect(local.permissions.allow).not.toContain("WebSearch");

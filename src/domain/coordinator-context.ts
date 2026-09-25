@@ -232,14 +232,14 @@ function conversation(state: ResearchState): ContextLayer {
 
 function more(skills: Skill[]): ContextLayer {
   const blocks = [
-    "Every ID above can be inspected. Use `npm run coordinator -- command <json-file> --session <sessionFile>` with:",
+    "Every ID above can be inspected. Use `node tools/research.mjs '<json>'` with:",
     '- `{"action":"inspect","kind":"investigation","id":"..."}` for a batch\'s findings, checkpoints and history.',
     '- `{"action":"inspect","kind":"investigations","status":"closed"}` to list batches.',
     '- `{"action":"inspect","kind":"map"}` for the full research map and handoff.',
     '- `{"action":"inspect","kind":"source","id":"...","offset":0,"limit":6000}` for a source passage.',
     '- `{"action":"inspect","kind":"entity","table":"people","id":"..."}` for a graph record.',
     '- `{"action":"set-brief","investigationId":"...","brief":{"direction":"..."}}` when a batch\'s direction changes.',
-    "`npm run coordinator -- search \"words\" --session <sessionFile>` finds records, findings and passages.",
+    "`node tools/research.mjs search words` finds records, findings and passages.",
   ];
   if (skills.length)
     blocks.push(

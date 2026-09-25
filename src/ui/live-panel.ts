@@ -49,6 +49,8 @@ export function liveRows(state: ResearchState): LiveRow[] {
       latest: c.latest ? `${c.listening ? "Last: " : ""}${c.latest.text}` : undefined,
       since: c.listening ? undefined : c.latest?.at,
     });
+  else if (c?.problem)
+    rows.push({ who: "Coordinator", stage: c.problem });
   else if (waiting)
     rows.push({
       who: "Coordinator",

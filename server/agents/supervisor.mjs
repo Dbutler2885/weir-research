@@ -84,10 +84,13 @@ export class AgentSupervisor {
       this.watcher.unref();
     }
     agent.session = adapter.session({ write: (message) => agent.write(message), describe, folder, ...options });
-    this.live.begin(key, live);
-    agent.on("action", (text) => this.live.note(key, text));
+    // An agent with no live entry, such as the coordinator, reports its actions itself.
+    if (live) {
+      this.live.begin(key, live);
+      agent.on("action", (text) => this.live.note(key, text));
+    }
     agent.on("exit", () => {
-      this.live.end(key);
+      if (live) this.live.end(key);
       this.agents.delete(agent);
       if (!this.agents.size) {
         clearInterval(this.watcher);
@@ -95,8 +98,14 @@ export class AgentSupervisor {
       }
     });
     let logSize = 0;
+    // The log is for diagnosis only; losing it, say because its folder was removed, stops nothing.
     const append = (chunk) => {
-      if ((logSize += chunk.length) <= LOG_LIMIT) writeFileSync(log, chunk, { flag: "a", mode: 0o600 });
+      if ((logSize += chunk.length) > LOG_LIMIT) return;
+      try {
+        writeFileSync(log, chunk, { flag: "a", mode: 0o600 });
+      } catch {
+        logSize = LOG_LIMIT;
+      }
     };
     child.stdout.on("data", append);
     child.stderr.on("data", append);

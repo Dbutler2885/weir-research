@@ -13,7 +13,8 @@ import { join, resolve } from "node:path";
 import assert from "node:assert/strict";
 const exec = promisify(execFile);
 const directory = mkdtempSync(join(tmpdir(), "pike-coordinator-e2e-"));
-const env = { ...process.env, RESEARCH_HOME: directory };
+// The test drives the coordinator API itself, so the app starts no coordinator agent.
+const env = { ...process.env, RESEARCH_HOME: directory, RESEARCH_COORDINATOR_AGENT: "0" };
 const run = async (script, args = []) => {
   const { stdout } = await exec(
     process.execPath,
@@ -85,14 +86,6 @@ try {
     ]),
     /Another coordinator/,
   );
-  await run("coordinator", [
-    "ack",
-    String(attached.revision),
-    "--session",
-    sessionFile,
-  ]);
-  const waiting = run("coordinator", ["wait", "--session", sessionFile]);
-  await new Promise((r) => setTimeout(r, 300));
   const annotated = await browser({
     type: "annotate",
     question:
@@ -105,25 +98,6 @@ try {
     dispatch: true,
   });
   const id = annotated.result.investigationId;
-  const woken = await waiting;
-  assert.equal(woken.changed.investigations[0].id, id);
-  const replayed = await run("coordinator", ["wait", "--session", sessionFile]);
-  assert.equal(replayed.revision, woken.revision);
-  await run("coordinator", [
-    "ack",
-    String(woken.revision),
-    "--session",
-    sessionFile,
-  ]);
-  await assert.rejects(
-    run("coordinator", [
-      "ack",
-      String(woken.revision + 10),
-      "--session",
-      sessionFile,
-    ]),
-    /already read/,
-  );
   const searched = await run("coordinator", [
     "search",
     "Alex",
@@ -246,8 +220,6 @@ try {
         checks: [
           "project discovery and reuse",
           "exclusive coordinator",
-          "browser event wake and replay",
-          "revision acknowledgment",
           "targeted context retrieval",
           "checkpoint takeover",
           "coordinator-only synthesis",

@@ -199,8 +199,10 @@ export interface ResearchState {
     attached?: boolean;
     // Waiting for the next thing to do, rather than working on something.
     listening?: boolean;
-    // What it last did, from the command it sent.
+    // What it last did, from its output stream or the command it sent.
     latest?: { at: string; text: string } | null;
+    // Why the app's coordinator is not running, when it is not.
+    problem?: string | null;
     lastSeenSecondsAgo?: number | null;
     name: string | null;
     handoff: string;

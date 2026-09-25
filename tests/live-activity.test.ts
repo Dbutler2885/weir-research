@@ -76,23 +76,29 @@ describe("live activity", () => {
     expect(live.list()).toEqual([]);
   });
 
-  it("says whether the coordinator is listening or working, and what it last did", () => {
+  it("says whether the app's coordinator is listening or working, and what it last did", () => {
     const { store: s } = store();
-    let now = 0;
-    const coordinator = new Coordinator(s, { now: () => now, ttl: 100_000 });
+    const coordinator = new Coordinator(s);
     const secret = randomUUID();
-    coordinator.attach("First", secret);
-    expect(coordinator.status()).toMatchObject({ connected: true, listening: false, latest: null });
+    // The app's coordinator host reports whether its agent is mid-turn.
+    const host = { secret, busy: false, status() { return { connected: true, listening: !this.busy }; } };
+    coordinator.host = host as any;
+    coordinator.attach("Coordinator", secret);
+    expect(coordinator.status()).toMatchObject({ connected: true, listening: true, latest: null });
+    host.busy = true;
+    coordinator.noteText("Reading its instructions");
+    expect(coordinator.status()).toMatchObject({ listening: false, latest: { text: "Reading its instructions" } });
     coordinator.command({ action: "search", query: "founder", session: secret });
-    expect(coordinator.status()).toMatchObject({ listening: false, latest: { text: "Searching the project for “founder”" } });
-    coordinator.waiting++;
-    expect(coordinator.status().listening).toBe(true);
-    // A quiet wait is followed by another; the moment between them is not work.
-    coordinator.waiting--;
-    coordinator.quietAt = now;
-    now += 10_000;
-    expect(coordinator.status().listening).toBe(true);
-    coordinator.command({ action: "snapshot", session: secret });
-    expect(coordinator.status()).toMatchObject({ listening: false, latest: { text: "Catching up on the project" } });
+    expect(coordinator.status().latest!.text).toBe("Searching the project for “founder”");
+    host.busy = false;
+    expect(coordinator.status()).toMatchObject({ listening: true, latest: { text: "Searching the project for “founder”" } });
+  });
+
+  it("shows an outside coordinator as working, never as listening", () => {
+    const { store: s } = store();
+    const coordinator = new Coordinator(s);
+    const secret = randomUUID();
+    coordinator.attach("Outside", secret);
+    expect(coordinator.status()).toMatchObject({ connected: true, listening: false });
   });
 });

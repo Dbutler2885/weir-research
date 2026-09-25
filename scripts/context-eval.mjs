@@ -1,17 +1,18 @@
-// Starts a real coordinator on a copy of a project, once with the old startup
-// output and once with the layered context, and asks each the same questions as
-// the human's first message. Each coordinator works as it would for real: Claude
-// Code in this repository, running the resume command and inspecting whatever it
-// needs. Answers are scored against the human's answer key, and every read after
-// startup is counted. The project itself is never touched.
+// Starts a real coordinator on a copy of a project and asks it questions right
+// after its startup context. The coordinator works as the app's own does: Claude
+// Code in the coordinator folder the app prepares, sandboxed there, starting from
+// the same first message and inspecting whatever it needs with its command tool.
+// Answers are scored against the human's answer key, and every read is counted.
+// The project itself is never touched.
 //
-// node scripts/context-eval.mjs <project-id> [--model <model>] [--grader <model>] [--only old|new]
+// node scripts/context-eval.mjs <project-id> [--model <model>] [--grader <model>]
 // Probes and the answer key live in .research/context-eval/<project-id>/probes.json:
 // [{"id":"...","question":"...","key":"what a correct answer must say"}]
 import { spawn, spawnSync } from "node:child_process";
-import { mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, rmSync, symlinkSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { home, root, project } from "./workspace-lib.mjs";
+import { claudeIsolationArgs } from "../server/agents/isolation.mjs";
 
 const args = process.argv.slice(2);
 const option = (name, fallback) => {
@@ -22,7 +23,6 @@ const option = (name, fallback) => {
 };
 const model = option("--model");
 const grader = option("--grader", "sonnet");
-const only = option("--only");
 
 // Everything but the live connection, lock and sessions, so the copy starts its
 // own service and a fresh coordinator instead of reaching the running one.
@@ -42,20 +42,6 @@ function copyProject(p, evalHome) {
   return directory;
 }
 
-// A root that looks like this repository to the coordinator, with the app code
-// and skills linked in and the project copy as its only research folder, so
-// nothing it browses can reach the real project or the developer's own notes.
-const notApp = new Set([".research", ".git", ".lavish", ".claude", ".agents", "tmp", "thoughts", "Plans", ".DS_Store", ":memory:.ses"]);
-function evalRoot(directory) {
-  mkdirSync(directory, { recursive: true });
-  for (const name of readdirSync(root)) if (!notApp.has(name)) symlinkSync(join(root, name), join(directory, name));
-  for (const folder of [".claude/skills", ".agents/skills"]) {
-    mkdirSync(join(directory, folder), { recursive: true });
-    for (const skill of readdirSync(join(root, "skills"))) symlinkSync(join(root, "skills", skill), join(directory, folder, skill));
-  }
-  return join(directory, ".research");
-}
-
 function stopService(directory) {
   const lock = join(directory, "server.lock");
   if (!existsSync(lock)) return;
@@ -66,9 +52,9 @@ function stopService(directory) {
   }
 }
 
-// Runs Claude Code as the coordinator would run, streaming its actions.
-function run(prompt, { cwd, env, allowedTools, chosen, transcript }) {
-  const flags = ["-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "dontAsk", "--allowedTools", allowedTools.join(","), "--strict-mcp-config", "--setting-sources", "project", "--no-session-persistence"];
+// Runs Claude Code with the given confinement, streaming its actions.
+function run(prompt, { cwd, env, confine = [], chosen, transcript }) {
+  const flags = ["-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "dontAsk", "--no-session-persistence", ...confine];
   if (chosen) flags.push("--model", chosen);
   return new Promise((resolvePromise, reject) => {
     const child = spawn("claude", flags, { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
@@ -117,11 +103,12 @@ function tokenUse(events) {
 
 const json = (text) => JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1));
 
-function firstMessage(probes) {
+function firstMessage(startup, probes) {
   return [
-    "Resume research.",
-    "Once the project is open, and before doing anything else, answer these questions for me.",
-    "I am checking what you know when you start, so inspect whatever you need, but do not change the project, reply in the browser conversation, or start the wait loop. Answer, then stop.",
+    startup,
+    "",
+    "Before doing anything else, answer these questions for me.",
+    "I am checking what you know when you start, so inspect whatever you need, but do not change the project or reply in the browser conversation. Answer, then stop.",
     "",
     ...probes.map((p) => `- ${p.id}: ${p.question}`),
     "",
@@ -139,8 +126,6 @@ function gradePrompt(probes, answers) {
   ].join("\n\n");
 }
 
-// Startup is the resume command; everything after it is a read the context did not spare.
-const isStartup = (tool) => tool.name === "Bash" && /workspace\s+--\s+resume/.test(tool.input?.command || "");
 const describe = (tool) => (tool.name === "Bash" ? tool.input.command : `${tool.name} ${tool.input?.file_path || tool.input?.skill || tool.input?.pattern || ""}`.trim());
 
 try {
@@ -152,51 +137,47 @@ try {
   const out = join(folder, new Date().toISOString().replace(/[:.]/g, "-"));
   mkdirSync(out, { recursive: true });
   const results = {};
-  for (const variant of ["old", "new"].filter((v) => !only || v === only)) {
-    const coordinatorRoot = join(out, `${variant}-root`);
-    const evalHome = evalRoot(coordinatorRoot);
-    const directory = copyProject(p, evalHome);
-    const scratch = join(out, `${variant}-scratch`);
-    mkdirSync(scratch, { recursive: true });
-    const env = { ...process.env, RESEARCH_HOME: evalHome, RESEARCH_NO_BROWSER: "1", TMPDIR: scratch };
-    if (variant === "new") env.COORDINATOR_CONTEXT = "layered";
-    else delete env.COORDINATOR_CONTEXT;
-    try {
-      const answered = await run(firstMessage(probes), {
-        cwd: coordinatorRoot,
-        env,
-        chosen: model,
-        transcript: join(out, `${variant}-transcript.jsonl`),
-        // The coordinator's own commands, reading the repository, skills, and command files it writes in its scratch folder.
-        allowedTools: ["Bash(npm run workspace *)", "Bash(npm run coordinator *)", "Read", "Grep", "Glob", "Skill", `Write(/${scratch}/**)`],
-      });
-      const answers = json(answered.text).answers;
-      const graded = await run(gradePrompt(probes, answers), { cwd: scratch, env: process.env, chosen: grader, allowedTools: [] });
-      const scores = json(graded.text).scores;
-      const reads = answered.tools.filter((t) => !isStartup(t));
-      results[variant] = { answers, scores, reads: reads.map(describe), startedWith: answered.tools.filter(isStartup).map(describe), turns: answered.turns, tokens: answered.tokens, cost: (answered.cost || 0) + (graded.cost || 0) };
-      writeFileSync(join(out, `${variant}-result.json`), JSON.stringify(results[variant], null, 2));
-    } finally {
-      stopService(directory);
-      rmSync(coordinatorRoot, { recursive: true, force: true });
-    }
+  const evalHome = join(out, "home");
+  const directory = copyProject(p, evalHome);
+  // The service prepares the coordinator's folder, as the app does, without starting an agent there.
+  const env = { ...process.env, RESEARCH_HOME: evalHome, RESEARCH_NO_BROWSER: "1", RESEARCH_COORDINATOR_AGENT: "prepare" };
+  try {
+    // Opened in its own process: the registry location is read once, from the environment.
+    const opened = spawnSync(process.execPath, [join(root, "scripts/workspace.mjs"), "open", p.id, "--no-browser"], { env, encoding: "utf8" });
+    if (opened.status !== 0) throw new Error(`Could not open the project copy: ${opened.stderr}`);
+    const prepared = JSON.parse(readFileSync(join(directory, "coordinator", "prepared.json"), "utf8"));
+    const answered = await run(firstMessage(prepared.prompt, probes), {
+      cwd: prepared.folder,
+      env,
+      chosen: model,
+      transcript: join(out, "transcript.jsonl"),
+      confine: claudeIsolationArgs(prepared.folder, { web: false }),
+    });
+    const answers = json(answered.text).answers;
+    const graded = await run(gradePrompt(probes, answers), { cwd: out, env: process.env, chosen: grader });
+    const scores = json(graded.text).scores;
+    results.app = { answers, scores, reads: answered.tools.map(describe), turns: answered.turns, tokens: answered.tokens, cost: (answered.cost || 0) + (graded.cost || 0) };
+    writeFileSync(join(out, "result.json"), JSON.stringify(results.app, null, 2));
+  } finally {
+    stopService(directory);
+    rmSync(evalHome, { recursive: true, force: true });
   }
   const total = (name) => results[name].scores.reduce((sum, s) => sum + s.score, 0);
   const names = Object.keys(results);
   const lines = [
     `# Startup context evaluation: ${p.id}`,
     "",
-    `Each coordinator ran as Claude Code in a copy of this repository whose only research folder is a copy of the project, told "Resume research" and asked the questions below.`,
+    "The coordinator ran as Claude Code in the folder the app prepares, on a copy of the project, and was asked the questions below after its startup context.",
     `Coordinator model: ${model || "CLI default"}. Grader: ${grader}. ${probes.length} questions, 2 points each.`,
     "",
     "Tokens ingested is a running total: every model call re-sends the whole context, so it grows with each tool call. Peak context is the largest single call, the size that matters for compaction.",
     "",
-    "| Context | Score | Tool calls | Reads after startup | Tokens ingested | Peak context | Cost (USD) |",
-    "|---|---:|---:|---:|---:|---:|---:|",
+    "| Context | Score | Reads | Tokens ingested | Peak context | Cost (USD) |",
+    "|---|---:|---:|---:|---:|---:|",
     ...names.map((n) => {
       const r = results[n];
       const k = (v) => v.toLocaleString("en-US");
-      return `| ${n} | ${total(n)} / ${probes.length * 2} | ${r.reads.length + r.startedWith.length} | ${r.reads.length} | ${k(r.tokens.ingested)} | ${k(r.tokens.peakContext)} | ${r.cost.toFixed(2)} |`;
+      return `| ${n} | ${total(n)} / ${probes.length * 2} | ${r.reads.length} | ${k(r.tokens.ingested)} | ${k(r.tokens.peakContext)} | ${r.cost.toFixed(2)} |`;
     }),
     "",
     "## By question",
@@ -210,7 +191,7 @@ try {
       }),
       "",
     ]),
-    "## Reads after startup",
+    "## Reads",
     "",
     ...names.flatMap((n) => [`### ${n}`, "", ...(results[n].reads.length ? results[n].reads.map((r) => `- \`${r.slice(0, 200)}\``) : ["None."]), ""]),
   ];

@@ -35,6 +35,12 @@ export class WorkspaceStore {
     if (repairClosedBatches(this.state)) this.save(this.state);
     this.marks = [];
     this.mark(this.state);
+    this.listeners = new Set();
+  }
+  // Calls back after every saved change, for work that follows the project's state.
+  subscribe(listener) {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
   }
   // A compact fingerprint per revision, so a waiting coordinator can be told
   // what changed instead of the whole project index.
@@ -83,6 +89,7 @@ export class WorkspaceStore {
     renameSync(temporary, this.path);
     this.state = next;
     if (this.marks) this.mark(next);
+    for (const listener of this.listeners || []) listener(next);
   }
   command(command) {
     const { state, result } = transition(this.state, command);

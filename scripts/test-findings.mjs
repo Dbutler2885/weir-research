@@ -12,7 +12,8 @@ import { join, resolve } from "node:path";
 mkdirSync(".research/development", { recursive: true });
 const directory = mkdtempSync(resolve(".research/development/review-"));
 const child = spawn(process.execPath, ["server/main.mjs"], {
-  env: { ...process.env, RESEARCH_STATE_DIR: directory, RESEARCH_PORT: "0" },
+  // The test drives the worker API itself, so the app starts no coordinator agent.
+  env: { ...process.env, RESEARCH_STATE_DIR: directory, RESEARCH_PORT: "0", RESEARCH_COORDINATOR_AGENT: "0" },
   stdio: "pipe",
 });
 let logs = "";

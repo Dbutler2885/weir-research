@@ -4,9 +4,10 @@
 // runs the steps in the file named by FAKE_CLAUDE_STEPS, or none. A step is
 // {tool, input, delay, writes: {file: text}, run: [command, ...args]}, where
 // run starts a process beneath it. A message arriving mid-turn replaces the
-// remaining steps at the next step, as Claude's does.
+// remaining steps at the next step, as Claude's does. FAKE_CLAUDE_RECORD keeps
+// every message received in received.jsonl.
 import { spawn } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 
 const out = (event) => process.stdout.write(`${JSON.stringify(event)}\n`);
@@ -65,7 +66,12 @@ async function loop() {
 createInterface({ input: process.stdin })
   .on("line", (line) => {
     const event = JSON.parse(line);
-    if (event.type === "user") inbox.push(event.message.content);
+    if (event.type === "user") {
+      inbox.push(event.message.content);
+      // With FAKE_CLAUDE_RECORD set, each message is kept in received.jsonl, noting whether a turn was running.
+      if (process.env.FAKE_CLAUDE_RECORD)
+        appendFileSync("received.jsonl", `${JSON.stringify({ text: event.message.content, midTurn: Boolean(running) })}\n`);
+    }
     if (event.type === "control_request" && event.request.subtype === "interrupt") {
       if (running) interrupted = true;
       out({ type: "control_response", response: { subtype: "success", request_id: event.request_id, response: {} } });

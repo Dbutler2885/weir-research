@@ -27,30 +27,34 @@ export class Coordinator {
     this.ttl = ttl;
     this.ownership = ownership;
     this.session = null;
-    // Waits in progress; a coordinator with one open is listening, not working.
-    this.waiting = 0;
-    this.quietAt = null;
     this.latest = null;
+    // The app's own coordinator, when it runs one; it says whether it is working.
+    this.host = null;
+    this.problem = null;
     // The researcher pool, set once both exist, for steering and stopping researchers.
     this.researchers = null;
     // The walkthrough writers, set once both exist, for sending a writer instructions.
     this.writers = null;
   }
-  // A wait that ended with nothing new is followed by another; the gap is not work.
-  listening() {
-    return this.waiting > 0 || (this.quietAt !== null && this.now() - this.quietAt < 30_000);
-  }
   // What the coordinator is doing, read from the command it just sent.
   noteAction(data) {
-    const text = coordinatorAction(data, this.store.state);
-    this.quietAt = null;
+    this.noteText(coordinatorAction(data, this.store.state));
+  }
+  // What the coordinator is doing, read from its output stream.
+  noteText(text) {
     if (text) this.latest = { at: new Date(this.now()).toISOString(), text };
   }
+  // The app's coordinator owns the project for as long as it runs.
+  hosted() {
+    return Boolean(this.host && this.session && this.session.secret === this.host.secret);
+  }
   owner() {
+    if (this.hosted()) return this.session;
     return this.session && this.session.owned > this.now() ? this.session : null;
   }
   live() {
     const owner = this.owner();
+    if (this.hosted()) return this.host.status().connected ? owner : null;
     return owner && owner.seen + this.ttl > this.now() ? owner : null;
   }
   get enabled() {
@@ -63,8 +67,10 @@ export class Coordinator {
       enabled: this.enabled,
       connected: Boolean(live),
       attached: Boolean(owner),
-      listening: Boolean(live) && this.listening(),
+      // An attached coordinator from outside the app reports no turns; it is shown as working.
+      listening: Boolean(live) && this.hosted() && this.host.status().listening,
       latest: live ? this.latest : null,
+      problem: live ? null : this.problem,
       name: owner ? owner.name : null,
       lastSeenSecondsAgo: owner ? Math.round((this.now() - owner.seen) / 1000) : null,
       handoff: (this.store.state.coordination?.handoff || "").slice(0, 6000),

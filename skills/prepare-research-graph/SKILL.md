@@ -20,9 +20,8 @@ When the job starts, the application writes the accepted graph into the builder'
 Beside them it writes `packet.json` with the research: the question, the walkthrough, the findings, the evidence registry, and the source library.
 [The builder contract](references/contract.md) describes the tables, and [the builder system prompt](references/graph-builder-system.md) is its standing instruction.
 
-Managed jobs start automatically with the saved provider preference.
-For a manual job, send `claim-graph` with investigationId and jobId, and give the returned working directory and its AGENTS.md to a bounded native builder.
-When it signals completion, send `submit-graph-files` with those IDs.
+Jobs start automatically with the saved provider preference.
+For a job waiting for a builder, send `assign-graph` with investigationId, jobId and `engine` of claude or codex.
 
 When the builder finishes, the application reads the tables back.
 A draft that does not hold together goes straight back to the builder with every problem listed, up to three times.

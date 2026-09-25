@@ -1,7 +1,7 @@
 # Slice 05: Headless coordinator
 
 **Type**: AFK
-**Status**: Not started
+**Status**: Done
 
 ## Blocked by
 
@@ -16,12 +16,12 @@ See **Remove the native route** and **The coordinator host**.
 
 ## Acceptance criteria
 
-- [ ] Opening a project starts a coordinator with no terminal involved, and reopening starts a fresh one
-- [ ] A note sent while the coordinator is mid-turn reaches it at its next step
-- [ ] The live panel shows the coordinator's current action from its stream
-- [ ] The coordinator has no agent-spawning tools and cannot start agents from its shell
-- [ ] The wait and acknowledge commands are removed
-- [ ] Tests cover fresh start on opening and events delivered as messages
+- [x] Opening a project starts a coordinator with no terminal involved, and reopening starts a fresh one
+- [x] A note sent while the coordinator is mid-turn reaches it at its next step
+- [x] The live panel shows the coordinator's current action from its stream
+- [x] The coordinator has no agent-spawning tools and cannot start agents from its shell
+- [x] The wait and acknowledge commands are removed
+- [x] Tests cover fresh start on opening and events delivered as messages
 
 ## User stories addressed
 

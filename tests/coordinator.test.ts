@@ -115,7 +115,7 @@ describe("research coordination", () => {
     const f = fixture();
     f.store.command({ type: "send", text: "Can you see this message?" });
     const snapshot = f.coordinator.snapshot(f.secret);
-    const shown = snapshotView(snapshot, "session.json", "snapshot.json", -1);
+    const shown = snapshotView(snapshot, "session.json", "snapshot.json");
     expect(shown.conversation.recentMessages.at(-1)).toMatchObject({
       author: "human",
       text: "Can you see this message?",

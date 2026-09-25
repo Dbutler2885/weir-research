@@ -24,7 +24,7 @@ export function claudeSettings(folder, { web = true } = {}) {
       network: { allowedDomains: ["*"] },
     },
     permissions: {
-      allow: ["Bash", `Read(/${own}/**)`, `Edit(/${own}/**)`, `Write(/${own}/**)`, ...(web ? ["WebSearch", "WebFetch"] : [])],
+      allow: ["Bash", `Read(/${own}/**)`, `Edit(/${own}/**)`, ...(web ? ["WebSearch", "WebFetch"] : [])],
       // Only the app starts agents, so every one of them is in the live panel.
       deny: ["Agent", "Task"],
     },
@@ -56,6 +56,11 @@ export function codexIsolationArgs(folder) {
     "permissions.agent.network={enabled=true}",
     "-c",
     'default_permissions="agent"',
+    // Only the app starts agents, so every one of them is in the live panel.
+    "-c",
+    "features.multi_agent=false",
+    "-c",
+    "features.multi_agent_v2=false",
   ];
 }
 

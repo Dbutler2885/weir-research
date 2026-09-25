@@ -1,10 +1,9 @@
-import { execFileSync, spawnSync } from "node:child_process";
-import { join } from "node:path";
+import { spawnSync } from "node:child_process";
 import {
-  root,
   home,
   projects,
   project,
+  stopProject,
   createProject,
   createTopicProject,
   openProject,
@@ -21,23 +20,11 @@ try {
       throw new Error("What would you like to research?");
     const created =
       command === "start" ? createTopicProject(topic) : project(topic);
+    // The app starts its own coordinator for the project it opens.
     const opened = await openProject(created, {
       browser: !args.includes("--no-browser") && !process.env.RESEARCH_NO_BROWSER,
     });
-    const attached = JSON.parse(
-      execFileSync(
-        process.execPath,
-        [
-          join(root, "scripts/coordinator.mjs"),
-          "attach",
-          "Research coordinator",
-          "--project",
-          created.id,
-        ],
-        { encoding: "utf8" },
-      ),
-    );
-    result = { url: opened.url, ...attached };
+    result = { url: opened.url, project: { id: created.id, name: created.name } };
   } else if (command === "create") {
     if (args.length === 1) result = createTopicProject(args[0]);
     else if (args.length < 2)
@@ -55,7 +42,8 @@ try {
     });
     if (login.error || login.status !== 0) throw new Error("Codex sign-in did not complete.");
     process.exit(0);
-  } else if (command === "open")
+  } else if (command === "stop") result = await stopProject(project(args[0]));
+  else if (command === "open")
     result = await openProject(project(args.find((a) => !a.startsWith("--"))), {
       browser: !args.includes("--no-browser") && !process.env.RESEARCH_NO_BROWSER,
     });
@@ -66,6 +54,7 @@ try {
         "resume [project-id] [--no-browser]",
         "projects",
         "open [project-id] [--no-browser]",
+        "stop [project-id]",
         "sign-in codex (sign in the app's own Codex home)",
         'create "research topic"',
         "create <id> <dataset.json> [display name] (existing dataset import)",

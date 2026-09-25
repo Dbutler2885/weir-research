@@ -22,7 +22,6 @@ try {
     session = {
       directory: p.directory,
       secret: randomUUID(),
-      cursor: -1,
       name: values[0] || "Research coordinator",
     };
     file = join(p.directory, "coordinator-sessions", `${session.secret}.json`);
@@ -35,20 +34,7 @@ try {
     session = read(file, null);
     if (!session) throw new Error("Coordinator session file not found.");
   }
-  if (action === "ack") {
-    const revision = Number(values[0]);
-    if (
-      !Number.isInteger(revision) ||
-      revision < session.cursor ||
-      revision > (session.lastRead ?? -1)
-    )
-      throw new Error(
-        "Acknowledge only a revision already read by this session.",
-      );
-    session.cursor = revision;
-    save(file, session);
-    console.log(JSON.stringify({ acknowledged: revision }));
-  } else {
+  {
     const connection = read(
       join(session.directory, "coordinator-connection.json"),
       null,
@@ -59,10 +45,7 @@ try {
       );
     let data = { action, session: session.secret };
     if (action === "attach") data.name = session.name;
-    else if (action === "wait") {
-      data.since = session.cursor;
-      data.timeout = 300_000;
-    } else if (action === "handoff" || action === "map")
+    else if (action === "handoff" || action === "map")
       data.notes = readFileSync(values[0], "utf8");
     else if (action === "search") {
       data.query = values[0];
@@ -70,11 +53,11 @@ try {
     } else if (action === "command") {
       const payload = JSON.parse(readFileSync(values[0], "utf8"));
       data = { ...payload, session: session.secret };
-      if (["attach", "wait"].includes(data.action))
-        throw new Error("Use the explicit attach/wait command.");
+      if (data.action === "attach")
+        throw new Error("Use the explicit attach command.");
     } else if (!["snapshot", "detach"].includes(action))
       throw new Error(
-        "Commands: attach, snapshot, wait, ack <revision>, handoff <text-file>, command <json-file>, detach.",
+        "Commands: attach, snapshot, search <words>, map <text-file>, handoff <text-file>, command <json-file>, detach.",
       );
     const response = await fetch(`${connection.url}/api/coordinator`, {
       method: "POST",
@@ -83,38 +66,17 @@ try {
         Authorization: `Bearer ${connection.token}`,
       },
       body: JSON.stringify(data),
-      signal: AbortSignal.timeout(310_000),
+      signal: AbortSignal.timeout(60_000),
     });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error);
-    if (result && ("unchanged" in result || "changed" in result)) {
-      session.lastRead = result.revision;
-      save(file, session);
-      console.log(
-        JSON.stringify(
-          {
-            revision: result.revision,
-            acknowledged: session.cursor,
-            ...(result.unchanged
-              ? { status: "No change. Wait again." }
-              : {
-                  changed: result.changed,
-                  instruction:
-                    "Act on these changes, answer messages in the conversation, then acknowledge this revision and wait again. Use snapshot for the full project index.",
-                }),
-          },
-          null,
-          2,
-        ),
-      );
-    } else if (result && "project" in result && "revision" in result) {
+    if (result && "project" in result && "revision" in result) {
       const snapshotFile = `${file}.snapshot.json`;
       // Until the layered context is switched on, the saved snapshot matches what was printed.
       if (!layered()) delete result.context;
       save(snapshotFile, result);
-      session.lastRead = result.revision;
       save(file, session);
-      const view = snapshotView(result, file, snapshotFile, session.cursor);
+      const view = snapshotView(result, file, snapshotFile);
       // Attach output is read back by the workspace command, which prints it.
       if (action === "attach") console.log(JSON.stringify(view, null, 2));
       else printView(view);

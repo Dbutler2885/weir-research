@@ -1,6 +1,6 @@
 # Walkthrough publication
 
-Send commands through `npm run coordinator -- command <file> --session <sessionFile>`.
+The coordinator sends commands through its command tool, `node tools/research.mjs '<json>'`.
 The example names and IDs below are fictional placeholders.
 
 ```json
