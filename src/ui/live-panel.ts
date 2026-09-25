@@ -109,8 +109,11 @@ export function runningSummary(state: ResearchState): string {
     .filter((j) => ["queued", "running", "returned"].includes(j.status)).length;
   const writing = open.filter((i) => i.walkthroughRequestedAt).length;
   const waiting = unansweredNotes(state);
+  const c = state.coordinator;
   return [
     coordinatorWorking(state) ? "Coordinator working" : "",
+    // Why the coordinator is not running shows in the panel this opens.
+    !c?.connected && c?.problem ? "Coordinator not running" : "",
     waiting && !coordinatorWorking(state) ? `${plural(waiting, "note", "notes")} waiting for the coordinator` : "",
     running ? `${plural(running, "researcher", "researchers")} working` : "",
     queued ? `${plural(queued, "batch", "batches")} waiting for a researcher` : "",

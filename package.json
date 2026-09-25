@@ -8,7 +8,7 @@
     "pdf": "node scripts/docling.mjs",
     "pdf:import": "node scripts/import-pdf-collection.mjs",
     "test:pdf": "node scripts/docling.mjs --test",
-    "start": "npm run build && node server/main.mjs",
+    "start": "node scripts/start.mjs",
     "serve": "node server/main.mjs",
     "research": "node scripts/research.mjs",
     "example": "npm run build && node scripts/example.mjs",

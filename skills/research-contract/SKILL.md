@@ -13,7 +13,7 @@ Keep user-facing output attached to the relevant research objects.
 
 The app opens a project and starts its coordinator, which assigns each batch to a researcher the app launches.
 A researcher works in its own folder, from the brief and scoped sources the app prepared there.
-The independent mode below is also available through `npm start` before coordinator supervision is enabled.
+The independent mode below is also available through `npm run serve` before coordinator supervision is enabled.
 
 ```sh
 npm run research -- status

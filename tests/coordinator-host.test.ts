@@ -129,3 +129,12 @@ describe("the app's coordinator", () => {
     expect(f.coordinator.status()).toMatchObject({ connected: false, problem: expect.stringContaining("No agent CLI") });
   });
 });
+
+describe("the coordinator in the live panel", () => {
+  it("says when the coordinator is not running, and why", async () => {
+    const { runningSummary, liveRows } = await import("../src/ui/live-panel");
+    const state = { investigations: [], conversation: [], coordinator: { connected: false, problem: "No agent CLI is installed. Install Claude Code or Codex to start the coordinator." } } as any;
+    expect(runningSummary(state)).toBe("Coordinator not running");
+    expect(liveRows(state)).toEqual([{ who: "Coordinator", stage: "No agent CLI is installed. Install Claude Code or Codex to start the coordinator." }]);
+  });
+});

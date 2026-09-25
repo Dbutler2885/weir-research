@@ -11,7 +11,7 @@ Parent PRD: [Headless agents](../prd.md)
 | 03 | [Graph builders and walkthrough writers on the supervisor](03-builders-and-writers-on-supervisor.md) | AFK | Done | 01 |
 | 04 | [Sandbox and isolation](04-sandbox-and-isolation.md) | AFK | Done | 02 |
 | 05 | [Headless coordinator](05-headless-coordinator.md) | AFK | Done | 04 |
-| 06 | [Starting the app](06-starting-the-app.md) | AFK | Not started | 05 |
+| 06 | [Starting the app](06-starting-the-app.md) | AFK | Done | 05 |
 | 07 | [Progress without self-reporting](07-progress-without-self-reporting.md) | AFK | Not started | 03 |
 | 08 | [Dispatch rules](08-dispatch-rules.md) | AFK | Not started | 05 |
 | 09 | [Setup screen](09-setup-screen.md) | HITL | Not started | 04 |

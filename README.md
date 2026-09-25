@@ -4,36 +4,28 @@ A local research workspace built around an interactive research graph, with gene
 Graph, Investigations, Review, and Sources are views of the same application.
 The interface has no chat transcript.
 
-## Start with a coding agent
+## Start the app
 
-Open this repository in a coding agent and ask to begin or resume research.
-`AGENTS.md` (also exposed as `CLAUDE.md`) gives it its role and the complete ordinary startup procedure before it needs to inspect implementation files.
-For a new project it asks only for your topic, creates an empty workspace, opens the research surface, and attaches as coordinator.
-It does not need a dataset, person, internal ID, or invented seed facts.
-The current agent remains the coordinator and waits for browser activity through a local event loop.
-You choose and review research in the browser while the agent delegates work and reconciles findings.
+Use Node.js 24 or later, and install Claude Code or Codex, the agent CLIs the app runs.
 
 ```sh
-npm run workspace -- start "Example Town industrial history"
-# In a later agent session:
-npm run workspace -- resume
-```
-
-The start and resume commands build when necessary, start or reuse the project's service, open its URL, and return the coordinator session and compact project context.
-New projects live under `.research/projects/`, alongside the registry and outside version control.
-See [the coordinator guide](skills/coordinate-research/SKILL.md) for project creation, assignment, event waiting, and recovery.
-Closing the agent conversation ends active coordination; the next agent recovers saved work when it attaches.
-
-## Start the workspace directly
-
-Use Node.js 24 or later.
-
-```sh
-npm ci
 npm start
+npm start -- "Example Town industrial history"
 ```
 
-Open http://127.0.0.1:4318.
+The first run installs the app's dependencies.
+With a topic, it starts a new project; without one, it reopens your last project, or asks what you would like to research.
+It opens the project in your browser and keeps running after the command exits.
+`npm run workspace -- stop` stops a project's service and the agents it runs.
+
+When the app opens a project, it starts a fresh research coordinator for it, which picks up from the project's saved state.
+You write to the coordinator from the browser; it assigns researchers, graph builders and walkthrough writers, which the app launches and shows in the live panel.
+New projects live under `.research/projects/`, alongside the registry and outside version control.
+See [the coordinator guide](skills/coordinate-research/SKILL.md) for how the coordinator works.
+
+You can also open Codex or Claude Code in this folder and ask it to open the app; it runs the same command, after you approve it running outside its sandbox.
+That agent is for working on the app itself; it is not the coordinator.
+
 The local service stores accepted research, investigation history, and imported sources in `.research/`, including archived original datasets and trial notes.
 Keep a backup of that directory to preserve your work.
 

@@ -1,7 +1,7 @@
 # Slice 06: Starting the app
 
 **Type**: AFK
-**Status**: Not started
+**Status**: Done
 
 ## Blocked by
 
@@ -16,10 +16,10 @@ See **Starting the app**.
 
 ## Acceptance criteria
 
-- [ ] One command on a fresh clone installs dependencies, starts the app and opens the browser
-- [ ] Asking Codex or Claude Code in the project folder to open the app starts it after one approval
-- [ ] Closing that agent leaves the app running
-- [ ] The repository's AGENTS.md no longer tells an agent to act as coordinator
+- [x] One command on a fresh clone installs dependencies, starts the app and opens the browser
+- [x] Asking Codex or Claude Code in the project folder to open the app starts it after one approval
+- [x] Closing that agent leaves the app running
+- [x] The repository's AGENTS.md no longer tells an agent to act as coordinator
 
 ## User stories addressed
 
