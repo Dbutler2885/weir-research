@@ -49,14 +49,23 @@ export function projectIndex(state) {
       "Search to locate relevant records; inspect a specific investigation, candidate, entity, source passage, or the complete research map. IDs are durable references, not proof of a finding.",
   };
 }
+// What a requested walkthrough needs from the coordinator, if anything.
+function walkthroughNext(i) {
+  if (!i.walkthroughRequestedAt) return null;
+  const status = i.reviewFlow?.writer?.status;
+  if (status === "returned") return "The walkthrough writer handed in a draft; inspect-flow shows it. Check it against the findings and publish it with publish-walkthrough (skills/coordinate-research/SKILL.md).";
+  if (status === "queued" || status === "running") return null;
+  return "The human requested a walkthrough; assign a walkthrough writer with assign-walkthrough (skills/coordinate-research/SKILL.md).";
+}
 export function investigationIndex(i) {
   return {
     guidedReview: i.reviewFlow ? {
       walkthrough: i.reviewFlow.walkthroughs.at(-1)?.id,
       jobs: i.reviewFlow.jobs.filter(j => j.status !== "superseded").map(j => ({id: j.id, status: j.status, progress: j.progress, engine: j.engine, consumedUpdateSequence: j.consumedUpdateSequence, latestUpdateSequence: j.updates.length, resumeRequest: j.resumeRequest, ...(j.candidate ? {draftSummary: j.candidate.summary, questions: j.candidate.questions.length} : {})})),
       graphReview: i.reviewFlow.graphReviews.at(-1) ? {id: i.reviewFlow.graphReviews.at(-1).id, status: i.reviewFlow.graphReviews.at(-1).status} : undefined,
-      nextAction: i.reviewFlow.jobs.some(j => j.status === "returned") ? "Inspect flow and check the draft against the human's instructions; send it back with graph-update, or write the tour and sign it off with publish-graph-review (skills/prepare-research-graph/SKILL.md)." : i.walkthroughRequestedAt ? "The human requested a walkthrough; fork yourself to write it (skills/coordinate-research/SKILL.md), then check and publish the draft." : null,
-    } : i.walkthroughRequestedAt ? {nextAction: "The human requested a walkthrough; fork yourself to write it (skills/coordinate-research/SKILL.md), then check and publish the draft."} : null,
+      walkthroughWriter: i.reviewFlow.writer ? {status: i.reviewFlow.writer.status, progress: i.reviewFlow.writer.progress} : undefined,
+      nextAction: i.reviewFlow.jobs.some(j => j.status === "returned") ? "Inspect flow and check the draft against the human's instructions; send it back with graph-update, or write the tour and sign it off with publish-graph-review (skills/prepare-research-graph/SKILL.md)." : walkthroughNext(i),
+    } : i.walkthroughRequestedAt ? {nextAction: walkthroughNext(i)} : null,
     id: i.id,
     title: i.title,
     status: i.status,

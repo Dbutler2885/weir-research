@@ -57,8 +57,14 @@ export function nextAction(state: ResearchState, batch: Investigation): NextActi
       ? next("worker", "Assigned; waiting for a free researcher.")
       : next("coordinator", "Assign a researcher with a bounded brief.");
   }
-  if (batch.walkthroughRequestedAt)
-    return next("coordinator", "The human asked for a walkthrough; fork yourself to write it, then check and publish the draft.");
+  if (batch.walkthroughRequestedAt) {
+    const writer = flow?.writer;
+    if (writer?.status === "returned")
+      return next("coordinator", "The walkthrough writer handed in a draft; check it against the findings and publish it.");
+    if (writer?.status === "queued" || writer?.status === "running")
+      return next("worker", "A walkthrough writer is working on it.");
+    return next("coordinator", "The human asked for a walkthrough; assign a walkthrough writer with a brief.");
+  }
   if (batch.readyAt)
     return next(
       "human",

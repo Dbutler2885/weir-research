@@ -28,7 +28,7 @@ The example names and IDs below are fictional placeholders.
 
 `proposalIds` selects immutable published findings within this investigation.
 Each `evidenceRefs` entry combines its proposal ID, a slash, and the exact evidence ID.
-The walkthrough author writes the `walkthrough` object to `coordinator-work/walkthroughs/batch-<number>.json`, and the coordinator publishes it.
+The walkthrough writer writes the `walkthrough` object to `walkthrough.json` in its folder, and the coordinator publishes it; `publish-walkthrough` without a `walkthrough` publishes the writer's handed-in draft as it stands.
 The service supplies an immutable walkthrough ID.
 Publishing does not start graph work; the human requests graph updates separately.
 A paused investigation requires the existing browser resume confirmation before publication.

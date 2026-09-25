@@ -1,6 +1,6 @@
 ---
 name: coordinate-research
-description: "Coordinator operations beyond startup: attaching and the wait loop, organizing the graph, answering the conversation, opening batches with briefs, assigning researchers, reconciling and publishing findings, and forking to write a walkthrough. Load it before the first delegation or when an operation is not covered by the startup instructions."
+description: "Coordinator operations beyond startup: attaching and the wait loop, organizing the graph, answering the conversation, opening batches with briefs, assigning researchers, reconciling and publishing findings, and assigning walkthrough writers. Load it before the first delegation or when an operation is not covered by the startup instructions."
 ---
 
 # Agent-led research sessions
@@ -194,6 +194,26 @@ Selecting a browser engine preference in coordinator mode does not independently
 Managed workers save checkpoints and return validated candidate proposals to the coordinator.
 They cannot publish those candidates directly to human review in coordinator mode.
 
+### Steer or stop a running researcher
+
+When the human changes direction while a researcher is working, redirect it rather than waiting for its result:
+
+```json
+{"action":"steer","investigationId":"...","message":"What changed and what the researcher should do now"}
+```
+
+The message reaches the researcher at its next step, and the batch records the redirection.
+A researcher that ends its turn without writing findings stays running and the batch records that it is waiting for instructions; steer it to continue or to write up what it has, or stop it.
+A researcher that has written its findings closes on its own.
+When work is clearly wrong or no longer wanted, stop it outright:
+
+```json
+{"action":"stop-researcher","investigationId":"...","reason":"Why the researcher is being stopped"}
+```
+
+Stopping pauses the batch with the reason and keeps saved checkpoints for a later pass.
+Claude and Codex researchers are steered and stopped the same way.
+
 For harness-native delegation, use the same command with `"action": "claim"` and omit `engine`.
 The response points to a private brief file containing the snapshot, scoped source documents, prior work, and worker lease.
 Pass only research context and scoped sources to native subagents, keeping session credentials private.
@@ -236,7 +256,7 @@ Publishing revalidates the current lease, exact before records, source reference
 It does not change accepted research.
 When the batch's research is complete, announce it with `batch-ready`.
 The human then requests a walkthrough, a graph update, or both from Review.
-A fork of the coordinator writes each walkthrough, as described below.
+A walkthrough writer you assign writes each walkthrough, as described below.
 Supervise graph work with `skills/prepare-research-graph/SKILL.md`.
 The human decides each graph change in the graph review, and completing that review closes the batch.
 
@@ -245,21 +265,23 @@ This preserves the candidate, records the correction as a checkpoint, and requeu
 A paused or superseded candidate cannot be published.
 Use `handoff` for durable project-wide decisions, relationships among investigations, and the next coordinating steps.
 
-### Walkthroughs are written by a fork
+### Walkthroughs are written by a walkthrough writer
 
 Writing a walkthrough takes a while, and the coordinator must stay free to answer the human and supervise research.
-When the snapshot marks a batch `walkthroughRequested`, make sure its inspected findings are published, then fork yourself.
-A fork inherits your reconciliation, preserved ambiguities, and knowledge of what the human asked.
-In Claude Code, fork with the Agent tool and `subagent_type: "fork"`.
-Where the harness cannot fork, start a fresh subagent with the batch ID, its published proposal IDs, and the original questions.
-Write the walkthrough yourself only when the harness has no subagents.
+When the snapshot marks a batch `walkthroughRequested`, make sure its inspected findings are published, then assign a writer:
 
-Tell the author that it writes the walkthrough for batch N, loads `skills/present-research/SKILL.md`, and is not the coordinator.
-Load that skill only in the author, not in your own context.
-Record in your handoff that the author is writing, and keep coordinating.
-When it returns, read the draft at `coordinator-work/walkthroughs/batch-<number>.json` in the project directory, check its claims against the findings, and publish it with `publish-walkthrough`.
-If publication is rejected, correct the draft yourself or continue the same author with the error.
-After a restart, a draft file for a still-requested batch is resumable work; check and publish it rather than writing another.
+```json
+{"action":"assign-walkthrough","investigationId":"...","engine":"claude","brief":"What the walkthrough must establish, the reconciliation and ambiguities to carry, and what the human asked"}
+```
+
+The brief carries what the writer cannot see for itself: your reconciliation, preserved ambiguities, and what the human asked.
+The app launches the writer with the batch's published findings and `skills/present-research/SKILL.md`; it appears in the live panel.
+If `engine` is omitted, the saved preference is used.
+To redirect a running writer, send `{"action":"walkthrough-update","investigationId":"...","message":"..."}`; it arrives at the writer's next step.
+The app checks the draft when the writer's turn ends and sends any problem back to it, up to three times.
+When the writer hands in a draft, `inspect-flow` shows it as `writer.draft`.
+Check its claims against the findings, then publish it with `publish-walkthrough`: omit `walkthrough` to publish the draft as it stands, or send a corrected one.
+If the writer stops, its `writer.progress` says why; assign a writer again with a brief that addresses it.
 
 ## Guided research and graph review
 

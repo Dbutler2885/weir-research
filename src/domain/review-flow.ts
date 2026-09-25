@@ -85,10 +85,24 @@ export interface GraphReview {
   undoId?: string;
   annotationIds: string[];
 }
+// The agent writing a batch's requested walkthrough. The coordinator assigns it,
+// and checks and publishes the draft it hands in.
+export interface WalkthroughWriter {
+  id: string;
+  status: 'queued' | 'running' | 'returned' | 'paused' | 'published';
+  engine: 'claude' | 'codex';
+  brief: string;
+  progress: string;
+  attempt: number;
+  corrections: number;
+  draft?: Omit<Walkthrough, 'id' | 'createdAt' | 'revision'>;
+  directory?: string;
+}
 export interface ReviewFlow {
   walkthroughs: Walkthrough[];
   jobs: GraphJob[];
   graphReviews: GraphReview[];
+  writer?: WalkthroughWriter;
 }
 
 // A finished graph review ends a batch: no more graph work belongs to it.

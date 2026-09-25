@@ -60,6 +60,16 @@ export function streamActions(event, describe) {
       .filter((b) => b.type === "tool_use")
       .map((b) => toolAction(b.name, b.input || {}, describe))
       .filter(Boolean);
+  // Codex's app server reports each item as it starts and completes.
+  if (event.method === "item/started" || event.method === "item/completed") {
+    const item = event.params?.item || {};
+    const started = event.method === "item/started";
+    if (item.type === "commandExecution" && started) return [commandAction(item.command, describe)].filter(Boolean);
+    if (item.type === "fileChange" && !started)
+      return (item.changes || []).map((c) => describe.file(c.path, "write")).filter(Boolean);
+    if (item.type === "webSearch" && !started && item.query) return [`Searching the web for ${quoted(item.query)}`];
+    return [];
+  }
   if (event.type === "item.started" || event.type === "item.completed") {
     const item = event.item || {};
     // Codex reports a command when it starts and a file change when it is made.
@@ -116,6 +126,14 @@ export const researcherFiles = {
   "result.json": { read: "Checking its findings", write: "Writing up its findings" },
 };
 
+export const writerFiles = {
+  "AGENTS.md": { read: "Reading its instructions" },
+  "SKILL.md": { read: "Reading how to write a walkthrough" },
+  "runtime.md": { read: "Reading the walkthrough format" },
+  "materials.json": { read: "Reading the findings for this batch" },
+  "walkthrough.json": { read: "Rereading its draft", write: "Writing the walkthrough" },
+};
+
 export const builderFiles = {
   "packet.json": { read: "Reading the research for this batch" },
   "updates.json": { read: "Checking for new instructions" },
@@ -158,11 +176,15 @@ export function coordinatorAction(data, state) {
     case "request-approval": return "Asking you for a decision";
     case "batch-ready": return `Marking ${batch(data.investigationId)} ready for review`;
     case "assign": return `Assigning a researcher to ${batch(data.investigationId)}`;
+    case "steer": return `Redirecting the researcher on ${batch(data.investigationId)}`;
+    case "stop-researcher": return `Stopping the researcher on ${batch(data.investigationId)}`;
     case "claim": return `Starting research on ${batch(data.investigationId)} itself`;
     case "checkpoint": return `Saving progress on ${batch(data.investigationId)}`;
     case "publish": return `Publishing findings for ${batch(data.investigationId)}`;
     case "revise": return `Revising the findings for ${batch(data.investigationId)}`;
     case "request-resume": return `Asking to resume ${batch(data.investigationId)}`;
+    case "assign-walkthrough": return `Assigning a walkthrough writer to ${batch(data.investigationId)}`;
+    case "walkthrough-update": return `Sending instructions to the walkthrough writer for ${batch(data.investigationId)}`;
     case "publish-walkthrough": return `Publishing the walkthrough for ${batch(data.investigationId)}`;
     case "inspect-flow": return `Checking the graph draft for ${batch(data.investigationId)}`;
     case "assign-graph": return `Assigning a graph builder to ${batch(data.investigationId)}`;

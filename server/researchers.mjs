@@ -11,10 +11,11 @@ import {
 import { join, delimiter, extname, basename } from "node:path";
 import {
   LiveActivity,
-  streamReader,
   fileDescriber,
   researcherFiles,
 } from "./live-activity.mjs";
+import { AgentSupervisor } from "./agents/supervisor.mjs";
+import { IncompatibleAgent } from "./agents/codex.mjs";
 
 export function executableOnPath(name) {
   for (const dir of (process.env.PATH || "").split(delimiter)) {
@@ -39,14 +40,15 @@ export class ResearcherPool {
       findExecutable = executableOnPath,
       coordinator = null,
       live = new LiveActivity(),
+      supervisor = new AgentSupervisor({ launch, live }),
     } = {},
   ) {
     this.store = store;
     this.live = live;
+    this.supervisor = supervisor;
     this.coordinator = coordinator;
     this.directory = directory;
     this.root = root;
-    this.launch = launch;
     this.findExecutable = findExecutable;
     this.active = new Map();
     this.stopped = false;
@@ -115,11 +117,7 @@ export class ResearcherPool {
   terminate(task) {
     if (task.terminated) return;
     task.terminated = true;
-    task.child.kill("SIGTERM");
-    const timer = setTimeout(() => {
-      if (task.child.exitCode === null) task.child.kill("SIGKILL");
-    }, 5000);
-    timer.unref();
+    task.agent?.stop();
   }
   checkpoint(task) {
     const file = join(task.directory, "checkpoint.json");
@@ -226,7 +224,7 @@ export class ResearcherPool {
       timeLimitMinutes:
         this.store.state.researchSettings?.timeLimitMinutes ?? null,
       lastCheckpoint: undefined,
-      child: undefined,
+      agent: undefined,
       terminated: false,
     };
     try {
@@ -278,109 +276,11 @@ For imported documents, sourceId and documentId both equal the document ID. Exac
 For newly found web sources, register sources:[{id,title,url,access,accessedAt,note,...}] in the proposal and cite the ID from evidence. Record discovered, metadata, abstract, or full-text access accurately. Use a new source capture ID for a changed edition or capture; do not overwrite source identity. These records enter the library without modifying the graph.
 Every change needs table, recordId, before (complete snapshot record or null), after (complete replacement or null), reason, evidenceIds. Use only the supported record tables from the contract. Preserve IDs and valid references.
 Evidence and changes are lists. To preserve an inconclusive outcome, submit an empty changes list and describe the ambiguity and access limitations. Do not fabricate a change to make the task look productive.
+The coordinator may send you further instructions while you work. They refine this assignment; follow them from your next step.
 Your final message should be a short completion status. The host will validate result.json and show the proposal to the human; only the human can accept it.
 `;
       writeFileSync(join(directory, "AGENTS.md"), instructions);
-      const args =
-        engine === "codex"
-          ? [
-              "exec",
-              "--skip-git-repo-check",
-              "--sandbox",
-              "workspace-write",
-              "-c",
-              `web_search="${web ? "live" : "disabled"}"`,
-              "--color",
-              "never",
-              "--json",
-              "-",
-            ]
-          : [
-              "--print",
-              "--output-format",
-              "stream-json",
-              "--verbose",
-              "--permission-mode",
-              "dontAsk",
-              "--allowedTools",
-              `Read,Write,Glob,Grep${web ? ",WebSearch,WebFetch,Bash(chrome-devtools-axi *)" : ""}`,
-              "--append-system-prompt",
-              instructions,
-              "Read brief.json and complete this bounded research pass. Write checkpoints and result.json as instructed.",
-            ];
-      task.child = this.launch(executable, args, {
-        cwd: directory,
-        env: { ...process.env },
-        stdio: ["pipe", "pipe", "pipe"],
-      });
-      this.active.set(id, task);
-      this.live.begin(`research:${id}`, {
-        role: "researcher",
-        name: engine === "codex" ? "Codex researcher" : "Claude researcher",
-        investigationId: id,
-      });
-      const titles = Object.fromEntries(
-        brief.documents.map((d) => [basename(d.localFile), d.name]),
-      );
-      const follow = streamReader(
-        fileDescriber(researcherFiles, titles),
-        (text) => this.live.note(`research:${id}`, text),
-      );
-      task.child.stdout.on("data", follow);
-      const log = join(directory, "process.log");
-      let logSize = 0;
-      const append = (chunk) => {
-        if ((logSize += chunk.length) <= 2_000_000)
-          writeFileSync(log, chunk, { flag: "a", mode: 0o600 });
-      };
-      task.child.stdout.on("data", append);
-      task.child.stderr.on("data", append);
-      task.child.stdin.on("error", () => {});
-      task.child.stdin.end(engine === "codex" ? instructions : undefined);
-      task.child.on("error", () => {
-        this.live.end(`research:${id}`);
-        this.fail(
-          task,
-          `${engine} could not start. Check its installation and existing sign-in, or choose another researcher.`,
-        );
-      });
-      task.child.on("close", (code) => {
-        this.live.end(`research:${id}`);
-        this.checkpoint(task);
-        try {
-          const current = this.store.state.investigations.find(
-            (i) => i.id === id,
-          );
-          if (current?.lease?.token !== token) return;
-          if (code !== 0)
-            throw new Error(
-              "Researcher exited before completing its proposal.",
-            );
-          const proposal = JSON.parse(
-            readFileSync(join(directory, "result.json"), "utf8"),
-          );
-          if (this.coordinator?.enabled)
-            this.coordinator.receive(task, proposal);
-          else
-            this.store.command({
-              type: "propose",
-              investigationId: id,
-              token,
-              proposal,
-            });
-        } catch (error) {
-          // Validation messages contain research content only; raw provider logs stay on disk.
-          this.fail(
-            task,
-            code !== 0
-              ? `${engine} stopped before completing a proposal. Resume with this or another provider; saved checkpoints are retained.`
-              : `Proposal needs another pass: ${error.message}`,
-          );
-        } finally {
-          this.active.delete(id);
-          this.pump();
-        }
-      });
+      this.startAgent(task, engine, executable, instructions, web, brief);
     } catch (error) {
       this.fail(
         task,
@@ -389,5 +289,102 @@ Your final message should be a short completion status. The host will validate r
       return false;
     }
     return true;
+  }
+  // Researchers keep their input open, so the coordinator can steer or stop them.
+  startAgent(task, engine, executable, instructions, web, brief) {
+    const { id } = task;
+    const name = engine === "codex" ? "Codex researcher" : "Claude researcher";
+    task.agent = this.supervisor.start({
+      key: `research:${id}`,
+      provider: engine,
+      executable,
+      folder: task.directory,
+      instructions,
+      web,
+      tools: ["Read", "Write", "Glob", "Grep", ...(web ? ["WebSearch", "WebFetch", "Bash(chrome-devtools-axi *)"] : [])],
+      prompt: "Read brief.json and complete this bounded research pass. Write checkpoints and result.json as instructed.",
+      live: { role: "researcher", name, investigationId: id },
+      describe: fileDescriber(researcherFiles, this.titles(brief)),
+    });
+    this.active.set(id, task);
+    task.agent.on("turn", ({ outcome }) => this.turnEnded(task, outcome));
+    task.agent.on("failed", (error) =>
+      this.fail(
+        task,
+        error instanceof IncompatibleAgent
+          ? error.message
+          : `${engine} could not start. Check its installation and existing sign-in, or choose another researcher.`,
+      ),
+    );
+    task.agent.on("exit", ({ code }) => this.closed(task, code, engine));
+  }
+  // A researcher that has written its result is done; one that has not waits for the coordinator.
+  turnEnded(task, outcome) {
+    if (!this.current(task) || outcome === "interrupted") return;
+    this.checkpoint(task);
+    if (existsSync(join(task.directory, "result.json"))) return task.agent.finish();
+    this.note(
+      task,
+      outcome === "error"
+        ? "The researcher's turn ended with an error before it wrote its findings. It is waiting for instructions."
+        : "The researcher stopped before writing its findings. It is waiting for instructions.",
+    );
+  }
+  titles(brief) {
+    return Object.fromEntries(brief.documents.map((d) => [basename(d.localFile), d.name]));
+  }
+  current(task) {
+    return this.store.state.investigations.find((i) => i.id === task.id)?.lease?.token === task.token;
+  }
+  note(task, message) {
+    this.store.update((next) =>
+      next.investigations.find((i) => i.id === task.id).events.push({ at: new Date().toISOString(), message }),
+    );
+  }
+  closed(task, code, engine) {
+    const { id, token, directory } = task;
+    this.checkpoint(task);
+    try {
+      if (!this.current(task)) return;
+      if (code !== 0) throw new Error("Researcher exited before completing its proposal.");
+      const proposal = JSON.parse(readFileSync(join(directory, "result.json"), "utf8"));
+      if (this.coordinator?.enabled) this.coordinator.receive(task, proposal);
+      else this.store.command({ type: "propose", investigationId: id, token, proposal });
+    } catch (error) {
+      // Validation messages contain research content only; raw provider logs stay on disk.
+      this.fail(
+        task,
+        code !== 0
+          ? `${engine} stopped before completing a proposal. Resume with this or another provider; saved checkpoints are retained.`
+          : `Proposal needs another pass: ${error.message}`,
+      );
+    } finally {
+      this.active.delete(id);
+      this.pump();
+    }
+  }
+  running(id) {
+    const task = this.active.get(id);
+    if (!task || !this.current(task)) throw new Error("No researcher is running for this batch.");
+    return task;
+  }
+  // The coordinator redirects a running researcher; it takes effect at the researcher's next step.
+  steer(id, message) {
+    if (typeof message !== "string" || !message.trim() || message.length > 20_000)
+      throw new Error("A redirection must be text, up to 20,000 characters.");
+    const task = this.running(id);
+    task.agent.steer(message.trim());
+    this.note(task, `Coordinator redirected the researcher: ${message.trim()}`);
+    return { steered: true };
+  }
+  // The coordinator ends a researcher outright; saved checkpoints stay for the next pass.
+  halt(id, reason) {
+    if (typeof reason !== "string" || !reason.trim() || reason.length > 5000)
+      throw new Error("Explain why the researcher is being stopped, in up to 5,000 characters.");
+    const task = this.running(id);
+    this.checkpoint(task);
+    this.fail(task, `Coordinator stopped the researcher: ${reason.trim()}`);
+    this.terminate(task);
+    return { stopped: true };
   }
 }

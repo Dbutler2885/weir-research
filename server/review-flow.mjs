@@ -54,7 +54,25 @@ export function flowCommand(store, command, actor = 'coordinator') {
   const humanActions = ['request-walkthrough', 'request-graph', 'graph-job-pause', 'graph-job-resume', 'graph-resume-decision', 'graph-accept', 'graph-set-aside'];
   fail(actor === 'coordinator' ? !humanActions.includes(action) : humanActions.includes(action), 'This action belongs to the other review role.');
   if (action === 'inspect-flow') return structuredClone(i.reviewFlow || {walkthroughs: [], jobs: [], graphReviews: []});
+  if (action === 'assign-walkthrough') {
+    fail(i.walkthroughRequestedAt, 'The human has not asked for a walkthrough of this batch.');
+    fail(i.proposals.some(p => p.kind === 'findings'), 'Publish the batch\'s findings before a walkthrough is written.');
+    const engine = command.engine || store.state.engine;
+    fail(['claude','codex'].includes(engine), 'Choose claude or codex for the walkthrough writer.');
+    fail(text(command.brief), 'Give the walkthrough writer a brief.');
+    fail(!['queued','running'].includes(i.reviewFlow?.writer?.status), 'A walkthrough writer is already assigned; send it instructions with walkthrough-update.');
+    const id = randomUUID();
+    store.update(next => {
+      const inv = next.investigations.find(x => x.id === i.id);
+      flowFor(inv).writer = {id, status: 'queued', engine, brief: command.brief, progress: 'Waiting to start.', attempt: 0, corrections: 0};
+      inv.events.push({at: new Date().toISOString(), message: 'Coordinator assigned a walkthrough writer.'});
+    });
+    return {writerId: id};
+  }
   if (action === 'publish-walkthrough') {
+    // Without a walkthrough, the draft the writer handed in is published as it stands.
+    const writer = i.reviewFlow?.writer;
+    if (!command.walkthrough && writer?.status === 'returned') command = {...command, walkthrough: writer.draft};
     validateWalkthrough(i, command.walkthrough);
     fail(i.status !== 'paused', 'The investigation is paused. Request human approval before continuing.');
     const prior = i.reviewFlow?.walkthroughs.at(-1);
@@ -64,6 +82,7 @@ export function flowCommand(store, command, actor = 'coordinator') {
       const investigation = next.investigations.find(x => x.id === i.id), flow = flowFor(investigation);
       flow.walkthroughs.push({...structuredClone(command.walkthrough), id, createdAt: at, revision: flow.walkthroughs.length + 1});
       delete investigation.walkthroughRequestedAt;
+      if (flow.writer && flow.writer.status !== 'running') { flow.writer.status = 'published'; delete flow.writer.draft; }
       investigation.events.push({at, message: `Walkthrough revision ${flow.walkthroughs.length} published.`});
     });
     return {walkthroughId: id};

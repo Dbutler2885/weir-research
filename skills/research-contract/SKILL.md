@@ -102,7 +102,7 @@ Checkpointing cannot recover unsaved internal agent context, but a replacement w
 Submit a JSON file with `investigationId`, `token`, and `proposal`.
 New research returns `kind: "findings"`, with `title`, `summary`, `ambiguity`, `evidence`, and `changes`.
 The coordinator preserves this report in its batch.
-When the human requests them, a fork of the coordinator writes the walkthrough with `skills/present-research/SKILL.md`, and the coordinator supervises the separate CSV graph builder with `skills/prepare-research-graph/SKILL.md`.
+When the human requests them, a walkthrough writer the coordinator assigns writes the walkthrough with `skills/present-research/SKILL.md`, and the coordinator supervises the separate CSV graph builder with `skills/prepare-research-graph/SKILL.md`.
 Reading the walkthrough does not require accepting findings.
 The older graph proposal contract below remains available for legacy reviews.
 For `kind: "findings"`, `changes` is empty and `findings` contains independently reviewable statements with `id`, `statement`, `qualification`, `explanation`, and `evidenceIds`.

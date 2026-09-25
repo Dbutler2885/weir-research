@@ -19,7 +19,9 @@ import { WorkspaceStore } from "./store.mjs";
 import { organize } from "./organization.mjs";
 import { Coordinator } from "./coordinator.mjs";
 import { ResearcherPool } from "./researchers.mjs";
-import { GraphBuilderPool } from "./graph-builders.mjs";
+import { GraphBuilders } from "./graph-builders.mjs";
+import { WalkthroughWriters } from "./walkthrough-writers.mjs";
+import { AgentSupervisor } from "./agents/supervisor.mjs";
 import { LiveActivity } from "./live-activity.mjs";
 import { projectSkills } from "./skills.mjs";
 import { flowCommand } from "./review-flow.mjs";
@@ -57,8 +59,14 @@ const store = new WorkspaceStore(
 );
 const live = new LiveActivity();
 const coordinator = new Coordinator(store, { workers: () => live.list(), skills: projectSkills(root) });
-const researchers = new ResearcherPool(store, directory, root, { coordinator, live });
-const graphBuilders = new GraphBuilderPool(store, directory, root, { live });
+// One supervisor launches and reads every agent the app runs.
+const supervisor = new AgentSupervisor({ live });
+const researchers = new ResearcherPool(store, directory, root, { coordinator, live, supervisor });
+coordinator.researchers = researchers;
+const graphBuilders = new GraphBuilders(store, directory, root, { live, supervisor });
+const writers = new WalkthroughWriters(store, directory, root, { live, supervisor });
+coordinator.writers = writers;
+process.on("exit", () => writers.stop());
 process.on("exit", () => graphBuilders.stop());
 process.on("exit", () => researchers.stop());
 const token = randomBytes(32).toString("hex");
@@ -256,6 +264,7 @@ const server = createServer(async (req, res) => {
       const result = coordinator.command(data);
       researchers.pump();
       graphBuilders.pump();
+      writers.pump();
       return json(res, 200, result ?? null);
     }
     if (

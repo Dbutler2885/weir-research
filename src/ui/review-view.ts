@@ -50,7 +50,7 @@ function walkthroughCell(b: Investigation, status: string): string {
   if (latest)
     return `<p class="review-cell">Revision ${latest.revision} · ${day(latest.createdAt)}<br><span>${html(latest.title)}</span></p><div class="review-actions"><button type="button" data-review-open="reading">Open walkthrough</button>${b.walkthroughRequestedAt ? '<span class="review-why">A revision is being written.</span>' : ""}</div>`;
   if (b.walkthroughRequestedAt)
-    return `<p class="review-cell">Requested ${day(b.walkthroughRequestedAt)}. Your coordinator is writing it.</p>`;
+    return `<p class="review-cell">Requested ${day(b.walkthroughRequestedAt)}. ${html(writerStatus(b))}</p>`;
   if (status === "in progress")
     return '<p class="review-cell is-muted">Available when the coordinator marks this batch ready.</p>';
   return '<div class="review-actions"><button type="button" data-review-request="walkthrough">Create walkthrough</button></div>';
@@ -84,4 +84,13 @@ export function progressLine(progress: string): string {
   const lines = progress.split("\n").map((l) => l.trim()).filter(Boolean);
   if (lines.length < 2) return progress;
   return `${lines[0]} (and ${lines.length - 1} more problems)`;
+}
+
+// Where a requested walkthrough stands, in the words the Review page uses.
+export function writerStatus(b: Investigation): string {
+  const writer = b.reviewFlow?.writer;
+  if (writer?.status === "running" || writer?.status === "queued") return "A walkthrough writer is working on it.";
+  if (writer?.status === "returned") return "The draft is written; your coordinator is checking it.";
+  if (writer?.status === "paused") return `The writer stopped: ${writer.progress}`;
+  return "Waiting for your coordinator to assign a writer.";
 }

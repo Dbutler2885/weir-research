@@ -6,9 +6,9 @@ Parent PRD: [Headless agents](../prd.md)
 
 | # | Slice | Type | Status | Blocked by |
 |---|-------|------|--------|------------|
-| 01 | [Steerable Claude researcher](01-steerable-claude-researcher.md) | AFK | Not started | None |
-| 02 | [Steerable Codex researcher](02-steerable-codex-researcher.md) | AFK | Not started | 01 |
-| 03 | [Graph builders and walkthrough writers on the supervisor](03-builders-and-writers-on-supervisor.md) | AFK | Not started | 01 |
+| 01 | [Steerable Claude researcher](01-steerable-claude-researcher.md) | AFK | Done | None |
+| 02 | [Steerable Codex researcher](02-steerable-codex-researcher.md) | AFK | Done | 01 |
+| 03 | [Graph builders and walkthrough writers on the supervisor](03-builders-and-writers-on-supervisor.md) | AFK | Done | 01 |
 | 04 | [Sandbox and isolation](04-sandbox-and-isolation.md) | AFK | Not started | 02 |
 | 05 | [Headless coordinator](05-headless-coordinator.md) | AFK | Not started | 04 |
 | 06 | [Starting the app](06-starting-the-app.md) | AFK | Not started | 05 |

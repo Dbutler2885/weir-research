@@ -1,5 +1,6 @@
 import type { Investigation, LiveWorker, ResearchState } from "../domain/research";
 import { html } from "./finding-review";
+import { writerStatus } from "./review-view";
 
 // One worker, or one piece of work waiting for one, as the Now list shows it.
 export interface LiveRow {
@@ -59,8 +60,16 @@ export function liveRows(state: ResearchState): LiveRow[] {
     else if (i.status === "queued") rows.push({ who: "Researcher", batch, stage: "Waiting to start" });
     else if (i.status === "paused")
       rows.push({ who: "Researcher", batch, stage: `Paused. ${i.events.at(-1)?.message || ""}`.trim() });
-    if (i.walkthroughRequestedAt)
-      rows.push({ who: "Walkthrough", batch, stage: "Being written by the coordinator", since: i.walkthroughRequestedAt });
+    if (i.walkthroughRequestedAt) {
+      const writer = live.find((w) => w.role === "writer" && w.investigationId === i.id);
+      rows.push({
+        who: writer?.name || "Walkthrough",
+        batch,
+        stage: writerStatus(i),
+        latest: writer?.latest?.text,
+        since: writer?.startedAt || i.walkthroughRequestedAt,
+      });
+    }
     for (const job of i.reviewFlow?.jobs || []) {
       if (!["queued", "running", "returned", "paused"].includes(job.status)) continue;
       const worker = live.find((w) => w.jobId === job.id);

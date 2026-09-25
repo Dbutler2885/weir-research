@@ -1,7 +1,7 @@
 # Slice 01: Steerable Claude researcher
 
 **Type**: AFK
-**Status**: Not started
+**Status**: Done
 
 ## Blocked by
 
@@ -17,12 +17,12 @@ See the PRD's **Agent supervisor** and **Provider adapters** decisions.
 
 ## Acceptance criteria
 
-- [ ] The supervisor's interface covers start, send, steer, interrupt, stop, and subscribing to actions and turn boundaries
-- [ ] A Claude researcher started for a batch appears in the live panel with its role, batch and current action as a plain sentence
-- [ ] A redirection sent while the researcher works reaches it at its next tool step and changes what it does
-- [ ] The coordinator can stop a researcher mid-run, and the live panel shows it stopped
-- [ ] A researcher that finishes its assignment closes rather than sitting idle
-- [ ] Tests drive the supervisor with a fake CLI speaking Claude's stream protocol, with no real provider or quota
+- [x] The supervisor's interface covers start, send, steer, interrupt, stop, and subscribing to actions and turn boundaries
+- [x] A Claude researcher started for a batch appears in the live panel with its role, batch and current action as a plain sentence
+- [x] A redirection sent while the researcher works reaches it at its next tool step and changes what it does
+- [x] The coordinator can stop a researcher mid-run, and the live panel shows it stopped
+- [x] A researcher that finishes its assignment closes rather than sitting idle
+- [x] Tests drive the supervisor with a fake CLI speaking Claude's stream protocol, with no real provider or quota
 
 ## User stories addressed
 

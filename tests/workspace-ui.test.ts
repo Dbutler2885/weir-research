@@ -450,7 +450,7 @@ describe("investigation workspace", () => {
     expect(row().textContent).toContain("Batch 1 · The workshop's founder");
     click('[data-review-request="walkthrough"]');
     await vi.waitFor(() => expect(state.investigations[0]!.walkthroughRequestedAt).toBeTruthy());
-    await vi.waitFor(() => expect(row().textContent).toContain("Your coordinator is writing it."));
+    await vi.waitFor(() => expect(row().textContent).toContain("Waiting for your coordinator to assign a writer."));
     click('[data-review-request="graph"]');
     await vi.waitFor(() => expect(state.investigations[0]!.reviewFlow!.jobs).toHaveLength(1));
     await vi.waitFor(() => expect(row().textContent).toContain("Waiting for the coordinator to assign a graph builder."));

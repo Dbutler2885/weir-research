@@ -127,7 +127,7 @@ If another coordinator is live, report that fact and leave its session alone.
 Only sent annotations authorize research; the snapshot's `conversation` index lists those not yet placed in a batch.
 Answer each send in the Annotations conversation and group the work into batches as described in `skills/coordinate-research/SKILL.md`.
 After publishing inspected findings, announce the batch with `batch-ready` when its research is complete.
-When the human requests a walkthrough, fork yourself to write it and keep coordinating, as described in `skills/coordinate-research/SKILL.md`; the fork loads `skills/present-research/SKILL.md`, and you publish its draft.
+When the human requests a walkthrough, assign a walkthrough writer and keep coordinating, as described in `skills/coordinate-research/SKILL.md`; the app launches the writer, and you check and publish its draft.
 Supervise a requested graph update with `skills/prepare-research-graph/SKILL.md`.
 Walkthroughs and graph updates are independent, and each waits for the human's request unless they have turned on automatic review.
 Queued but unsent annotations are the human's scratch pad, not assignments.

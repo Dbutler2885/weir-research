@@ -8,7 +8,7 @@ import {PassThrough} from 'node:stream';
 import {WorkspaceStore} from '../server/store.mjs';
 import {flowCommand} from '../server/review-flow.mjs';
 import {organize} from '../server/organization.mjs';
-import {GraphBuilderPool} from '../server/graph-builders.mjs';
+import {GraphBuilders} from '../server/graph-builders.mjs';
 import {emptyGraph, prepareResearch, draftFiles, writeDraft, returnDraft, tourFor} from './fixtures/guided-flow';
 import type {FamilyDataset} from '../src/domain/types';
 
@@ -33,7 +33,7 @@ function publish(f: ReturnType<typeof fixture>, extra: any = {}) {
 }
 function builder(f: ReturnType<typeof fixture>) {
   const child=Object.assign(new EventEmitter(),{stdin:new PassThrough(),stdout:new PassThrough(),stderr:new PassThrough(),exitCode:null,kill(){this.exitCode=1 as any;}});
-  const pool=new GraphBuilderPool(f.store,f.directory,resolve('.'),{launch:()=>child as any,findExecutable:()=>'/fake/claude'});
+  const pool=new GraphBuilders(f.store,f.directory,resolve('.'),{launch:()=>child as any,findExecutable:()=>'/fake/claude'});
   cleanup.push(()=>pool.stop());
   pool.pump();
   return {child, pool, task: pool.active.get(f.jobId)!};
@@ -259,7 +259,7 @@ describe('guided research flow',()=>{
     const work=join(f.directory,'graph-builders',f.jobId,'work');
     mkdirSync(work,{recursive:true});
     writeFileSync(join(work,'nodes.csv'),'id,kind,label,existingId\n');
-    const pool=new GraphBuilderPool(f.store,f.directory,resolve('.'));
+    const pool=new GraphBuilders(f.store,f.directory,resolve('.'));
     cleanup.push(()=>pool.stop());
     pool.prepare(f.jobId);
     expect(readFileSync(join(f.directory,'graph-builders',f.jobId,'proposal-format','nodes.csv'),'utf8')).toContain('existingId');
@@ -267,12 +267,12 @@ describe('guided research flow',()=>{
   });
   it('retains incomplete worker files and picks interrupted workers back up on restart',()=>{
     const f=fixture();
-    const pool=new GraphBuilderPool(f.store,f.directory,resolve('.'));
+    const pool=new GraphBuilders(f.store,f.directory,resolve('.'));
     cleanup.push(()=>pool.stop());
     const task=pool.prepare(f.jobId);
     writeFileSync(join(task.work,'checkpoint.md'),'Saved research representation.');
     writeFileSync(join(task.work,'nodes.csv'),readFileSync(join(task.work,'nodes.csv'),'utf8')+'bay,place,Example Bay,,,,,,,,\n');
-    const replacement=new GraphBuilderPool(f.store,f.directory,resolve('.'));
+    const replacement=new GraphBuilders(f.store,f.directory,resolve('.'));
     cleanup.push(()=>replacement.stop());
     expect(f.job().status).toBe('queued');
     expect(f.job().progress).toContain('Picking the graph draft back up');
@@ -281,6 +281,24 @@ describe('guided research flow',()=>{
     expect(readFileSync(join(retry.work,'nodes.csv'),'utf8')).toContain('Example Bay');
     expect(readFileSync(join(task.work,'checkpoint.md'),'utf8')).toContain('Saved');
     expect(f.store.state.datasetRevision).toBe(0);
+  });
+});
+
+describe('a running builder', () => {
+  it('hears the coordinator\'s update at its next step, and closes when its turn ends', async () => {
+    const f = fixture('claude');
+    const {child, pool} = builder(f);
+    let input = '';
+    child.stdin.on('data', (chunk: Buffer) => { input += chunk.toString(); });
+    f.command('graph-update', {message: 'Fold the works into its site.'});
+    pool.pump();
+    await new Promise(done => setImmediate(done));
+    const messages = input.trim().split('\n').map(l => JSON.parse(l));
+    expect(messages.at(-1).message.content).toContain('The coordinator sent update 1: Fold the works into its site.');
+    expect(messages.at(-1).message.content).toContain('write done 1 to submission.txt');
+    expect(child.stdin.writableEnded).toBe(false);
+    child.stdout.write(JSON.stringify({type: 'result', subtype: 'success'}) + '\n');
+    expect(child.stdin.writableEnded).toBe(true);
   });
 });
 
@@ -310,7 +328,7 @@ describe('validation feedback', () => {
 
   it('stops asking the builder after the correction limit', () => {
     const f = fixture();
-    const pool = new GraphBuilderPool(f.store, f.directory, resolve('.'));
+    const pool = new GraphBuilders(f.store, f.directory, resolve('.'));
     cleanup.push(() => pool.stop());
     pool.prepare(f.jobId);
     for (let n = 0; n < 3; n++) {
@@ -324,7 +342,7 @@ describe('validation feedback', () => {
 describe('unfinished builders', () => {
   it('picks a stopped builder back up instead of asking the human', () => {
     const f = fixture();
-    const pool = new GraphBuilderPool(f.store, f.directory, resolve('.'));
+    const pool = new GraphBuilders(f.store, f.directory, resolve('.'));
     cleanup.push(() => pool.stop());
     expect(pool.retry(f.jobId)).toBe(true);
     expect(f.job().status).toBe('queued');
@@ -333,7 +351,7 @@ describe('unfinished builders', () => {
 
   it('gives up after the attempt limit', () => {
     const f = fixture();
-    const pool = new GraphBuilderPool(f.store, f.directory, resolve('.'));
+    const pool = new GraphBuilders(f.store, f.directory, resolve('.'));
     cleanup.push(() => pool.stop());
     for (let n = 0; n < 3; n++) expect(pool.retry(f.jobId)).toBe(true);
     expect(pool.retry(f.jobId)).toBe(false);
@@ -341,7 +359,7 @@ describe('unfinished builders', () => {
 
   it('says it is writing a draft', () => {
     const f = fixture();
-    const pool = new GraphBuilderPool(f.store, f.directory, resolve('.'));
+    const pool = new GraphBuilders(f.store, f.directory, resolve('.'));
     cleanup.push(() => pool.stop());
     pool.prepare(f.jobId);
     expect(f.job().progress).toBe('Writing the graph draft.');

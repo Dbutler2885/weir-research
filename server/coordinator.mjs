@@ -31,6 +31,10 @@ export class Coordinator {
     this.waiting = 0;
     this.quietAt = null;
     this.latest = null;
+    // The researcher pool, set once both exist, for steering and stopping researchers.
+    this.researchers = null;
+    // The walkthrough writers, set once both exist, for sending a writer instructions.
+    this.writers = null;
   }
   // A wait that ended with nothing new is followed by another; the gap is not work.
   listening() {
@@ -225,7 +229,8 @@ export class Coordinator {
   command(data) {
     this.require(data.session);
     this.noteAction(data);
-    if (["publish-walkthrough", "inspect-flow", "assign-graph", "graph-update", "request-graph-resume", "publish-graph-review", "answer-draft-feedback"].includes(data.action)) return flowCommand(this.store, data);
+    if (data.action === "walkthrough-update") return this.writers.steer(data.investigationId, data.message);
+    if (["assign-walkthrough", "publish-walkthrough", "inspect-flow", "assign-graph", "graph-update", "request-graph-resume", "publish-graph-review", "answer-draft-feedback"].includes(data.action)) return flowCommand(this.store, data);
     if (data.action?.startsWith("organization-"))
       return organize(this.store, data);
     if (coordinatorConversationCommands.has(data.action)) {
@@ -263,6 +268,8 @@ export class Coordinator {
       return { saved: true };
     }
     if (!i) throw new Error("Unknown investigation.");
+    if (data.action === "steer") return this.researchers.steer(id, data.message);
+    if (data.action === "stop-researcher") return this.researchers.halt(id, data.reason);
     if (data.action === "request-resume") {
       if (i.status !== "paused")
         throw new Error("Only paused investigations need resume approval.");

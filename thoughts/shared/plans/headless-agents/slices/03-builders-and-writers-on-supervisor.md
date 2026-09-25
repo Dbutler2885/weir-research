@@ -1,7 +1,7 @@
 # Slice 03: Graph builders and walkthrough writers on the supervisor
 
 **Type**: AFK
-**Status**: Not started
+**Status**: Done
 
 ## Blocked by
 
@@ -14,10 +14,10 @@ Feedback the human adds to a draft being built reaches the builder mid-run, both
 
 ## Acceptance criteria
 
-- [ ] Feedback added to a draft under construction reaches the builder at its next step
-- [ ] Builders and walkthrough writers appear in the live panel with plain-sentence actions
-- [ ] The human never sees a draft graph change under them; it appears once, with its tour
-- [ ] The separate graph builder pool is removed
+- [x] Feedback added to a draft under construction reaches the builder at its next step
+- [x] Builders and walkthrough writers appear in the live panel with plain-sentence actions
+- [x] The human never sees a draft graph change under them; it appears once, with its tour
+- [x] The separate graph builder pool is removed
 
 ## User stories addressed
 

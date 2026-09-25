@@ -1,12 +1,13 @@
 import { spawn } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync, appendFileSync, existsSync, copyFileSync, unlinkSync, renameSync, lstatSync, readdirSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, existsSync, copyFileSync, unlinkSync, renameSync, lstatSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { executableOnPath } from './researchers.mjs';
 import { draftTables, graphToTables, DraftError } from '../src/domain/graph-csv.ts';
 import { commentaryHeaders, readDelivery } from '../src/domain/graph-delivery.ts';
 import { receiveDraft } from './review-flow.mjs';
-import { LiveActivity, streamReader, fileDescriber, builderFiles } from './live-activity.mjs';
+import { LiveActivity, fileDescriber, builderFiles } from './live-activity.mjs';
+import { AgentSupervisor } from './agents/supervisor.mjs';
 
 // The files a builder hands back: the graph tables and its commentary beside them.
 const deliveryFiles = [...draftTables, ...Object.keys(commentaryHeaders), 'submission.txt'];
@@ -32,9 +33,11 @@ function writeJson(path, value) {
   renameSync(temporary, path);
 }
 
-export class GraphBuilderPool {
-  constructor(store, directory, root, {launch = spawn, findExecutable = executableOnPath, live = new LiveActivity()} = {}) {
-    Object.assign(this, {store, directory, root, launch, findExecutable, live});
+// Graph builders run on the shared agent supervisor; this keeps each builder's job:
+// preparing its tables, passing on the coordinator's updates, and reading its draft.
+export class GraphBuilders {
+  constructor(store, directory, root, {launch = spawn, findExecutable = executableOnPath, live = new LiveActivity(), supervisor = new AgentSupervisor({launch, live})} = {}) {
+    Object.assign(this, {store, directory, root, findExecutable, live, supervisor});
     this.active = new Map();
     this.nativeActive = new Map();
     this.corrections = new Map();
@@ -70,10 +73,8 @@ export class GraphBuilderPool {
   terminate(task) {
     if (task.terminated) return;
     task.terminated = true;
-    if (!task.child) { this.nativeActive.delete(task.id); this.live.end(`graph:${task.id}`); return; }
-    task.child.kill('SIGTERM');
-    const timer = setTimeout(() => { if (task.child.exitCode === null) task.child.kill('SIGKILL'); }, 5000);
-    timer.unref();
+    if (!task.agent) { this.nativeActive.delete(task.id); this.live.end(`graph:${task.id}`); return; }
+    task.agent.stop();
   }
   // A rejected submission can carry dozens of validation lines; keep the detail on
   // disk and give the human and coordinator one readable sentence.
@@ -207,10 +208,14 @@ export class GraphBuilderPool {
     const {job} = this.job(task.id);
     if (job.status !== 'running' || job.runToken !== task.token) { this.terminate(task); return; }
     if (JSON.stringify(job.packet) !== JSON.stringify(task.packet)) {
+      const known = task.packet.updates.length;
       task.packet = structuredClone(job.packet); task.packets.push(task.packet);
       writeJson(join(task.work, 'packet.json'), task.packet);
       writeJson(join(task.work, 'updates.json'), task.packet.updates);
       writeFileSync(join(task.attempt, `update-${job.updates.length}.json`), JSON.stringify(task.packet, null, 2));
+      // A running builder hears about new instructions at its next step.
+      const fresh = job.updates.slice(known);
+      if (task.agent && fresh.length) task.agent.steer(updateMessage(fresh));
     }
     const statusPath = join(task.work, 'status.txt');
     if (existsSync(statusPath)) {
@@ -244,38 +249,39 @@ export class GraphBuilderPool {
     let task;
     try {
       task = this.prepare(id);
-      const args = job.engine === 'codex'
-        ? ['exec','--skip-git-repo-check','--sandbox','workspace-write','--json','-c','web_search="disabled"','-']
-        : ['--print','--output-format','stream-json','--verbose','--restricted','--tools','Read,Write,Edit,Glob,Grep','--allowedTools','Read,Write,Edit,Glob,Grep','--strict-mcp-config','--mcp-config','{"mcpServers":{}}','--disable-slash-commands','--no-chrome','--permission-mode','dontAsk'];
-      writeFileSync(join(task.attempt, 'invocation.json'), JSON.stringify({engine: job.engine, args, cwd: task.work}, null, 2));
-      task.child = this.launch(executable, args, {cwd: task.work, env: {...process.env}, stdio: ['pipe','pipe','pipe']});
-      this.active.set(id, task);
-      this.live.begin(`graph:${id}`, {role: 'builder', name: job.engine === 'codex' ? 'Codex graph builder' : 'Claude graph builder', investigationId: task.investigationId, jobId: id});
-      const follow = streamReader(fileDescriber(builderFiles), text => this.live.note(`graph:${id}`, text));
-      task.child.stdout.on('data', chunk => { appendFileSync(join(task.attempt, 'stream.ndjson'), chunk); follow(chunk); });
-      task.child.stderr.on('data', chunk => appendFileSync(join(task.attempt, 'stderr.txt'), chunk));
-      task.child.stdin.on('error', () => {});
-      task.child.stdin.end(task.prompt);
-      task.child.on('error', error => { this.live.end(`graph:${id}`); this.pause(id, `Builder could not start: ${error.message}. Saved files are retained.`); });
-      task.child.on('close', code => {
-        this.live.end(`graph:${id}`);
-        try {
-          const {job} = this.job(id);
-          if (job.status !== 'running' || job.runToken !== task.token) return;
-          if (code !== 0) {
-            if (this.retry(id)) { this.pump(); return; }
-            this.pause(id, 'The builder stopped without finishing a draft, and has run out of attempts. Its saved work is kept.');
-            return;
-          }
-          this.complete(task);
-        } catch (error) {
-          // A draft that does not hold together goes back to the builder; anything else stops for the human.
-          if (error instanceof DraftError && this.correct(id, error.problems.join('\n'))) { this.pump(); return; }
-          this.pause(id, `${this.record(id, error.message)} Its saved work is kept.`);
-        }
-        finally { this.active.delete(id); this.pump(); }
+      const tools = ['Read','Write','Edit','Glob','Grep'];
+      const flags = job.engine === 'claude' ? ['--restricted','--tools',tools.join(','),'--strict-mcp-config','--mcp-config','{"mcpServers":{}}','--disable-slash-commands','--no-chrome'] : [];
+      writeFileSync(join(task.attempt, 'invocation.json'), JSON.stringify({engine: job.engine, tools, flags, cwd: task.work}, null, 2));
+      task.agent = this.supervisor.start({
+        key: `graph:${id}`, provider: job.engine, executable, folder: task.work, tools, flags, web: false,
+        prompt: task.prompt, log: join(task.attempt, 'stream.ndjson'),
+        live: {role: 'builder', name: job.engine === 'codex' ? 'Codex graph builder' : 'Claude graph builder', investigationId: task.investigationId, jobId: id},
+        describe: fileDescriber(builderFiles),
       });
+      this.active.set(id, task);
+      // A builder works in one turn; when it ends, the draft is read.
+      task.agent.on('turn', ({outcome}) => { if (outcome !== 'interrupted') task.agent.finish(); });
+      task.agent.on('failed', error => this.pause(id, `Builder could not start: ${error.message}. Saved files are retained.`));
+      task.agent.on('exit', ({code}) => this.finished(task, code));
     } catch (error) { this.pause(id, `Unable to start graph preparation: ${error.message}`); }
+  }
+  finished(task, code) {
+    const id = task.id;
+    try {
+      const {job} = this.job(id);
+      if (job.status !== 'running' || job.runToken !== task.token) return;
+      if (code !== 0) {
+        if (this.retry(id)) return;
+        this.pause(id, 'The builder stopped without finishing a draft, and has run out of attempts. Its saved work is kept.');
+        return;
+      }
+      this.complete(task);
+    } catch (error) {
+      // A draft that does not hold together goes back to the builder; anything else stops for the human.
+      if (error instanceof DraftError && this.correct(id, error.problems.join('\n'))) return;
+      this.pause(id, `${this.record(id, error.message)} Its saved work is kept.`);
+    }
+    finally { this.active.delete(id); this.pump(); }
   }
   pump() {
     if (this.stopped) return;
@@ -311,4 +317,13 @@ export class GraphBuilderPool {
       return {submitted: true};
     }
   }
+}
+
+// What a running builder is told when the coordinator sends new instructions.
+function updateMessage(updates) {
+  const last = updates.at(-1).sequence;
+  return [
+    ...updates.map(u => `The coordinator sent update ${u.sequence}: ${u.message}`),
+    `Read updates.json and packet.json, incorporate ${updates.length === 1 ? 'this update' : 'these updates'} into the tables, and when the draft is ready write done ${last} to submission.txt.`,
+  ].join('\n\n');
 }

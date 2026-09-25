@@ -1,7 +1,7 @@
 # Slice 02: Steerable Codex researcher
 
 **Type**: AFK
-**Status**: Not started
+**Status**: Done
 
 ## Blocked by
 
@@ -16,10 +16,10 @@ See **Provider adapters**.
 
 ## Acceptance criteria
 
-- [ ] A Codex researcher appears in the live panel exactly as a Claude researcher does
-- [ ] Steering and interrupt behave the same for both providers from the coordinator's point of view
-- [ ] An incompatible app server version is refused at startup with a message naming the problem
-- [ ] Adapter tests run against recorded Codex streams, including steering and interrupt
+- [x] A Codex researcher appears in the live panel exactly as a Claude researcher does
+- [x] Steering and interrupt behave the same for both providers from the coordinator's point of view
+- [x] An incompatible app server version is refused at startup with a message naming the problem
+- [x] Adapter tests run against recorded Codex streams, including steering and interrupt
 
 ## User stories addressed
 

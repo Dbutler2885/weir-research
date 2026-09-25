@@ -216,7 +216,7 @@ export interface ResearchState {
 }
 
 export interface LiveWorker {
-  role: "researcher" | "builder";
+  role: "researcher" | "builder" | "writer";
   name: string;
   investigationId: string;
   jobId?: string;
