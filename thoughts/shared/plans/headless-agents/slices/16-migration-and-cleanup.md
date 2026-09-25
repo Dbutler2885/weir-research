@@ -1,7 +1,7 @@
 # Slice 16: Migration and cleanup
 
 **Type**: AFK
-**Status**: Not started
+**Status**: Done
 
 ## Blocked by
 
@@ -17,9 +17,9 @@ See **Migration** and **Remove the native route**.
 
 ## Acceptance criteria
 
-- [ ] An existing project opens and works after conversion with nothing lost
-- [ ] Paused native-route investigations resume through app-launched workers after approval
-- [ ] The old pools, claim paths and allowlist are gone, and `npm run check` passes
+- [x] An existing project opens and works after conversion with nothing lost
+- [x] Paused native-route investigations resume through app-launched workers after approval
+- [x] The old pools, claim paths and allowlist are gone, and `npm run check` passes
 
 ## User stories addressed
 

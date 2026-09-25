@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { assignQueued } from "./fixtures/assign";
 import { afterEach, describe, expect, it } from "vitest";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
@@ -62,11 +63,11 @@ describe("the queue", () => {
     p.store.command({ type: "queue-hold", investigationId: p.ids[0], held: true });
     const pool = new ResearcherPool(p.store, p.directory, resolve("."), { launch: launch as any, findExecutable: (n: string) => `/test/${n}` });
     cleanups.push(() => pool.stop());
-    pool.configure({ maxWorkers: 1 });
-    pool.choose("claude");
-    // Wharf, now first, starts; Mill is held.
-    expect(launched).toHaveLength(1);
+    assignQueued(p.store, pool, "claude");
+    // Wharf, now first, starts first, then Ledger; Mill is held.
+    expect(launched).toHaveLength(2);
     expect(launched[0]).toContain(p.ids[2]);
+    expect(launched[1]).toContain(p.ids[1]);
     expect(p.store.state.investigations[0].status).toBe("queued");
   });
 

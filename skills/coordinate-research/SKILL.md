@@ -128,7 +128,6 @@ At most two managed researchers run concurrently, with no time limit by default.
 The human can set an optional per-pass time limit in Research settings; it applies to new managed passes, including replacement passes, while running passes keep their original limit.
 A configured limit still pauses the investigation at expiry and preserves saved checkpoints; it does not resume an investigation automatically.
 An assignment records the dispatched annotation IDs, phase, and graph request; changed inputs prevent an outdated assignment from starting.
-Selecting an engine preference in the browser does not launch work on its own.
 Workers save checkpoints and return validated candidate proposals to the coordinator.
 They cannot publish those candidates directly to human review in coordinator mode.
 

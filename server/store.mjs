@@ -11,6 +11,7 @@ import {
 import { join } from "node:path";
 import { initialState, transition } from "../src/domain/research.ts";
 import { needsGraphUpgrade, upgradeGraphState } from "../src/domain/graph-upgrade.ts";
+import { convertToAppWorkers } from "../src/domain/migration.ts";
 import { repairClosedBatches } from "../src/domain/conversation.ts";
 
 export class WorkspaceStore {
@@ -33,6 +34,8 @@ export class WorkspaceStore {
       this.save(upgradeGraphState(this.state));
     }
     if (repairClosedBatches(this.state)) this.save(this.state);
+    // A project from before the app ran every worker converts in place.
+    if (convertToAppWorkers(this.state)) this.save(this.state);
     this.marks = [];
     this.mark(this.state);
     this.listeners = new Set();

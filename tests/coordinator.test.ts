@@ -152,7 +152,7 @@ describe("research coordination", () => {
       }).requestId,
     ).toBe(requested.requestId);
     expect(() =>
-      f.run({ action: "claim", investigationId: id, brief: "Continue" }),
+      f.run({ action: "assign", investigationId: id, engine: "claude", brief: "Continue" }),
     ).toThrow("queued");
     expect(() => f.run({ action: "resume", investigationId: id })).toThrow(
       "Unknown coordinator action",
@@ -193,8 +193,9 @@ describe("research coordination", () => {
     );
     expect(() =>
       f.run({
-        action: "claim",
+        action: "assign",
         investigationId: id,
+        engine: "claude",
         brief: "Prepare review from saved evidence",
       }),
     ).not.toThrow();
@@ -250,36 +251,18 @@ describe("research coordination", () => {
       original,
     );
     f.store.command({ type: "resume", investigationId: id });
-    const next = f.run({
-      action: "claim",
+    f.run({
+      action: "assign",
       investigationId: id,
+      engine: "claude",
       brief: "Continue the research",
     });
-    expect(next.investigation.lease.annotationIds).not.toContain(original.id);
-    expect(next.investigation.annotations).toHaveLength(1);
+    // The replacement researcher is given only the research annotation.
+    expect(f.store.state.coordination.assignments[id].annotationIds).toEqual([f.store.state.investigations[0].annotations[0].id]);
   });
-  it("requires exclusive live ownership and fences the previous session after recovery", () => {
+  it("requires exclusive live ownership, and a takeover ends the previous session", () => {
     const f = fixture();
-    const id = f.queue();
-    const brief = f.run({
-      action: "claim",
-      investigationId: id,
-      brief: "Check the source",
-    }) as any;
-    f.run({
-      action: "checkpoint",
-      investigationId: id,
-      summary: "Checked",
-      findings: "One source inspected",
-      nextSteps: "Check second source",
-    });
-    f.store.command({
-      type: "annotate",
-      investigationId: id,
-      target: { label: "Later" },
-      question: "Do not send this yet",
-      dispatch: false,
-    });
+    f.queue();
     expect(() => f.coordinator.attach("Second", randomUUID())).toThrow(
       "Another coordinator",
     );
@@ -290,20 +273,6 @@ describe("research coordination", () => {
       "expired",
     );
     expect(f.store.state.investigations[0]!.status).toBe("queued");
-    expect(f.store.state.investigations[0]!.checkpoints).toHaveLength(1);
-    expect(
-      f.store.state.investigations[0]!.annotations[1]!.dispatchedAt,
-    ).toBeUndefined();
-    expect(() =>
-      f.store.command({
-        type: "checkpoint",
-        investigationId: id,
-        token: brief.investigation.lease.token,
-        summary: "late",
-        findings: "late",
-        nextSteps: "late",
-      }),
-    ).toThrow("lease");
   });
   it("starts with a small index and retrieves source passages and investigations only on request", () => {
     const f = fixture();

@@ -127,7 +127,7 @@ export function flowCommand(store, command, actor = 'coordinator') {
     fail(job, 'Unknown graph preparation.');
     if (action === 'assign-graph') {
       fail(job.status === 'queued', 'Only queued graph work can be assigned.');
-      fail(['codex','claude','manual'].includes(command.engine), 'Choose a graph-builder provider.');
+      fail(['codex','claude'].includes(command.engine), 'Choose claude or codex for the graph builder.');
     } else if (action === 'graph-update') {
       // A draft the human is reviewing can go back for a revision; the builder continues from it.
       const underReview = job.status === 'published' && flow.graphReviews.some(r => r.jobId === job.id && r.status === 'pending');

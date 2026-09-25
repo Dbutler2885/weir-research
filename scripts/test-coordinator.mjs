@@ -14,7 +14,30 @@ import assert from "node:assert/strict";
 const exec = promisify(execFile);
 const directory = mkdtempSync(join(tmpdir(), "pike-coordinator-e2e-"));
 // The test drives the coordinator API itself, so the app starts no coordinator agent.
-const env = { ...process.env, RESEARCH_HOME: directory, RESEARCH_COORDINATOR_AGENT: "0" };
+// Researchers are a stand-in Claude CLI that saves a checkpoint and returns an unresolved result.
+const steps = join(directory, "researcher-steps.json");
+writeFileSync(
+  steps,
+  JSON.stringify([
+    {
+      tool: "Write",
+      input: { file_path: "checkpoint.json" },
+      writes: { "checkpoint.json": JSON.stringify({ summary: "Local checkpoint", findings: "Inspected the existing record only.", nextSteps: "Preserve an unresolved outcome." }) },
+    },
+    {
+      tool: "Write",
+      input: { file_path: "result.json" },
+      writes: { "result.json": JSON.stringify({ title: "Local workflow verified", summary: "This is a protocol test, not a new historical finding.", ambiguity: "The historical question remains uninvestigated.", evidence: [], changes: [] }) },
+    },
+  ]),
+);
+const env = {
+  ...process.env,
+  RESEARCH_HOME: directory,
+  RESEARCH_COORDINATOR_AGENT: "0",
+  RESEARCH_AGENT_CLAUDE: resolve("tests/fixtures/fake-claude.mjs"),
+  FAKE_CLAUDE_STEPS: steps,
+};
 const run = async (script, args = []) => {
   const { stdout } = await exec(
     process.execPath,
@@ -113,18 +136,19 @@ try {
   });
   assert.equal(entity.record.id, "alex");
   await command({
-    action: "claim",
+    action: "assign",
     investigationId: id,
-    brief:
-      "Local integration check only. Record an unresolved outcome; perform no external research.",
+    engine: "claude",
+    brief: "Local integration check only. Record an unresolved outcome; perform no external research.",
   });
-  await command({
-    action: "checkpoint",
-    investigationId: id,
-    summary: "Local checkpoint",
-    findings: "Inspected the existing record only.",
-    nextSteps: "Preserve an unresolved outcome.",
-  });
+  // The app launches the researcher; its result waits for the coordinator.
+  let candidate;
+  for (let n = 0; n < 200 && !candidate; n++) {
+    await new Promise((r) => setTimeout(r, 100));
+    candidate = (await run("coordinator", ["snapshot", "--session", sessionFile])).candidates[0];
+  }
+  assert.equal(candidate.title, "Local workflow verified");
+  assert.equal((await state()).investigations[0].checkpoints.length, 1);
   await command({
     action: "map",
     notes:
@@ -147,24 +171,14 @@ try {
     "fixture",
   ]);
   sessionFile = recovered.sessionFile;
-  assert.equal(recovered.investigations[0].status, "queued");
+  // The researcher's result is still there for the next coordinator to publish.
   assert.equal(recovered.investigations[0].checkpointCount, 1);
   assert.ok(recovered.coordinator.handoff.includes("local checkpoint"));
-  await command({
-    action: "claim",
-    investigationId: id,
-    brief: "Continue from the saved checkpoint; no new research.",
-  });
+  assert.equal(recovered.candidates[0].id, candidate.id);
   const published = await command({
     action: "publish",
     investigationId: id,
-    proposal: {
-      title: "Local workflow verified",
-      summary: "This is a protocol test, not a new historical finding.",
-      ambiguity: "The historical question remains uninvestigated.",
-      evidence: [],
-      changes: [],
-    },
+    candidateId: candidate.id,
   });
   assert.equal((await state()).investigations[0].status, "review");
   await assert.rejects(
@@ -221,7 +235,7 @@ try {
           "project discovery and reuse",
           "exclusive coordinator",
           "targeted context retrieval",
-          "checkpoint takeover",
+          "researcher checkpoint and recovery",
           "coordinator-only synthesis",
           "human-only acceptance",
           "restart persistence",

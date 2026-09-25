@@ -86,12 +86,12 @@ This integration check downloads model weights on first use and is separate from
 It exercises the platform default and the portable RapidOCR backend.
 The PDF workflow is configured to run on macOS, Linux, and Windows in GitHub Actions; only macOS has been verified locally.
 
-## Research engines
+## Research agents
 
-The default engine is Manual CLI handoff.
-Investigations also lets you select an installed Codex or Claude CLI.
-Selecting an engine enables queued research and sends each assigned investigation's context and scoped sources to that provider.
-Installing the CLIs remains a prerequisite outside this application.
+The app runs Claude Code and Codex as its agents; install at least one of them.
+Research settings shows who does which job: a default agent, and an agent, model and effort for the coordinator, researchers, graph builders, walkthrough writers and helpers wherever you want one to differ.
+Tell the coordinator a preference in the conversation, such as a different agent for one kind of work, and it adds the rule there.
+Each agent receives only its assignment's context and scoped sources.
 Claude agents use your existing Claude Code sign-in.
 Codex agents use the app's own Codex home, so they never load your personal Codex instructions, skills or servers; sign it in once with Codex's own sign-in:
 
@@ -103,13 +103,13 @@ Every agent runs in its own folder under its CLI's sandbox, with any command and
 It loads the app's skills from its folder, never your personal instructions, hooks, skills or MCP servers, and an agent CLI started from inside one is stopped and reported.
 Researchers working on the web share one research browser: Google Chrome with the app's own profile, separate from your browsers, reached through Chrome DevTools MCP.
 Open it from Research settings and sign in to archives once; every researcher can then use those sign-ins, each in its own tab.
-The process supervisor runs at most two researchers concurrently, with no time limit by default.
-Research settings offers an optional limit in whole minutes for new delegated passes in this project; running passes keep the limit they started with.
-Coordinators can request that paused work resume, with a reason shown in the investigation; research waits for the human to choose Resume research or Keep paused.
-Failures pause for inspection; saved checkpoints support an explicit resume or replacement researcher.
-Switching engines affects new assignments, while Replace researcher restarts an active investigation with its saved handoff.
+The coordinator runs at most four workers at once unless you set another number in Research settings or ask it for more on one job.
+The Queue tab in Investigations shows the batches in the order they are worked; move one up or down, or hold it.
+Research settings also offers an optional limit in whole minutes for each research pass; running passes keep the limit they started with.
+The coordinator can ask to resume paused work, with a reason shown in the investigation; research waits for you to choose Resume research or Keep paused.
+Failures pause for inspection; saved checkpoints carry over to the next researcher.
 
-The manual protocol remains available:
+Outside a coordinated project, an independent worker can use the manual protocol:
 
 ```sh
 npm run research -- status
@@ -120,8 +120,7 @@ npm run research -- propose /path/to/proposal.json
 
 See [the research-agent contract](skills/research-contract/SKILL.md) for the proposal format, source expectations, and recovery behavior.
 The supervisor implements a narrow research workflow inspired by Firstmate; it does not run Firstmate's fleet or Git worktrees.
-The agent-led mode adds coordinator briefs, project-wide handoffs, and a synthesis step before researcher findings become human-review proposals.
-In that mode, the engine selector is a preference for the coordinator; it does not dispatch work on its own.
+With the coordinator, researcher findings pass through its synthesis before they become proposals for your review.
 
 ## Try the isolated example
 
@@ -184,6 +183,6 @@ The browser focuses relevant nodes and connections alongside the tour and eviden
 Only Apply selected groups changes the accepted graph, preserving qualifications and citations.
 
 The repository instructions route coordinators through `skills/present-research/SKILL.md` and `skills/prepare-research-graph/SKILL.md`.
-Managed builders use the saved Codex or Claude preference; manual assignments use native delegation.
+Graph builders use the agent the dispatch rules choose for them.
 Graph jobs preserve working files and streamed output under the ignored project directory, and interrupted work requires human confirmation to resume.
 Use `?view=review&investigation=<id>` on a workspace URL to link directly to a review.

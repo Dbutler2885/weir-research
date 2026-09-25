@@ -109,20 +109,7 @@ export class Coordinator {
       throw new Error(
         `Another coordinator is connected: ${live.name}. Close or detach that session before taking over.`,
       );
-    const recovering = !this.session || this.session.secret !== secret;
     this.session = { name, secret, seen: this.now(), owned: this.now() + this.ownership };
-    if (recovering) {
-      for (const i of [...this.store.state.investigations]) {
-        if (
-          i.status === "running" &&
-          i.lease?.worker.startsWith("Coordinator:")
-        )
-          this.requeue(
-            i.id,
-            "Coordinator session recovered; saved findings retained and old worker lease fenced.",
-          );
-      }
-    }
     if (!this.enabled)
       this.store.update((next) => {
         next.coordination = {
@@ -325,7 +312,7 @@ export class Coordinator {
       });
       return { awaitingApproval: true, requestId };
     }
-    if (data.action === "assign" || data.action === "claim") {
+    if (data.action === "assign") {
       if (i.status !== "queued")
         throw new Error(
           "Only dispatched, queued investigations can be assigned.",
@@ -336,16 +323,6 @@ export class Coordinator {
         data.brief.length > 50_000
       )
         throw new Error("A bounded research brief is required.");
-      if (data.action === "claim") {
-        const result = this.store.command({
-          type: "claim",
-          investigationId: id,
-          worker: `Coordinator: ${this.session.name}`,
-          provider: data.provider || "coordinator/native",
-          model: data.model,
-        });
-        return { ...structuredClone(result), coordinatorBrief: data.brief };
-      }
       // What the coordinator names wins; otherwise the project's dispatch rules decide.
       const choice = this.dispatch?.choose("researcher", data.engine ? { agent: data.engine, model: data.model, effort: data.effort } : null)
         ?? (data.engine || this.store.state.engine ? { agent: data.engine || this.store.state.engine } : null);
@@ -372,35 +349,17 @@ export class Coordinator {
       });
       return { assigned: true };
     }
-    if (data.action === "checkpoint") {
-      if (!i.lease || !i.lease.worker.startsWith("Coordinator:"))
-        throw new Error("This investigation belongs to a managed researcher.");
-      return this.store.command({
-        type: "checkpoint",
-        investigationId: id,
-        token: i.lease.token,
-        summary: data.summary,
-        findings: data.findings,
-        nextSteps: data.nextSteps,
-        accessRequest: data.accessRequest,
-      });
-    }
     if (data.action === "publish") {
       const candidate = this.candidates().find(
         (c) => c.id === data.candidateId && c.investigationId === id,
       );
-      if (
-        !candidate &&
-        (!i.lease?.worker.startsWith("Coordinator:") || data.candidateId)
-      )
-        throw new Error(
-          "A current researcher result or coordinator-owned investigation is required.",
-        );
+      // Only a researcher's current result is published; the coordinator reconciles it first.
+      if (!candidate) throw new Error("Publish a current researcher result, named by its candidateId.");
       const result = this.store.command({
         type: "propose",
         investigationId: id,
-        token: candidate?.token || i.lease.token,
-        proposal: data.proposal || candidate?.proposal,
+        token: candidate.token,
+        proposal: data.proposal || candidate.proposal,
       });
       return result;
     }

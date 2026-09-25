@@ -190,8 +190,6 @@ export function coordinatorAction(data, state) {
     case "assign": return `Assigning a researcher to ${batch(data.investigationId)}`;
     case "steer": return `Redirecting the researcher on ${batch(data.investigationId)}`;
     case "stop-researcher": return `Stopping the researcher on ${batch(data.investigationId)}`;
-    case "claim": return `Starting research on ${batch(data.investigationId)} itself`;
-    case "checkpoint": return `Saving progress on ${batch(data.investigationId)}`;
     case "publish": return `Publishing findings for ${batch(data.investigationId)}`;
     case "revise": return `Revising the findings for ${batch(data.investigationId)}`;
     case "request-resume": return `Asking to resume ${batch(data.investigationId)}`;
@@ -209,8 +207,6 @@ export function coordinatorAction(data, state) {
     case "request-graph-resume": return `Asking to resume the graph for ${batch(data.investigationId)}`;
     case "publish-graph-review": return `Signing off the graph draft for ${batch(data.investigationId)}`;
     case "answer-draft-feedback": return "Answering your note on the graph draft";
-    case "claim-graph": return `Starting the graph for ${batch(data.investigationId)} itself`;
-    case "submit-graph-files": return `Handing in the graph draft for ${batch(data.investigationId)}`;
     case "map": return "Updating the research map";
     case "handoff": return "Saving notes for the next session";
     default:

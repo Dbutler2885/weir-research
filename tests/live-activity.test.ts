@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { assignQueued } from "./fixtures/assign";
 import { afterEach, describe, expect, it } from "vitest";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
@@ -73,7 +74,7 @@ describe("live activity", () => {
     const pool = new ResearcherPool(s, directory, resolve("."), { launch: launch as any, findExecutable: (n: string) => `/test/${n}`, live });
     cleanups.push(() => pool.stop());
     const { investigationId } = s.command({ type: "annotate", question: "Investigate", target: { label: "Record" }, dispatch: true }) as any;
-    pool.choose("claude");
+    assignQueued(s, pool, "claude");
     expect(live.list()).toMatchObject([{ role: "researcher", name: "Claude researcher", investigationId, latest: null }]);
     child.stdout.write(`${JSON.stringify(tool("Write", { file_path: "checkpoint.json" }))}\n`);
     expect(live.list()[0]!.latest!.text).toBe("Saving its progress");

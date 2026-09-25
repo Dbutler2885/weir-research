@@ -23,8 +23,7 @@ npm run research -- claim "provider / investigator name"
 Claim returns the investigation, original annotations, immutable accepted-data snapshot, previous proposals, checkpoints, source scope, and a worker lease token.
 Null means no investigation is queued.
 Do not claim that work is running before a researcher has claimed it.
-Alternatively, the user selects an installed Codex or Claude engine in Investigations.
-The local supervisor prepares a scoped task directory and launches up to two researchers, with no time limit by default.
+In a coordinated project, the app prepares a scoped task directory for each researcher the coordinator assigns and launches it, with no time limit by default.
 The human may configure a time limit for new managed passes in Research settings.
 Follow the deadline in your pass instructions when one is set, and finish the bounded assignment when complete even without a deadline.
 This uses the existing CLI account and sends the assigned research context and scoped sources to its model service.
@@ -33,10 +32,9 @@ Managed researchers write `checkpoint.json` and `result.json` in their task dire
 They do not receive the workspace API credential.
 The manual CLI commands below are for externally managed researchers.
 
-Changing engines affects new assignments; Replace researcher queues an active investigation for a fresh worker with its saved handoff.
+Replace researcher queues an active investigation for a fresh worker with its saved handoff.
 Failures pause instead of retrying indefinitely.
-On server restart, managed running investigations become paused and can be explicitly resumed.
-The Codex adapter uses its documented [noninteractive execution mode](https://developers.openai.com/codex/noninteractive).
+A researcher the human kept running when the app closed is taken back when it opens; any other running researcher pauses and can be explicitly resumed.
 
 ## Preserve intent and divide work
 

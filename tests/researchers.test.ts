@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { assignQueued } from "./fixtures/assign";
 import { afterEach, describe, expect, it } from "vitest";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
@@ -62,7 +63,7 @@ describe("local researcher supervision", () => {
   it("defaults to no time limit and tells the worker there is no deadline", () => {
     const f = fixture();
     const id = f.queue();
-    f.pool.choose("claude");
+    assignQueued(f.store, f.pool, "claude");
     const task = f.pool.active.get(id);
     task.started = Date.now() - 24 * 60 * 60_000;
     f.pool.pump();
@@ -84,7 +85,7 @@ describe("local researcher supervision", () => {
     const reopened = new WorkspaceStore(f.directory, dataset);
     expect(reopened.state.researchSettings.timeLimitMinutes).toBe(2);
     const id = f.queue();
-    f.pool.choose("claude");
+    assignQueued(f.store, f.pool, "claude");
     expect(f.launches[0]!.args.join(" ")).toContain("2-minute time limit");
     const task = f.pool.active.get(id);
     f.pool.configure({ timeLimitMinutes: null });
@@ -114,10 +115,10 @@ describe("local researcher supervision", () => {
     ).toBeNull();
     f.launches[0]!.child.emit("close", 1);
     f.store.command({ type: "resume", investigationId: id });
-    f.pool.pump();
+    assignQueued(f.store, f.pool, "claude");
     expect(f.pool.active.get(id).timeLimitMinutes).toBeNull();
   });
-  it("launches only after selecting an engine and bounds concurrent investigations by the setting", () => {
+  it("launches only on the coordinator's assignments, and keeps the human's worker setting", () => {
     const f = fixture();
     expect(() => f.pool.configure({ maxWorkers: 0 })).toThrow("from 1 to 20");
     f.pool.configure({ maxWorkers: 2 });
@@ -127,19 +128,15 @@ describe("local researcher supervision", () => {
     f.queue();
     f.pool.pump();
     expect(f.launches).toHaveLength(0);
-    f.pool.choose("codex");
-    expect(f.launches).toHaveLength(2);
+    // The setting guides the coordinator; what it assigns, starts.
+    assignQueued(f.store, f.pool, "codex");
+    expect(f.launches).toHaveLength(3);
     expect(f.launches[0]!.args[0]).toBe("app-server");
-    expect(f.store.state.investigations.map((i: any) => i.status)).toEqual([
-      "running",
-      "running",
-      "queued",
-    ]);
   });
-  it("saves checkpoints and turns a worker result into a pending proposal without applying it", () => {
+  it("saves checkpoints and holds a worker's result for the coordinator, applying nothing", () => {
     const f = fixture();
     f.queue();
-    f.pool.choose("codex");
+    const coordinator = assignQueued(f.store, f.pool, "codex");
     const process = f.launches[0]!;
     writeFileSync(
       join(process.options.cwd, "checkpoint.json"),
@@ -163,20 +160,17 @@ describe("local researcher supervision", () => {
       }),
     );
     process.child.emit("close", 0);
-    expect(f.store.state.investigations[0]!.status).toBe("review");
-    expect(f.store.state.investigations[0]!.proposals[0]!.status).toBe(
-      "pending",
-    );
+    expect(coordinator.candidates().map((c: any) => c.proposal.title)).toEqual(["Still unresolved"]);
+    expect(f.store.state.investigations[0]!.proposals).toEqual([]);
     expect(f.store.state.dataset).toEqual(dataset);
   });
   it("terminates replaced work and starts a replacement with the selected provider", () => {
     const f = fixture();
     const id = f.queue();
-    f.pool.choose("codex");
+    assignQueued(f.store, f.pool, "codex");
     const old = f.launches[0]!;
-    f.pool.choose("claude");
     f.store.command({ type: "resume", investigationId: id });
-    f.pool.pump();
+    assignQueued(f.store, f.pool, "claude");
     expect(old.child.killed).toBe(true);
     old.child.emit("close", 1);
     expect(f.launches).toHaveLength(2);
@@ -191,7 +185,7 @@ describe("local researcher supervision", () => {
   it("pauses failures rather than entering an automatic retry loop", () => {
     const f = fixture();
     f.queue();
-    f.pool.choose("claude");
+    assignQueued(f.store, f.pool, "claude");
     f.launches[0]!.child.emit("close", 1);
     f.pool.pump();
     expect(f.store.state.investigations[0]!.status).toBe("paused");
@@ -200,7 +194,7 @@ describe("local researcher supervision", () => {
   it("pauses interrupted managed jobs on restart so old results cannot publish", () => {
     const f = fixture();
     const id = f.queue();
-    f.pool.choose("codex");
+    assignQueued(f.store, f.pool, "codex");
     const token = f.store.state.investigations[0]!.lease!.token;
     f.pool.stop();
     const restarted = new ResearcherPool(f.store, f.directory, resolve("."));
@@ -220,7 +214,7 @@ describe("local researcher supervision", () => {
 });
 
 describe("coordinator-managed research processes", () => {
-  it("requires a coordinator brief and holds results for synthesis even when a provider is selected", async () => {
+  it("requires a coordinator brief and holds results for synthesis", async () => {
     const { Coordinator } = await import("../server/coordinator.mjs");
     const f = fixture();
     const coordinator = new Coordinator(f.store);
@@ -228,12 +222,13 @@ describe("coordinator-managed research processes", () => {
     coordinator.attach("Test coordinator", session);
     f.pool.coordinator = coordinator as any;
     const id = f.queue();
-    f.pool.choose("codex");
+    f.pool.pump();
     expect(f.launches).toHaveLength(0);
     coordinator.command({
       action: "assign",
       session,
       investigationId: id,
+      engine: "codex",
       brief: "Compare the two identities; preserve ambiguity.",
     });
     f.pool.pump();
@@ -278,7 +273,6 @@ describe("steerable researchers", () => {
     coordinator.researchers = f.pool;
     f.pool.coordinator = coordinator as any;
     const id = f.queue();
-    f.pool.choose("claude");
     coordinator.command({ action: "assign", session, investigationId: id, engine: "claude", brief: "Trace the fixture record." });
     f.pool.pump();
     const process = f.launches.at(-1)!;
@@ -419,7 +413,7 @@ describe("the research browser for web researchers", () => {
     const server = { command: "/bin/node", args: ["chrome-devtools-mcp.js", "--browserUrl", "http://127.0.0.1:9333"], env: {} };
     f.pool.browser = { chrome: "/chrome", open: async () => "http://127.0.0.1:9333", mcpServer: () => server } as any;
     f.queue();
-    f.pool.choose("claude");
+    assignQueued(f.store, f.pool, "claude");
     await new Promise((done) => setTimeout(done, 10));
     const args = f.launches[0]!.args;
     expect(JSON.parse(args[args.indexOf("--mcp-config") + 1]!)).toEqual({ mcpServers: { browser: server } });
@@ -432,7 +426,7 @@ describe("the research browser for web researchers", () => {
     let opened = false;
     f.pool.browser = { chrome: "/chrome", open: async () => ((opened = true), "http://127.0.0.1:9333"), mcpServer: () => ({}) } as any;
     f.store.command({ type: "annotate", question: "Local only", target: { label: "R" }, dispatch: true, scope: ["imports"] });
-    f.pool.choose("claude");
+    assignQueued(f.store, f.pool, "claude");
     await new Promise((done) => setTimeout(done, 10));
     expect(opened).toBe(false);
     const args = f.launches[0]!.args;

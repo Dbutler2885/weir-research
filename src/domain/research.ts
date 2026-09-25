@@ -222,11 +222,6 @@ export interface ResearchState {
   researchBrowser?: { available: boolean };
   // The latest usage each agent CLI reported, where it reports any.
   usage?: Partial<Record<"claude" | "codex", Usage>>;
-  researcher?: {
-    selected: "manual" | "codex" | "claude";
-    engines: { id: string; available: boolean }[];
-    limit: number;
-  };
 }
 
 export interface Usage {

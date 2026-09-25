@@ -25,7 +25,11 @@ Open your own tab with new_page, with background set to true, use its page ID in
 If a page needs a sign-in, do not sign in yourself: ask for access help in checkpoint.json as described above.
 `;
 
+// An agent CLI on the PATH, or the one RESEARCH_AGENT_<NAME> names, such as a
+// stand-in CLI in the integration tests.
 export function executableOnPath(name) {
+  const named = process.env[`RESEARCH_AGENT_${name.toUpperCase()}`];
+  if (named) return named;
   for (const dir of (process.env.PATH || "").split(delimiter)) {
     const file = join(dir, name);
     try {
@@ -97,16 +101,6 @@ export class ResearcherPool {
     for (const record of kept) supervisor.dismiss(record);
     this.timer = setInterval(() => this.pump(), 2000);
   }
-  capabilities() {
-    return {
-      selected: this.store.state.engine || "manual",
-      engines: ["codex", "claude"].map((id) => ({
-        id,
-        available: Boolean(this.findExecutable(id)),
-      })),
-      limit: this.store.state.researchSettings?.maxWorkers ?? 4,
-    };
-  }
   // Research settings: a time limit per pass, and how many workers run at once.
   configure(settings) {
     if ("maxWorkers" in settings) {
@@ -132,18 +126,6 @@ export class ResearcherPool {
       next.researchSettings = { ...(next.researchSettings || {}), timeLimitMinutes };
     });
     return this.store.state.researchSettings;
-  }
-  choose(engine) {
-    if (!["manual", "codex", "claude"].includes(engine))
-      throw new Error("Unknown research engine.");
-    if (engine !== "manual" && !this.findExecutable(engine))
-      throw new Error(
-        `${engine} CLI is not installed or not on the server PATH.`,
-      );
-    this.store.update((next) => {
-      next.engine = engine;
-    });
-    this.pump();
   }
   stop() {
     this.stopped = true;
@@ -193,32 +175,13 @@ export class ResearcherPool {
         }
       }
     }
-    const engine = this.store.state.engine || "manual";
-    if (engine === "manual" && !this.coordinator?.enabled) return;
-    // The coordinator decides how many work at once; without one, the human's setting caps it.
-    const limit = this.coordinator?.enabled ? Infinity : this.store.state.researchSettings?.maxWorkers ?? 4;
+    // Researchers start only on the coordinator's assignments; how many run at once is
+    // the coordinator's call, guided by the human's setting.
+    if (!this.coordinator?.enabled) return;
     // Batches start in queue order, and a held batch waits.
     const queued = [...queueOf(this.store.state), ...this.store.state.investigations.filter((i) => !i.number)];
-    while (this.active.size < limit) {
-      const next = queued.find(
-        (i) =>
-          i.status === "queued" &&
-          !i.held &&
-          !this.active.has(i.id) &&
-          (!this.coordinator?.enabled || this.coordinator.ready(i)),
-      );
-      if (!next) break;
-      if (
-        this.start(
-          next.id,
-          this.coordinator?.enabled
-            ? this.coordinator.assignment(next.id).engine
-            : engine,
-        ) === false
-      )
-        break;
-      if ((this.store.state.engine || "manual") !== engine) break;
-    }
+    for (const next of queued.filter((i) => i.status === "queued" && !i.held && !this.active.has(i.id) && this.coordinator.ready(i)))
+      this.start(next.id, this.coordinator.assignment(next.id).engine);
   }
   fail(task, message) {
     const i = this.store.state.investigations.find((i) => i.id === task.id);
@@ -233,10 +196,10 @@ export class ResearcherPool {
   start(id, engine) {
     const executable = this.findExecutable(engine);
     if (!executable) {
+      // The assignment stays with the coordinator to give to an installed agent.
       this.store.update((next) => {
-        next.engine = "manual";
-        if (next.coordination?.assignments)
-          delete next.coordination.assignments[id];
+        delete next.coordination.assignments[id];
+        next.investigations.find((i) => i.id === id).events.push({ at: new Date().toISOString(), message: `${engine} is not installed; the coordinator needs to assign another researcher.` });
       });
       return false;
     }

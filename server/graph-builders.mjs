@@ -39,7 +39,6 @@ export class GraphBuilders {
   constructor(store, directory, root, {launch = spawn, findExecutable = executableOnPath, live = new LiveActivity(), supervisor = new AgentSupervisor({launch, live})} = {}) {
     Object.assign(this, {store, directory, root, findExecutable, live, supervisor});
     this.active = new Map();
-    this.nativeActive = new Map();
     this.corrections = new Map();
     this.maxCorrections = 3;
     this.stopped = false;
@@ -85,8 +84,7 @@ export class GraphBuilders {
   terminate(task) {
     if (task.terminated) return;
     task.terminated = true;
-    if (!task.agent) { this.nativeActive.delete(task.id); this.live.end(`graph:${task.id}`); return; }
-    task.agent.stop();
+    task.agent?.stop();
   }
   // A rejected submission can carry dozens of validation lines; keep the detail on
   // disk and give the human and coordinator one readable sentence.
@@ -306,7 +304,7 @@ export class GraphBuilders {
   }
   pump() {
     if (this.stopped) return;
-    for (const task of [...this.active.values(), ...this.nativeActive.values()]) {
+    for (const task of this.active.values()) {
       try { this.sync(task); }
       catch (error) { this.pause(task.id, `Unable to save builder progress: ${error.message}`); this.terminate(task); }
     }
@@ -314,28 +312,6 @@ export class GraphBuilders {
     const jobs = this.store.state.investigations.filter(i => !i.held).flatMap(i => i.reviewFlow?.jobs || []);
     for (const job of jobs)
       if (job.status === 'queued' && job.engine !== 'manual' && !this.active.has(job.id)) this.start(job.id);
-  }
-  native(command) {
-    if (command.action === 'claim-graph') {
-      const {job, investigation} = this.job(command.jobId);
-      if (investigation.id !== command.investigationId || job.engine !== 'manual') throw new Error('Use native delegation only for a manual builder assignment.');
-      const task = this.prepare(job.id);
-      this.nativeActive.set(job.id, task);
-      this.live.begin(`graph:${job.id}`, {role: 'builder', name: 'Graph builder run by the coordinator', investigationId: investigation.id, jobId: job.id});
-      return {jobId: job.id, directory: task.work, packet: task.packet};
-    }
-    if (command.action === 'submit-graph-files') {
-      const {job, investigation} = this.job(command.jobId);
-      if (investigation.id !== command.investigationId || job.status !== 'running' || job.engine !== 'manual') throw new Error('No native graph assignment is running.');
-      const directory = join(this.directory, 'graph-builders', job.id);
-      const task = this.nativeActive.get(job.id);
-      if (!task) throw new Error('Native assignment must be reclaimed after recovery.');
-      this.sync(task);
-      this.complete(task);
-      this.nativeActive.delete(job.id);
-      this.live.end(`graph:${job.id}`);
-      return {submitted: true};
-    }
   }
 }
 

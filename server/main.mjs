@@ -111,11 +111,6 @@ function coordinatorCommand(data) {
   // An agent, model or effort named for one assignment must be one the installed CLIs offer.
   if (["assign", "assign-graph", "assign-walkthrough", "ask-helper"].includes(data.action) && data.engine && data.engine !== "manual")
     validateChoice({ agent: data.engine, model: data.model ?? null, effort: data.effort ?? null }, catalog, "The named agent");
-  if (["claim-graph", "submit-graph-files"].includes(data.action)) {
-    coordinator.require(data.session);
-    coordinator.noteAction(data);
-    return graphBuilders.native(data);
-  }
   const result = coordinator.command(data);
   researchers.pump();
   graphBuilders.pump();
@@ -308,7 +303,6 @@ const server = createServer(async (req, res) => {
     if (req.method === "GET" && url.pathname === "/api/state")
       return json(res, 200, {
         ...store.publicState(),
-        researcher: researchers.capabilities(),
         coordinator: coordinator.status(),
         live: live.list(),
         catalog,
@@ -395,11 +389,6 @@ const server = createServer(async (req, res) => {
     }
     if (req.method === "POST" && url.pathname === "/api/dispatch")
       return json(res, 200, { dispatch: dispatch.change(await body(req), "human") });
-    if (req.method === "POST" && url.pathname === "/api/engine") {
-      const data = await body(req);
-      researchers.choose(data.engine);
-      return json(res, 200, researchers.capabilities());
-    }
     if (req.method === "POST" && url.pathname === "/api/import") {
       const data = await body(req);
       if (typeof data.name !== "string" || typeof data.content !== "string")

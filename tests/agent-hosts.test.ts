@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { assignQueued } from "./fixtures/assign";
 import { afterEach, describe, expect, it } from "vitest";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -155,7 +156,7 @@ describe("a researcher pool opening again", () => {
     const first = p.app();
     const pool = new ResearcherPool(store, join(p.root, "project"), resolve("."), { supervisor: first.supervisor, live: first.live, findExecutable: () => executable });
     const { investigationId: id } = store.command({ type: "annotate", question: "Q", target: { label: "R" }, dispatch: true, scope: ["imports"] }) as any;
-    pool.choose("claude");
+    assignQueued(store, pool, "claude");
     await until(() => first.live.list()[0]);
     // The human quits, keeping the researcher running.
     first.supervisor.keep();
