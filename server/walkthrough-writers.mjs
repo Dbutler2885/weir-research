@@ -54,7 +54,7 @@ export class WalkthroughWriters {
   pump() {
     if (this.stopped) return;
     for (const i of this.store.state.investigations)
-      if (i.reviewFlow?.writer?.status === 'queued' && !this.active.has(i.id)) this.start(i.id);
+      if (i.reviewFlow?.writer?.status === 'queued' && !i.held && !this.active.has(i.id)) this.start(i.id);
   }
   start(id) {
     const writer = this.writer(id);

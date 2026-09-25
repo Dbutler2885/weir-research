@@ -13,6 +13,7 @@ import {
 import type { Finding, FindingRef, GraphGroup } from "./findings.ts";
 import type { SourceRecord } from "./types.ts";
 import type { Catalog, Dispatch } from "./dispatch.ts";
+import { holdInQueue, moveInQueue } from "./queue.ts";
 import { GenealogyModel } from "./model.ts";
 import type { FamilyDataset, LegacyDataset } from "./types.ts";
 import { upgradeDataset } from "./graph-upgrade.ts";
@@ -95,6 +96,9 @@ export interface Investigation {
   readyAt?: string;
   closedAt?: string;
   walkthroughRequestedAt?: string;
+  // The batch's place in the queue, once the human has reordered it, and whether they hold it.
+  queuePosition?: number;
+  held?: boolean;
   reviewFlow?: ReviewFlow;
   resumeRequest?: {
     id: string;
@@ -183,7 +187,7 @@ export interface ResearchState {
     };
   }[];
   engine?: "manual" | "codex" | "claude";
-  researchSettings?: { timeLimitMinutes: number | null };
+  researchSettings?: { timeLimitMinutes: number | null; maxWorkers?: number };
   reviewSettings?: { autoWalkthrough: boolean; autoGraph: boolean };
   organization?: {
     history: {
@@ -314,7 +318,9 @@ export interface ResearchCommand {
     | "batch-ready"
     | "request-approval"
     | "retitle"
-    | "set-brief";
+    | "set-brief"
+    | "queue-move"
+    | "queue-hold";
   investigationId?: string;
   [key: string]: unknown;
 }
@@ -337,6 +343,15 @@ export function transition(
     (i) => i.id === command.investigationId,
   );
   let result: unknown;
+  // The human orders the queue and holds batches in it.
+  if (command.type === "queue-move" || command.type === "queue-hold") {
+    const result =
+      command.type === "queue-move"
+        ? moveInQueue(next, command.investigationId!, command.direction as "up" | "down", now)
+        : holdInQueue(next, command.investigationId!, Boolean(command.held), now);
+    next.revision++;
+    return { state: next, result };
+  }
   if (command.type === "resume-decision") {
     assert(investigation?.status === "paused", "Investigation is not paused.");
     const pending = investigation.resumeRequest;

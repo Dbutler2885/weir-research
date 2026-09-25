@@ -15,6 +15,7 @@ import {
   researcherFiles,
 } from "./live-activity.mjs";
 import { AgentSupervisor } from "./agents/supervisor.mjs";
+import { queueOf } from "../src/domain/queue.ts";
 import { AgentProblem } from "./agents/problem.mjs";
 import { placeSkills } from "./agents/isolation.mjs";
 
@@ -103,10 +104,21 @@ export class ResearcherPool {
         id,
         available: Boolean(this.findExecutable(id)),
       })),
-      limit: 2,
+      limit: this.store.state.researchSettings?.maxWorkers ?? 4,
     };
   }
-  configure({ timeLimitMinutes }) {
+  // Research settings: a time limit per pass, and how many workers run at once.
+  configure(settings) {
+    if ("maxWorkers" in settings) {
+      const { maxWorkers } = settings;
+      if (!Number.isSafeInteger(maxWorkers) || maxWorkers < 1 || maxWorkers > 20)
+        throw new Error("Workers at once must be a whole number from 1 to 20.");
+      this.store.update((next) => {
+        next.researchSettings = { ...(next.researchSettings || { timeLimitMinutes: null }), maxWorkers };
+      });
+      return this.store.state.researchSettings;
+    }
+    const { timeLimitMinutes } = settings;
     if (
       timeLimitMinutes !== null &&
       (!Number.isSafeInteger(timeLimitMinutes) ||
@@ -117,7 +129,7 @@ export class ResearcherPool {
         "Time limit must be a positive whole number of minutes, or null for no limit.",
       );
     this.store.update((next) => {
-      next.researchSettings = { timeLimitMinutes };
+      next.researchSettings = { ...(next.researchSettings || {}), timeLimitMinutes };
     });
     return this.store.state.researchSettings;
   }
@@ -183,10 +195,15 @@ export class ResearcherPool {
     }
     const engine = this.store.state.engine || "manual";
     if (engine === "manual" && !this.coordinator?.enabled) return;
-    while (this.active.size < 2) {
-      const next = this.store.state.investigations.find(
+    // The coordinator decides how many work at once; without one, the human's setting caps it.
+    const limit = this.coordinator?.enabled ? Infinity : this.store.state.researchSettings?.maxWorkers ?? 4;
+    // Batches start in queue order, and a held batch waits.
+    const queued = [...queueOf(this.store.state), ...this.store.state.investigations.filter((i) => !i.number)];
+    while (this.active.size < limit) {
+      const next = queued.find(
         (i) =>
           i.status === "queued" &&
+          !i.held &&
           !this.active.has(i.id) &&
           (!this.coordinator?.enabled || this.coordinator.ready(i)),
       );
@@ -200,7 +217,7 @@ export class ResearcherPool {
         ) === false
       )
         break;
-      if (this.store.state.engine !== engine) break;
+      if ((this.store.state.engine || "manual") !== engine) break;
     }
   }
   fail(task, message) {

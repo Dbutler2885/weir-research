@@ -42,6 +42,7 @@ export function nextAction(state: ResearchState, batch: Investigation): NextActi
     if (job?.status === "queued" || job?.status === "running")
       return next("worker", "A graph builder is preparing the draft.");
   }
+  if (batch.held) return next("human", "Held by the human; start nothing on it until they release it.");
   if (batch.status === "paused")
     return next("human", "Paused. Leave it paused; ask with request-resume only for a new reason.");
   if (currentCandidates(state, batch).length)

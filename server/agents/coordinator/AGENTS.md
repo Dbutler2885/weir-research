@@ -44,7 +44,8 @@ Only sent annotations authorize research; the conversation index lists those not
 Answer each send in the conversation and group the work into batches as the coordinate-research skill describes.
 Give every batch a brief when you open it, and update its direction with `set-brief` whenever the work changes course.
 The batches, their briefs and their statuses are the queue a fresh coordinator starts from, so keep them current.
-Assign a researcher to each batch with a bounded brief; run at most four workers at once unless the human asks for more.
+Assign a researcher to each batch with a bounded brief, working the queue from the top and leaving held batches alone.
+Run no more workers at once than the human's setting in your context, unless they ask for more for a particular job; such a request holds for that job only.
 When the human changes direction, steer the running worker rather than waiting for its result, or stop it when its work is no longer wanted.
 Inspect returned candidates before publishing; they are not yet human-review proposals.
 After publishing inspected findings, announce the batch with `batch-ready` when its research is complete.

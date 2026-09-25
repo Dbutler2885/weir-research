@@ -1,3 +1,4 @@
+import { queueSection } from "./queue-view";
 import type {
   Annotation,
   Investigation,
@@ -9,7 +10,7 @@ import { batchStatus } from "../domain/conversation";
 import { sourceLibrary } from "../domain/findings";
 import { html, target } from "./finding-review";
 
-export type FindingsSection = "findings" | "activity";
+export type FindingsSection = "findings" | "activity" | "queue";
 
 const FINDINGS_SHOWN = 3;
 const when = (iso: string) =>
@@ -36,12 +37,14 @@ export function findingsPage(
 ): string {
   const all = batches(state);
   const body =
-    section === "activity"
+    section === "queue"
+      ? queueSection(state)
+      : section === "activity"
       ? `<div class="findings-scroll">${activity(state, all)}</div>`
       : all.length
         ? `<div class="findings-layout"><nav class="findings-toc" aria-label="Contents">${contents(all)}</nav><div class="findings-scroll">${all.map((b) => batchCard(state, b, expanded)).join("")}</div></div>`
         : '<div class="findings-scroll"><div class="findings-empty"><h2>No research yet</h2><p>Send an annotation or a question from the Annotations drawer. Your coordinator groups the work into batches, and every report appears here.</p></div></div>';
-  return `<section class="findings-page"><header class="findings-head"><div class="findings-head-row"><div><h1>Investigations</h1><p>Everything researchers have returned, grouped by batch. Newest first.</p></div><button type="button" class="text-action" data-open-settings>Research settings</button></div><nav class="findings-tabs" aria-label="Investigations"><button type="button" data-investigation-section="findings" ${section === "findings" ? 'aria-current="page"' : ""}>Findings</button><button type="button" data-investigation-section="activity" ${section === "activity" ? 'aria-current="page"' : ""}>Activity</button></nav></header>${body}</section>`;
+  return `<section class="findings-page"><header class="findings-head"><div class="findings-head-row"><div><h1>Investigations</h1><p>${section === "queue" ? "Batches waiting and in progress, in the order they are worked." : section === "activity" ? "What has happened, batch by batch." : "Everything researchers have returned, grouped by batch. Newest first."}</p></div><button type="button" class="text-action" data-open-settings>Research settings</button></div><nav class="findings-tabs" aria-label="Investigations"><button type="button" data-investigation-section="findings" ${section === "findings" ? 'aria-current="page"' : ""}>Findings</button><button type="button" data-investigation-section="queue" ${section === "queue" ? 'aria-current="page"' : ""}>Queue</button><button type="button" data-investigation-section="activity" ${section === "activity" ? 'aria-current="page"' : ""}>Activity</button></nav></header>${body}</section>`;
 }
 
 function contents(all: Investigation[]): string {

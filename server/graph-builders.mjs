@@ -310,11 +310,10 @@ export class GraphBuilders {
       try { this.sync(task); }
       catch (error) { this.pause(task.id, `Unable to save builder progress: ${error.message}`); this.terminate(task); }
     }
-    const jobs = this.store.state.investigations.flatMap(i => i.reviewFlow?.jobs || []);
-    for (const job of jobs) {
-      if (this.active.size >= 2) break;
+    // A held batch's graph update waits with it.
+    const jobs = this.store.state.investigations.filter(i => !i.held).flatMap(i => i.reviewFlow?.jobs || []);
+    for (const job of jobs)
       if (job.status === 'queued' && job.engine !== 'manual' && !this.active.has(job.id)) this.start(job.id);
-    }
   }
   native(command) {
     if (command.action === 'claim-graph') {

@@ -1,7 +1,7 @@
 # Slice 14: Queue controls
 
 **Type**: AFK
-**Status**: Not started
+**Status**: Done
 
 ## Blocked by
 
@@ -17,10 +17,10 @@ See **Concurrency and the queue**.
 
 ## Acceptance criteria
 
-- [ ] The queue shows batches in order with status
-- [ ] Moving and holding a batch changes what the coordinator runs next
-- [ ] The worker default is a Research setting, passed to the coordinator
-- [ ] A request for more workers on one job is honored
+- [x] The queue shows batches in order with status
+- [x] Moving and holding a batch changes what the coordinator runs next
+- [x] The worker default is a Research setting, passed to the coordinator
+- [x] A request for more workers on one job is honored
 
 ## User stories addressed
 

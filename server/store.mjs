@@ -146,6 +146,8 @@ function fingerprint(i) {
     i.title,
     i.phase,
     i.number,
+    i.queuePosition,
+    i.held,
     i.readyAt,
     i.closedAt,
     i.walkthroughRequestedAt,

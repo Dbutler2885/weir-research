@@ -752,6 +752,17 @@ export function mountResearchWorkspace(
         message((error as Error).message);
       }
     });
+    surface.querySelector<HTMLFormElement>("#max-workers-form")?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const maxWorkers = surface.querySelector<HTMLInputElement>("#max-workers")!.valueAsNumber;
+      try {
+        await request("/api/research-settings", { maxWorkers });
+        await refresh();
+        message(`Your coordinator runs at most ${maxWorkers} ${maxWorkers === 1 ? "worker" : "workers"} at once.`);
+      } catch (error) {
+        message((error as Error).message);
+      }
+    });
     // Who does which job: each menu saves as it changes; the page redraws from the saved rules.
     const dispatchChange = async (body: Record<string, unknown>, saved: string) => {
       try {
@@ -1006,6 +1017,16 @@ export function mountResearchWorkspace(
     }
     if (button.hasAttribute("data-new-interface-note")) {
       openDrawer("queue");
+      return;
+    }
+    // The human orders and holds the queue.
+    if (button.dataset.queueMove || button.dataset.queueHold) {
+      const investigationId = button.closest<HTMLElement>("[data-investigation-id]")!.dataset.investigationId!;
+      void command(
+        button.dataset.queueMove
+          ? ({ type: "queue-move", investigationId, direction: button.dataset.queueMove } as ResearchCommand)
+          : ({ type: "queue-hold", investigationId, held: button.dataset.queueHold === "hold" } as ResearchCommand),
+      );
       return;
     }
     if (button.dataset.investigationSection) {

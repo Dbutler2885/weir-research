@@ -147,6 +147,8 @@ const userCommands = new Set([
   "interface-feedback",
   "reclassify-annotation",
   "resume-decision",
+  "queue-move",
+  "queue-hold",
   "resolve-access",
   "annotate",
   "dispatch",

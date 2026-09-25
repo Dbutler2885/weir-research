@@ -3,6 +3,7 @@ import type { Message } from "./conversation.ts";
 import { unassignedAnnotations } from "./conversation.ts";
 import { nextAction, currentCandidates } from "./next-action.ts";
 import { sourceLibrary } from "./findings.ts";
+import { queueOf } from "./queue.ts";
 
 // What a coordinator reads when it starts, ordered by urgency so it can act
 // without reading everything. Built from saved state alone; it never writes.
@@ -108,7 +109,7 @@ function reviewLine(b: Investigation) {
 }
 
 function batchBlock(state: ResearchState, b: Investigation, workers: LiveWorker[]) {
-  const lines = [`### ${batchName(b)}: ${clip(b.title, 160)}`, `ID ${b.id} · status ${b.status}${b.readyAt ? " · marked ready" : ""}`];
+  const lines = [`### ${batchName(b)}: ${clip(b.title, 160)}`, `ID ${b.id} · status ${b.status}${b.readyAt ? " · marked ready" : ""}${b.held ? " · held by the human: start nothing on it until they release it" : ""}`];
   if (b.brief)
     lines.push(
       `Purpose: ${clip(b.brief.purpose, 400)}`,
@@ -141,9 +142,8 @@ function batchBlock(state: ResearchState, b: Investigation, workers: LiveWorker[
 }
 
 function queue(state: ResearchState, workers: LiveWorker[]): ContextLayer {
-  // Batch numbers are the queue order until the human can reorder it.
-  const order = (b: Investigation) => b.number ?? Number.MAX_SAFE_INTEGER;
-  const open = state.investigations.filter(isOpen).sort((a, b) => order(a) - order(b));
+  // The human's order: work the batches from the top. Older unnumbered work follows.
+  const open = [...queueOf(state), ...state.investigations.filter((b) => !b.number && isOpen(b))];
   const blocks = open.map((b) => batchBlock(state, b, workers));
   const closed = state.investigations
     .filter((b) => !isOpen(b))
@@ -190,6 +190,7 @@ function orientation(state: ResearchState): ContextLayer {
     `automatic walkthrough: ${state.reviewSettings?.autoWalkthrough ? "on" : "off"}`,
     `automatic graph update: ${state.reviewSettings?.autoGraph ? "on" : "off"}`,
     `research time limit: ${state.researchSettings?.timeLimitMinutes ? `${state.researchSettings.timeLimitMinutes} minutes` : "none"}`,
+    `workers at once: at most ${state.researchSettings?.maxWorkers ?? 4}, unless the human asks for more for a particular job`,
   ].join("; ");
   const coordination = (state as { coordination?: { researchMap?: string; handoff?: string } }).coordination;
   const blocks = [

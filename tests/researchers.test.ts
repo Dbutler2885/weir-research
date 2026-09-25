@@ -117,8 +117,11 @@ describe("local researcher supervision", () => {
     f.pool.pump();
     expect(f.pool.active.get(id).timeLimitMinutes).toBeNull();
   });
-  it("launches only after selecting an engine and bounds concurrent investigations", () => {
+  it("launches only after selecting an engine and bounds concurrent investigations by the setting", () => {
     const f = fixture();
+    expect(() => f.pool.configure({ maxWorkers: 0 })).toThrow("from 1 to 20");
+    f.pool.configure({ maxWorkers: 2 });
+    expect(f.store.state.researchSettings).toEqual({ timeLimitMinutes: null, maxWorkers: 2 });
     f.queue();
     f.queue();
     f.queue();

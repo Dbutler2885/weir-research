@@ -106,7 +106,8 @@ export function runningSummary(state: ResearchState): string {
   const open = state.investigations.filter((i) => !i.closedAt);
   // Only a batch a researcher has claimed is being worked on; a queued one is waiting.
   const running = open.filter((i) => i.status === "running").length;
-  const queued = open.filter((i) => i.status === "queued").length;
+  // A held batch is not waiting for anyone; the queue shows it.
+  const queued = open.filter((i) => i.status === "queued" && !i.held).length;
   const builders = open.flatMap((i) => i.reviewFlow?.jobs || [])
     .filter((j) => ["queued", "running", "returned"].includes(j.status)).length;
   const writing = open.filter((i) => i.walkthroughRequestedAt).length;
