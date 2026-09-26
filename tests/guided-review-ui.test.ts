@@ -63,8 +63,10 @@ describe('suggested walkthrough edits',()=>{
   const bar=()=>f.host.querySelector('.walkthrough-edits-bar')!.textContent;
   expect(bar()).toContain('2 edits suggested by the coordinator');
   const answer=()=>f.host.querySelector('[data-edit-id="answer"]')!;
-  expect(answer().querySelector('.walkthrough-edit-before')!.textContent).toBe(w.answer);
-  expect(answer().querySelector('.walkthrough-edit-after')!.textContent).toBe(text.answer);
+  // The passage reads once, with the words the edit removes and adds marked in it.
+  const words=(tag:string)=>[...answer().querySelectorAll(tag)].map(e=>e.textContent).join(' | ');
+  expect(words('del')).not.toBe('');
+  expect(words('ins')).toContain('on a street no record names');
   expect(f.host.querySelector<HTMLButtonElement>('[data-guided-edits-send]')!.disabled).toBe(true);
   f.click('[data-edit-id="answer"] [data-guided-edit="accept"]');
   expect(answer().classList.contains('is-accept')).toBe(true);
@@ -73,6 +75,9 @@ describe('suggested walkthrough edits',()=>{
   f.click('[data-guided-edits-next]');
   expect(f.host.querySelector('h1')?.textContent).toBe(w.steps[0]!.title);
   const step=`[data-edit-id="steps.${w.steps[0]!.id}.body"]`;
+  // A sentence added to the step marks only that sentence.
+  expect([...f.host.querySelectorAll(`${step} ins`)].map(e=>e.textContent)).toEqual(['The register gives no street.']);
+  expect(f.host.querySelectorAll(`${step} del`)).toHaveLength(0);
   f.click(`${step} [data-guided-edit="comment"]`);
   f.host.querySelector<HTMLTextAreaElement>(`${step} [data-edit-comment]`)!.value='Say which register.';
   f.click(`${step} [data-guided-edit-comment-save]`);

@@ -1,11 +1,13 @@
 import type { Walkthrough } from "./review-flow";
+import { align } from "./text-diff.ts";
 
 // Edits the coordinator suggests to a published walkthrough, each one passage, for
 // the human to accept, decline or comment on. The coordinator makes them by editing
 // the walkthrough's file; the app reads the passages that changed.
 export interface WalkthroughEdit {
   // Where the passage is, which also identifies the edit: "answer", "caveats.2",
-  // "steps.<step id>.body".
+  // "steps.<step id>.body". A new caveat is "caveats.new.<n>.<k>", the kth one added
+  // before the walkthrough's caveat n (or at the end, when n is their count).
   id: string;
   // The passage's place, in the reader's words.
   where: string;
@@ -71,12 +73,21 @@ export function editsBetween(w: Walkthrough, edited: unknown): WalkthroughEdit[]
     compare(key, where, String(w[key as keyof Walkthrough] ?? ""), e[key]);
   }
   if (!Array.isArray(e.caveats)) throw new Error("caveats must be a list of text.");
-  const caveats = e.caveats;
-  for (let n = 0; n < Math.max(w.caveats.length, caveats.length); n++) {
-    const after = n < caveats.length ? said(caveats[n]) : "";
-    if (after === null) throw new Error("caveats must be a list of text.");
-    const before = w.caveats[n] ?? "";
-    if (after !== before.trim()) edits.push({ id: `caveats.${n}`, where: "What remains open", before, after });
+  const caveats = e.caveats.map(said);
+  if (caveats.some((c) => c === null)) throw new Error("caveats must be a list of text.");
+  // Caveats are matched by what they say, so removing one does not read as rewriting
+  // every caveat after it.
+  let next = 0, added = 0;
+  for (const { before: i, after: j } of align(w.caveats, caveats as string[])) {
+    const where = "What remains open";
+    if (i === undefined) {
+      if (caveats[j!]) edits.push({ id: `caveats.new.${next}.${added++}`, where, before: "", after: caveats[j!]! });
+      continue;
+    }
+    next = i + 1;
+    added = 0;
+    const after = j === undefined ? "" : caveats[j]!;
+    if (after !== w.caveats[i]!.trim()) edits.push({ id: `caveats.${i}`, where, before: w.caveats[i]!, after });
   }
   const steps = e.steps;
   if (!Array.isArray(steps) || steps.length !== w.steps.length || steps.some((s, n) => (s as { id?: unknown })?.id !== w.steps[n]!.id))
@@ -96,13 +107,23 @@ export function applyEdits(w: Walkthrough, edits: WalkthroughEdit[]): Walkthroug
   const next = walkthroughText(w);
   const byId = new Map(edits.map((e) => [e.id, e.after]));
   for (const [key] of TOP) if (byId.has(key)) (next as Record<string, unknown>)[key] = byId.get(key);
-  const count = Math.max(w.caveats.length, ...edits.filter((e) => e.id.startsWith("caveats.")).map((e) => Number(e.id.slice(8)) + 1));
-  next.caveats = Array.from({ length: count }, (_, n) => byId.get(`caveats.${n}`) ?? w.caveats[n] ?? "").filter((c) => c.trim());
+  next.caveats = [];
+  for (let n = 0; n <= w.caveats.length; n++) {
+    next.caveats.push(...addedCaveats(edits, n).map((e) => e.after));
+    if (n < w.caveats.length) next.caveats.push(byId.get(`caveats.${n}`) ?? w.caveats[n]!);
+  }
+  next.caveats = next.caveats.filter((c) => c.trim());
   next.steps = next.steps.map((s) => ({
     ...s,
     ...Object.fromEntries(STEP.flatMap(([key]) => (byId.has(`steps.${s.id}.${key}`) ? [[key, byId.get(`steps.${s.id}.${key}`)]] : []))),
   }));
   return next;
+}
+
+// The caveats an edit adds before the walkthrough's caveat n, in order.
+export function addedCaveats(edits: WalkthroughEdit[], n: number): WalkthroughEdit[] {
+  const at = (e: WalkthroughEdit) => e.id.match(/^caveats\.new\.(\d+)\.(\d+)$/);
+  return edits.filter((e) => Number(at(e)?.[1]) === n).sort((a, b) => Number(at(a)![2]) - Number(at(b)![2]));
 }
 
 // Which page of the walkthrough shows an edit: the opening, a step, or the closing.

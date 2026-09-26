@@ -120,11 +120,19 @@ export function flowCommand(store, command, actor = 'coordinator') {
     let walkthroughId;
     store.update(next => {
       const investigation = next.investigations.find(x => x.id === i.id), flow = flowFor(investigation);
+      let kept = open.map(e => comments.includes(e) ? {...e, comment: decisions[e.id].comment.trim()} : e);
       if (accepted.length) {
         walkthroughId = randomUUID();
-        flow.walkthroughs.push({...structuredClone(latest), ...applyEdits(latest, accepted), id: walkthroughId, createdAt: at, revision: flow.walkthroughs.length + 1});
+        const revised = {...structuredClone(latest), ...applyEdits(latest, accepted), id: walkthroughId, createdAt: at, revision: flow.walkthroughs.length + 1};
+        flow.walkthroughs.push(revised);
+        // The edits still open, found again against the new revision: an accepted
+        // removal or addition moves the caveats after it.
+        const was = new Map(kept.map(e => [`${e.before}\u0000${e.after}`, e]));
+        kept = editsBetween(revised, applyEdits(latest, [...accepted, ...kept])).map(e => {
+          const {comment, earlier} = was.get(`${e.before}\u0000${e.after}`) || {};
+          return {...e, ...(comment ? {comment} : {}), ...(earlier ? {earlier} : {})};
+        });
       }
-      const kept = open.map(e => comments.includes(e) ? {...e, comment: decisions[e.id].comment.trim()} : e);
       if (kept.length) flow.edits = {...pending, basedOnWalkthroughId: walkthroughId || latest.id, edits: kept};
       else delete flow.edits;
       const count = (n, one, many) => `${n} ${n === 1 ? one : many}`;

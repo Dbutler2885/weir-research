@@ -12,7 +12,17 @@ import { GraphRenderer } from './graph-renderer';
 import { renderDetailsPanel, renderContextDetailsPanel } from './details-panel';
 
 import {researchText as paragraphs, researchInline} from './research-text';
-import { editPage, type EditDecision, type WalkthroughEdit } from '../domain/walkthrough-edits';
+import { addedCaveats, editPage, type EditDecision, type WalkthroughEdit } from '../domain/walkthrough-edits';
+import { passageDiff, wordDiff, type Words } from '../domain/text-diff';
+
+// Words a suggested edit removes and adds, marked where they are.
+const marked = (words: Words) => words.map(w => w.kind === 'same' ? html(w.text) : w.kind === 'removed' ? `<del>${html(w.text)}</del>` : `<ins>${html(w.text)}</ins>`).join('');
+// A passage as a suggested edit leaves it: paragraphs it keeps read as usual, and in
+// those it changes, only the changed words are marked.
+const changes = (before: string, after: string) => passageDiff(before, after).map(p =>
+  p.kind === 'same' ? paragraphs(p.text)
+  : p.kind === 'changed' ? `<p class="preserve-lines">${marked(p.words)}</p>`
+  : `<p class="preserve-lines">${marked([{kind: p.kind, text: p.text}])}</p>`).join('');
 
 interface Progress { walkthroughId?: string; stage: 'reading' | 'graph'; step: number; graphReviewId?: string; stop: number; changes?: boolean; followLatest?: boolean }
 interface Options {
@@ -110,11 +120,11 @@ export class GuidedReview {
     try { localStorage.setItem(this.decisionsKey(), JSON.stringify(this.decisions)); } catch { /* Choices are kept for this page only. */ }
   }
   // A passage, or in its place the coordinator's suggested edit to it.
-  private passage(id: string, shown: string): string {
+  private passage(id: string, shown: string, heading = false): string {
     const e = this.edits().find(e => e.id === id);
-    return e ? this.editBlock(e) : shown;
+    return e ? this.editBlock(e, heading) : shown;
   }
-  private editBlock(e: WalkthroughEdit): string {
+  private editBlock(e: WalkthroughEdit, heading = false): string {
     const d = this.decisions[e.id];
     const pressed = (kind: EditDecision['decision']) => d?.decision === kind ? 'aria-pressed="true"' : 'aria-pressed="false"';
     const writing = this.commenting === e.id;
@@ -123,8 +133,8 @@ export class GuidedReview {
       : `<div class="walkthrough-edit-actions"><button data-guided-edit="accept" ${pressed('accept')}>Yes</button><button data-guided-edit="decline" ${pressed('decline')}>No</button><button data-guided-edit="comment" ${pressed('comment')}>Comment</button><span class="walkthrough-edit-position">Edit ${this.edits().indexOf(e) + 1} of ${this.edits().length}</span></div>${d?.decision === 'comment' && d.comment ? `<p class="walkthrough-edit-note">Your comment, sent with your review: “${html(d.comment)}”</p>` : ''}`;
     return `<div class="walkthrough-edit${d ? ` is-${d.decision}` : ''}" data-edit-id="${html(e.id)}">
       <p class="walkthrough-edit-label">Suggested edit${e.earlier ? ', revised after your comment' : ''}</p>
-      ${e.before ? `<div class="walkthrough-edit-before">${paragraphs(e.before)}</div>` : ''}
-      ${e.after ? `<div class="walkthrough-edit-after">${paragraphs(e.after)}</div>` : '<p class="walkthrough-edit-note">Removes this passage.</p>'}
+      <div class="walkthrough-edit-text">${heading ? `<h1>${marked(wordDiff(e.before, e.after))}</h1>` : changes(e.before, e.after)}</div>
+      ${e.after ? '' : '<p class="walkthrough-edit-note">Removes this passage.</p>'}
       ${e.earlier ? `<div class="walkthrough-edit-earlier"><span>It suggested before:</span>${paragraphs(e.earlier)}</div>` : ''}
       ${e.comment && !e.earlier ? `<p class="walkthrough-edit-note">You commented: “${html(e.comment)}”</p>` : ''}
       ${controls}
@@ -175,17 +185,17 @@ export class GuidedReview {
     const index = Math.max(0, Math.min(w.steps.length + 1, this.progress.step));
     let body;
     if (index === 0) {
-      const added = this.edits().filter(e => e.id.startsWith('caveats.') && Number(e.id.slice(8)) >= w.caveats.length);
-      body = `<div class="guided-question" ${target(this.reference('Your research question', 'opening'))}><span class="eyebrow">You asked</span>${this.passage('question', paragraphs(w.question))}</div>${this.passage('title', `<h1>${html(w.title)}</h1>`)}
+      const added = (n: number) => addedCaveats(this.edits(), n).map(e => `<li>${this.editBlock(e)}</li>`).join('');
+      body = `<div class="guided-question" ${target(this.reference('Your research question', 'opening'))}><span class="eyebrow">You asked</span>${this.passage('question', paragraphs(w.question))}</div>${this.passage('title', `<h1>${html(w.title)}</h1>`, true)}
       ${w.correction ? `<div class="walkthrough-correction" ${target(this.reference('What changed', 'opening'))}><h2>What changed</h2>${this.passage('correction', paragraphs(w.correction))}</div>` : ''}
       <section ${target(this.reference('How we investigated', 'opening'))}><h2>How we got here</h2>${this.passage('journey', paragraphs(w.journey))}</section>
       <section ${target(this.reference('What we found', 'opening'))}><h2>What we found</h2>${this.passage('answer', paragraphs(w.answer))}</section>
-      ${w.caveats.length || added.length ? `<section ${target(this.reference('What remains open', 'opening'))}><h2>What remains open</h2><ul>${w.caveats.map((c, n) => `<li>${this.passage(`caveats.${n}`, researchInline(c))}</li>`).join('')}${added.map(e => `<li>${this.editBlock(e)}</li>`).join('')}</ul></section>` : ''}
+      ${w.caveats.length || added(0) ? `<section ${target(this.reference('What remains open', 'opening'))}><h2>What remains open</h2><ul>${w.caveats.map((c, n) => `${added(n)}<li>${this.passage(`caveats.${n}`, researchInline(c))}</li>`).join('')}${added(w.caveats.length)}</ul></section>` : ''}
       <div class="guided-next"><p>We’ll walk through the evidence in ${w.steps.length} connected ${w.steps.length === 1 ? 'step' : 'steps'}. You can inspect sources and annotate anything along the way.</p><button class="primary" data-guided-next>Begin evidentiary review</button></div>`;
     } else if (index <= w.steps.length) {
       const step = w.steps[index - 1]!;
       const id = (key: string) => `steps.${step.id}.${key}`;
-      body = `<div class="guided-step-position">Evidence ${index} of ${w.steps.length}</div><section ${target(this.reference(step.title, step.id))}>${this.passage(id('title'), `<h1>${html(step.title)}</h1>`)}${this.passage(id('body'), paragraphs(step.body))}</section>
+      body = `<div class="guided-step-position">Evidence ${index} of ${w.steps.length}</div><section ${target(this.reference(step.title, step.id))}>${this.passage(id('title'), `<h1>${html(step.title)}</h1>`, true)}${this.passage(id('body'), paragraphs(step.body))}</section>
       <div class="guided-evidence">${step.evidenceRefs.map(ref => this.evidence(ref, step.id)).join('')}</div>
       <div class="guided-next" ${target(this.reference('Where this leads', step.id))}>${this.passage(id('transition'), paragraphs(step.transition))}</div>
       <nav class="guided-navigation"><button data-guided-back>Back</button><button class="primary" data-guided-next>Continue</button><span>${index === w.steps.length ? 'Bringing it together' : html(w.steps[index]?.title)}</span></nav>`;
