@@ -38,6 +38,13 @@ export function agentCli(command) {
   return [first, INTERPRETERS.test(basename(first)) ? second : null].some((part) => part && AGENT_CLIS.has(basename(part)));
 }
 
+// What an agent CLI was asked to do: its command line after the CLI itself.
+function cliArguments(command) {
+  const parts = command.split(/\s+/);
+  const at = parts.findIndex((part) => AGENT_CLIS.has(basename(part)));
+  return at < 0 ? null : parts.slice(at + 1).join(" ");
+}
+
 // Launches and supervises agent processes. Each agent keeps its input open, so
 // it can be sent messages, steered mid-turn, interrupted and stopped; what it
 // does is read from its output stream and reported to the live activity model.
@@ -76,7 +83,13 @@ export class AgentSupervisor {
     const children = new Map();
     for (const p of processes) children.set(p.ppid, [...(children.get(p.ppid) || []), p]);
     for (const agent of running) {
-      const beneath = [...(children.get(agent.child.pid) || [])];
+      // An agent CLI's launcher, such as the node script npm installs for codex, starts
+      // the program itself under the same name: that program is the agent, not another.
+      // It passes its own arguments on unchanged, where another agent gets its own.
+      let self = processes.find((p) => p.pid === agent.child.pid);
+      for (let only = children.get(self?.pid) || []; self && only.length === 1 && agentCli(only[0].command) && cliArguments(only[0].command) === cliArguments(self.command); only = children.get(self.pid) || []) self = only[0];
+      if (!self) continue;
+      const beneath = [...(children.get(self.pid) || [])];
       for (let i = 0; i < beneath.length; i++) beneath.push(...(children.get(beneath[i].pid) || []));
       for (const p of beneath.filter((p) => agentCli(p.command))) {
         try {

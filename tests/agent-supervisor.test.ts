@@ -26,7 +26,8 @@ const providers = {
 };
 const steps = (list: object[]) => `steps:${JSON.stringify(list)}`;
 
-function start(provider: "claude" | "codex", prompt?: string, env: Record<string, string> = {}, watchInterval = 2000, logSegment?: number) {
+type StartOptions = { env?: Record<string, string>; watchInterval?: number; logSegment?: number; executable?: string };
+function start(provider: "claude" | "codex", prompt?: string, { env = {}, watchInterval = 2000, logSegment, executable = providers[provider].executable }: StartOptions = {}) {
   const folder = mkdtempSync(join(tmpdir(), "agent-"));
   cleanups.push(() => rmSync(folder, { recursive: true, force: true }));
   cleanups.push(() => ["", ".1", ".2", ".3", ".4", ".5"].forEach((n) => rmSync(`${folder}.log${n}`, { force: true })));
@@ -35,7 +36,7 @@ function start(provider: "claude" | "codex", prompt?: string, env: Record<string
   const agent = supervisor.start({
     key: "research:fixture",
     provider,
-    executable: providers[provider].executable,
+    executable,
     folder,
     env: { ...process.env, ...env },
     instructions: "Fixture instructions",
@@ -117,7 +118,7 @@ describe.each(["claude", "codex"] as const)("agent supervisor with a %s agent", 
   });
 
   it("sets a long log aside as it grows, so the end of the run is always kept", async () => {
-    const a = start(provider, steps([read("brief.json"), read("findings.ts"), read("types.ts"), read("brief.json"), read("findings.ts")]), {}, 2000, 600);
+    const a = start(provider, steps([read("brief.json"), read("findings.ts"), read("types.ts"), read("brief.json"), read("findings.ts")]), { logSegment: 600 });
     await a.next("turn");
     expect(existsSync(`${a.folder}.log.1`)).toBe(true);
     expect(existsSync(`${a.folder}.log.6`)).toBe(false);
@@ -141,7 +142,7 @@ describe("isolation", () => {
     });
   });
   it("refuses a Codex home that is not signed in, saying how to sign in", async () => {
-    const a = start("codex", steps([]), { FAKE_CODEX_SIGNED_OUT: "1" });
+    const a = start("codex", steps([]), { env: { FAKE_CODEX_SIGNED_OUT: "1" } });
     const failure = await a.next("failed");
     expect(failure.message).toContain("Codex is not signed in for this app");
     expect(failure.message).toContain("npm run workspace -- sign-in codex");
@@ -160,24 +161,42 @@ describe("isolation", () => {
     writeFileSync(claude, "#!/bin/sh\nsleep 30\n");
     chmodSync(claude, 0o755);
     // Watching often only here: each look lists every process on the machine.
-    const a = start("claude", steps([{ tool: "Bash", input: { command: "claude" }, run: [claude], delay: 5000 }]), {}, 100);
+    const a = start("claude", steps([{ tool: "Bash", input: { command: "claude" }, run: [claude], delay: 5000 }]), { watchInterval: 100 });
     const intruder = await a.next("intruder");
     expect(intruder.command).toContain(claude);
     expect(a.actions).toContain("Tried to start another agent; the app stopped it");
     expect(a.live.list()[0]!.latest!.text).toBe("Tried to start another agent; the app stopped it");
   });
+  it("leaves alone the program an agent CLI's own launcher starts", async () => {
+    // Installed from npm, codex is a node script that starts the native program, also named codex.
+    const bin = mkdtempSync(join(tmpdir(), "agent-bin-"));
+    cleanups.push(() => rmSync(bin, { recursive: true, force: true }));
+    require("node:fs").mkdirSync(join(bin, "native"));
+    const native = join(bin, "native", "codex");
+    writeFileSync(native, `#!/bin/sh\n"${process.execPath}" "${providers.codex.executable}" "$@"\n`);
+    const launcher = join(bin, "codex");
+    writeFileSync(launcher, `#!/bin/sh\n"${native}" "$@"\n`);
+    chmodSync(native, 0o755);
+    chmodSync(launcher, 0o755);
+    const a = start("codex", steps([providers.codex.read("brief.json", 1500)]), { executable: launcher, watchInterval: 100 });
+    const intruders: unknown[] = [];
+    a.agent.on("intruder", (found: unknown) => intruders.push(found));
+    const ended = await Promise.race([a.next("turn"), a.next("exit").then(() => "exited")]);
+    expect(intruders).toEqual([]);
+    expect(ended).toMatchObject({ outcome: "done" });
+  });
 });
 
 describe("Codex app server compatibility", () => {
   it("refuses an app server older than the tested protocol, naming the version", async () => {
-    const a = start("codex", steps([]), { FAKE_CODEX_VERSION: "0.120.0" });
+    const a = start("codex", steps([]), { env: { FAKE_CODEX_VERSION: "0.120.0" } });
     const failure = await a.next("failed");
     expect(failure.message).toBe("Codex 0.120.0 is older than this app supports. Update Codex to 0.155.1 or later.");
     await a.next("exit");
     expect(a.live.list()).toEqual([]);
   });
   it("refuses an app server that no longer answers a method the adapter needs", async () => {
-    const a = start("codex", steps([]), { FAKE_CODEX_MISSING: "turn/start" });
+    const a = start("codex", steps([]), { env: { FAKE_CODEX_MISSING: "turn/start" } });
     const failure = await a.next("failed");
     expect(failure.message).toBe("The Codex app server no longer supports turn/start; this app was tested with Codex 0.155.1.");
   });
