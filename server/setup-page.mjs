@@ -24,8 +24,8 @@ function accountRow(agent, {signingIn, installing, sandboxMissing}) {
   } else if (agent.signedIn) {
     status = `<p class="status is-ok">Connected${agent.email ? ` as ${esc(agent.email)}` : ''}.</p>`;
   } else if (signingIn?.agent === agent.id) {
-    status = `<p class="status is-waiting">Finish connecting in your browser.</p><p class="detail">${signingIn.url ? `No page opened? <a href="${esc(signingIn.url)}" target="_blank" rel="noopener">Open the sign-in page</a>. ` : ''}This page updates when you're done.</p>`;
-    action = `<button type="button" disabled>Waiting…</button>`;
+    status = `<p class="status is-waiting">A ${esc(agent.account)} sign-in page opened in your browser.</p><p class="detail">Sign in there, then come back; this page notices by itself.${signingIn.url ? ` Didn't see it? <a href="${esc(signingIn.url)}" target="_blank" rel="noopener">Open the sign-in page</a>.` : ''}</p>`;
+    action = `<button type="button" data-cancel-sign-in>Cancel</button>`;
   } else {
     status = `<p class="status">Not connected yet.</p>`;
     action = `<button type="button" data-sign-in="${agent.id}">Connect</button>`;
@@ -36,10 +36,24 @@ function accountRow(agent, {signingIn, installing, sandboxMissing}) {
   return `<li class="row"><div class="row-text"><h3>${esc(agent.account)} <span class="via">${via}</span></h3>${status}${note}</div><div class="row-action">${action}</div></li>`;
 }
 
+// The research browser: the human's own default when researchers can drive it,
+// always with a separate profile.
 function browserRow(d) {
-  return d.ok
-    ? `<li class="row"><div class="row-text"><h3>Research browser</h3><p class="status is-ok">Uses ${esc(d.name)}, with its own profile, so it never touches your own browsing.</p><p class="detail">Researchers open pages there, including archives you sign in to once.</p></div><div class="row-action"></div></li>`
-    : `<li class="row"><div class="row-text"><h3>Research browser</h3><p class="status">No Chromium browser found, such as Chrome or Brave.</p><p class="detail">Researchers can still search and read the web. A browser lets them use pages that need one, and archives you sign in to.</p></div><div class="row-action"><a class="button" href="${esc(d.download)}" target="_blank" rel="noopener">Get Chrome</a></div></li>`;
+  let status;
+  let detail;
+  if (d.ok && d.isDefault) {
+    status = `Uses ${esc(d.name)}, your default browser, with a separate profile so it never touches your own browsing.`;
+    detail = 'Researchers open pages there, including archives you sign in to once.';
+  } else if (d.ok) {
+    status = `Uses ${esc(d.name)}, with a separate profile so it never touches your own browsing.`;
+    detail = d.unsupportedDefault
+      ? `Researchers can't drive ${esc(d.unsupportedDefault)}, your default, so they use ${esc(d.name)} instead.`
+      : 'Researchers open pages there, including archives you sign in to once.';
+  } else {
+    status = 'Researchers can search and read the web without one.';
+    detail = `For pages that need a real browser, they drive Chrome, Brave, Edge or another Chromium browser${d.unsupportedDefault ? `; ${esc(d.unsupportedDefault)} can't be driven yet` : ''}. Install one whenever you like.`;
+  }
+  return `<li class="row"><div class="row-text"><h3>Research browser</h3><p class="status${d.ok ? ' is-ok' : ''}">${status}</p><p class="detail">${detail}</p></div><div class="row-action"></div></li>`;
 }
 
 function sandboxRow(d, installing) {
@@ -156,6 +170,9 @@ document.addEventListener('click', async (event) => {
     } else if (button.dataset.install) {
       button.disabled = true;
       await post('/api/setup/install', {id: button.dataset.install});
+      location.reload();
+    } else if (button.hasAttribute('data-cancel-sign-in')) {
+      await post('/api/setup/cancel');
       location.reload();
     } else if (button.hasAttribute('data-check-again')) location.reload();
   } catch (error) {

@@ -1,29 +1,60 @@
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import { homedir } from 'node:os';
 import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { executableOnPath } from './researchers.mjs';
 
-// The Chromium browsers the research browser can drive, in the order it prefers them.
+// The Chromium browsers the research browser can drive, in the order it prefers
+// them when the human's default browser is not one of them.
 const BROWSERS = [
-  {name: 'Google Chrome', mac: 'Google Chrome', linux: ['google-chrome', 'google-chrome-stable']},
-  {name: 'Brave', mac: 'Brave Browser', linux: ['brave-browser', 'brave']},
-  {name: 'Microsoft Edge', mac: 'Microsoft Edge', linux: ['microsoft-edge', 'microsoft-edge-stable']},
-  {name: 'Chromium', mac: 'Chromium', linux: ['chromium', 'chromium-browser']},
+  {name: 'Google Chrome', mac: 'Google Chrome', bundle: 'com.google.chrome', linux: ['google-chrome', 'google-chrome-stable'], desktop: 'google-chrome'},
+  {name: 'Brave', mac: 'Brave Browser', bundle: 'com.brave.browser', linux: ['brave-browser', 'brave'], desktop: 'brave'},
+  {name: 'Microsoft Edge', mac: 'Microsoft Edge', bundle: 'com.microsoft.edgemac', linux: ['microsoft-edge', 'microsoft-edge-stable'], desktop: 'microsoft-edge'},
+  {name: 'Vivaldi', mac: 'Vivaldi', bundle: 'com.vivaldi.vivaldi', linux: ['vivaldi', 'vivaldi-stable'], desktop: 'vivaldi'},
+  {name: 'Chromium', mac: 'Chromium', bundle: 'org.chromium.chromium', linux: ['chromium', 'chromium-browser'], desktop: 'chromium'},
+];
+// Browsers people use that researchers cannot drive, named when one is the default.
+const OTHERS = [
+  {name: 'Safari', bundle: 'com.apple.safari', desktop: 'safari'},
+  {name: 'Firefox', bundle: 'org.mozilla.firefox', desktop: 'firefox'},
+  {name: 'Arc', bundle: 'company.thebrowser.browser', desktop: 'arc'},
 ];
 
-// The installed browser the research browser drives, and its name; or the one
-// RESEARCH_BROWSER_CHROME names.
-export function findBrowser(find = executableOnPath, exists = existsSync) {
-  if (process.env.RESEARCH_BROWSER_CHROME) return {path: process.env.RESEARCH_BROWSER_CHROME, name: 'The browser RESEARCH_BROWSER_CHROME names'};
-  for (const browser of BROWSERS) {
-    const path = process.platform === 'darwin'
-      ? [`/Applications/${browser.mac}.app/Contents/MacOS/${browser.mac}`].find((file) => exists(file))
-      : browser.linux.map(find).find(Boolean);
-    if (path) return {path, name: browser.name};
+// The human's default browser, as the system records it: a bundle id on macOS,
+// a desktop entry on Linux.
+export function defaultBrowserId(run = (command, args) => spawnSync(command, args, {encoding: 'utf8', timeout: 5000}).stdout || '') {
+  if (process.platform === 'darwin') {
+    try {
+      const plist = `${homedir()}/Library/Preferences/com.apple.LaunchServices/com.apple.launchservices.secure.plist`;
+      const handlers = JSON.parse(run('plutil', ['-convert', 'json', '-o', '-', plist])).LSHandlers || [];
+      return handlers.find((h) => h.LSHandlerURLScheme === 'https')?.LSHandlerRoleAll?.toLowerCase() || null;
+    } catch {
+      return null;
+    }
   }
-  return null;
+  return run('xdg-settings', ['get', 'default-web-browser']).trim().toLowerCase() || null;
 }
-export const findChrome = () => findBrowser()?.path || null;
+
+const matches = (browser, id) => Boolean(id) && (id === browser.bundle || id.startsWith(browser.desktop));
+
+// The installed browser the research browser drives: the human's default when it
+// is a Chromium browser, or else the first one installed. Also says what the
+// default is, when it is a browser researchers cannot drive.
+export function findBrowser(find = executableOnPath, exists = existsSync, defaultId = defaultBrowserId) {
+  if (process.env.RESEARCH_BROWSER_CHROME) return {path: process.env.RESEARCH_BROWSER_CHROME, name: 'The browser RESEARCH_BROWSER_CHROME names', isDefault: false};
+  const pathOf = (browser) => process.platform === 'darwin'
+    ? [`/Applications/${browser.mac}.app/Contents/MacOS/${browser.mac}`].find((file) => exists(file))
+    : browser.linux.map(find).find(Boolean);
+  const id = defaultId();
+  const preferred = BROWSERS.find((b) => matches(b, id));
+  const other = OTHERS.find((b) => matches(b, id))?.name || null;
+  for (const browser of preferred ? [preferred, ...BROWSERS.filter((b) => b !== preferred)] : BROWSERS) {
+    const path = pathOf(browser);
+    if (path) return {path, name: browser.name, isDefault: browser === preferred, unsupportedDefault: other};
+  }
+  return {path: null, name: null, isDefault: false, unsupportedDefault: other};
+}
+export const findChrome = () => findBrowser().path;
 
 // One research browser for the app: an installed Chromium browser, such as Chrome
 // or Brave, run with the app's own profile,

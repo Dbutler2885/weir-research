@@ -23,7 +23,11 @@ export function setupRoutes({homes, next}) {
       signingIn = null;
     }
     if (installing?.done) {
-      installProblem = installing.ok ? null : `The install did not finish. ${installing.output.trim().split('\n').at(-1) || ''}`.trim();
+      installProblem = installing.ok
+        ? null
+        : /EACCES|permission denied/i.test(installing.output)
+          ? 'npm needs administrator rights to install programs on this computer. Install it from a terminal with sudo, then check again.'
+          : `The install did not finish. ${installing.output.trim().split('\n').at(-1) || ''}`.trim();
       installing = null;
       cached = null;
     }
@@ -45,6 +49,11 @@ export function setupRoutes({homes, next}) {
       cached = null;
       // Give the CLI a moment to print its sign-in address.
       await new Promise((resolve) => setTimeout(resolve, 1500));
+      return json(current());
+    }
+    if (url.pathname === '/api/setup/cancel') {
+      signingIn?.child?.kill();
+      signingIn = null;
       return json(current());
     }
     if (url.pathname === '/api/setup/install') {

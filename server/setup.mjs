@@ -55,7 +55,7 @@ export function checkSetup({findExecutable = executableOnPath, homes = null, run
   // The research browser is any Chromium browser, used with its own profile.
   const found = browser();
   const dependencies = [
-    {id: 'browser', label: 'Research browser', required: false, ok: Boolean(found), name: found?.name || null, download: 'https://www.google.com/chrome/'},
+    {id: 'browser', label: 'Research browser', required: false, ok: Boolean(found.path), name: found.name, isDefault: found.isDefault, unsupportedDefault: found.unsupportedDefault},
   ];
   // Claude Code's sandbox needs two packages on Linux; they install together.
   if (platform === 'linux') {
