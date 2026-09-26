@@ -52,7 +52,7 @@ Follow leads necessary to answer the question, but propose unrelated expansion a
 Honor the investigation's source scope.
 Public web access depends on the worker's actual tools.
 Use direct retrieval, headless browsers, visible browsers, or computer interaction when available in that runtime and appropriate to the permitted sources.
-The managed Claude adapter allows the installed `chrome-devtools-axi` command for web-scoped work; Codex retains its configured tools and workspace sandbox.
+Web-scoped researchers get the app's research browser as their browser tools, for pages that need a real browser or a sign-in the human made there.
 Browser availability does not imply access to the human's authenticated session.
 Do not claim universal computer-use support or bypass access controls.
 When human assistance is needed, add `accessRequest: {instruction, url?}` to a checkpoint and stop the pass.
@@ -61,8 +61,12 @@ The human can import a source or resolve access, then select the resume action w
 Subscription services have no configured access adapter; do not imply access to full text from metadata or a saved URL.
 Imported documents are available at `/api/documents/<document-id>` on the workspace URL.
 Document metadata includes its SHA-256 and the immutable captured text when available.
-PDF originals are preserved, but this first version does not extract PDF text or generate page-region highlights.
-If the worker has a PDF reader, record the exact page and distinguish visual inspection from extracted text.
+Read each source yourself before citing it.
+When you can reach a document, download and read it rather than rely on a search engine's snippet of it.
+A snippet is a lead, not a reading: a quote taken from one says so in its locator, and its source's access is `abstract`.
+PDF originals are preserved, and the app does not extract their text.
+A scanned PDF or an image has no text inside; look at its pages with your file-reading tool, which shows them, and quote what you see.
+Record the exact page, and say whether a quote was read from the page image or from extracted text.
 Never invent quotations, locators, source independence, or historical certainty.
 Keep what the source says separate from what it implies.
 Preserve contradictory evidence and plausible alternative identities.

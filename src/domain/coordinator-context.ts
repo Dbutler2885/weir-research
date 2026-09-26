@@ -1,4 +1,5 @@
 import type { Investigation, LiveWorker, ResearchState } from "./research.ts";
+import { referenceText } from "./research.ts";
 import type { Message } from "./conversation.ts";
 import { unassignedAnnotations } from "./conversation.ts";
 import { nextAction, currentCandidates } from "./next-action.ts";
@@ -71,9 +72,9 @@ function isOpen(b: Investigation) {
 function attention(state: ResearchState): ContextLayer {
   const blocks: string[] = [];
   for (const a of unassignedAnnotations(state)) {
-    const refs = (a.references || []).map((r) => r.label).filter(Boolean);
+    const refs = (a.references || []).map(referenceText).filter(Boolean);
     blocks.push(
-      `- Sent note not yet in a batch (${a.id}): "${clip(a.question, 300)}"${refs.length ? ` on ${refs.map((r) => clip(r, 80)).join(", ")}` : ""}. Answer it, then place it in a batch with open-batch or add-to-batch.`,
+      `- Sent note not yet in a batch (${a.id}): "${clip(a.question, 300)}"${refs.length ? ` on ${refs.map((r) => clip(r, 400)).join(", ")}` : ""}. Answer it, then place it in a batch with open-batch or add-to-batch.`,
     );
   }
   for (const m of state.conversation || [])
@@ -225,7 +226,10 @@ function messageBlock(m: Message) {
   const who = m.author === "human" ? "Human" : "You";
   const lines = [`- ${who}, ${m.at.slice(0, 16).replace("T", " ")} (${m.id})`];
   if (m.text) lines.push(`  ${clip(m.text, 500)}`);
-  for (const a of m.annotations || []) lines.push(`  Note ${a.id}: "${clip(a.question, 200)}"`);
+  for (const a of m.annotations || []) {
+    const refs = (a.references || []).map(referenceText).filter(Boolean);
+    lines.push(`  Note ${a.id}: "${clip(a.question, 200)}"${refs.length ? ` on ${refs.map((r) => clip(r, 400)).join(", ")}` : ""}`);
+  }
   if (m.decision) lines.push(`  Request "${clip(m.decision.title, 160)}": ${m.decision.status}`);
   if (m.readyBatchId) lines.push("  Announced a batch as ready.");
   return lines.join("\n");

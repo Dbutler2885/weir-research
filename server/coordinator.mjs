@@ -1,7 +1,7 @@
 import { organize } from "./organization.mjs";
 import { flowCommand, autoReview } from "./review-flow.mjs";
 import { randomUUID } from "node:crypto";
-import { transition } from "../src/domain/research.ts";
+import { referenceText, transition } from "../src/domain/research.ts";
 import {
   coordinatorConversationCommands,
   unassignedAnnotations,
@@ -440,7 +440,7 @@ function conversationIndex(state) {
     unassignedAnnotations: unassignedAnnotations(state).map((a) => ({
       id: a.id,
       question: a.question,
-      references: (a.references || []).map((r) => r.label),
+      references: (a.references || []).map(referenceText),
       sentAt: a.dispatchedAt,
     })),
     pendingDecisions: messages

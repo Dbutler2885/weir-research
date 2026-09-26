@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { initialState, transition, type ResearchCommand, type ResearchState } from "../src/domain/research";
+import { initialState, referenceText, transition, type ResearchCommand, type ResearchState } from "../src/domain/research";
 import { buildCoordinatorContext, layerBudgets } from "../src/domain/coordinator-context";
 import { inspectContext } from "../server/research-context.mjs";
 import empty from "../src/data/empty.json";
@@ -34,6 +34,20 @@ function project() {
 
 const layer = (context: ReturnType<typeof buildCoordinatorContext>, id: string) =>
   context.layers.find((l) => l.id === id)!.text;
+
+describe("notes on a text selection", () => {
+  it("carry the words the human selected, not only the section they were in", () => {
+    const p = project();
+    const selection = { label: "What remains open", text: "indexed excerpts, not page images", anchor: { type: "text-range", text: "indexed excerpts, not page images" } };
+    p.run({ type: "send", annotation: { question: "What do you mean, and why?", references: [selection] } });
+    const context = buildCoordinatorContext(p.state);
+    const said = "on “indexed excerpts, not page images” in What remains open";
+    expect(layer(context, "attention")).toContain(said);
+    expect(layer(context, "conversation")).toContain(said);
+    // A section clicked as a whole is named, without all of its text.
+    expect(referenceText({ label: "What remains open", text: "What remains open Lawrence's 1914 history...", anchor: { type: "element" } })).toBe("What remains open");
+  });
+});
 
 describe("coordinator startup context", () => {
   it("orders layers by urgency and puts unplaced notes and pending requests first", () => {

@@ -41,6 +41,13 @@ export interface AnnotationTarget {
   findingId?: string;
   groupId?: string;
 }
+// What a reference is on, as the human and the coordinator read it: its name, and
+// the words the human selected there when a selection is what they pointed at.
+export function referenceText(r: AnnotationTarget): string {
+  const selected = (r.anchor as { type?: string } | undefined)?.type === "text-range" ? r.text?.replace(/\s+/g, " ").trim() : "";
+  if (!selected || r.label.includes(selected)) return r.label;
+  return `“${selected.length > 300 ? `${selected.slice(0, 297)}...` : selected}” in ${r.label}`;
+}
 export interface Annotation {
   id: string;
   // Present when the coordinator raised this question after the human approved it.

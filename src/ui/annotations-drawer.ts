@@ -4,6 +4,7 @@ import type {
   ResearchCommand,
   ResearchState,
 } from "../domain/research";
+import { referenceText } from "../domain/research";
 import type { Message } from "../domain/conversation";
 import { html } from "./finding-review";
 import { running } from "./live-panel";
@@ -292,7 +293,7 @@ ${this.tab === "conversation" ? this.conversation(state) : this.queue(state)}`;
   private about(state: ResearchState, a: Annotation): string {
     const ref = a.references?.[0];
     if (!ref || ref.label === state.dataset.title) return "";
-    return `<span class="msg-about">on ${html(ref.label)}</span>`;
+    return `<span class="msg-about">on ${html(referenceText(ref))}</span>`;
   }
 
   private queue(state: ResearchState): string {
@@ -301,7 +302,7 @@ ${this.tab === "conversation" ? this.conversation(state) : this.queue(state)}`;
     const refs = d.references
       .map(
         (r, n) =>
-          `<li><span>${html(r.label)}</span><button type="button" data-remove-reference="${n}" aria-label="Remove reference">✕</button></li>`,
+          `<li><span>${html(referenceText(r))}</span><button type="button" data-remove-reference="${n}" aria-label="Remove reference">✕</button></li>`,
       )
       .join("");
     const items = queue
