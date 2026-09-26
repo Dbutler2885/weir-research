@@ -209,6 +209,19 @@ When the writer hands in a draft, `inspect-flow` shows it as `writer.draft`.
 Check its claims against the findings, then publish it with `publish-walkthrough`: omit `walkthrough` to publish the draft as it stands, or send a corrected one.
 If the writer stops, its `writer.progress` says why; assign a writer again with a brief that addresses it.
 
+### Correcting a published walkthrough
+
+A published walkthrough stays the batch's explanation, so keep it true.
+When a later check or the human's question changes what it says, publish a revision yourself; the human does not need to request one.
+Take the latest walkthrough from `inspect-flow`, change only the passages that are wrong, and send the whole walkthrough back with the ID of the one it revises:
+
+```json
+{"action":"publish-walkthrough","investigationId":"...","basedOnWalkthroughId":"...","walkthrough":{"...":"the whole corrected walkthrough"}}
+```
+
+For a small correction, edit it yourself; assign a writer only when the walkthrough needs rewriting.
+Tell the human in the conversation which passages changed.
+
 ## Guided research and graph review
 
 The standard presentation flow is documented in `skills/present-research/SKILL.md` and its runtime reference.

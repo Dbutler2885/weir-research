@@ -84,7 +84,10 @@ export function flowCommand(store, command, actor = 'coordinator') {
     validateWalkthrough(i, command.walkthrough);
     fail(i.status !== 'paused', 'The investigation is paused. Request human approval before continuing.');
     const prior = i.reviewFlow?.walkthroughs.at(-1);
-    fail(!prior || command.basedOnWalkthroughId === prior.id, 'A newer walkthrough exists. Inspect it before revising.');
+    // A published walkthrough is corrected by a revision of it; no request from the human is needed.
+    fail(!prior || command.basedOnWalkthroughId === prior.id, prior && command.basedOnWalkthroughId
+      ? `A newer walkthrough exists (${prior.id}). Inspect it before revising.`
+      : `This batch already has a walkthrough (${prior?.id}). To correct it, send the whole corrected walkthrough with basedOnWalkthroughId "${prior?.id}".`);
     const id = randomUUID(), at = new Date().toISOString();
     store.update(next => {
       const investigation = next.investigations.find(x => x.id === i.id), flow = flowFor(investigation);
