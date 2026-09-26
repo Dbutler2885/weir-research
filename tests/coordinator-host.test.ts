@@ -178,16 +178,24 @@ describe("the coordinator correcting a walkthrough", () => {
     cleanups.push(() => host.stop());
     host.start();
     const file = join(host.folder!, "walkthroughs", "batch-1.json");
-    expect(JSON.parse(readFileSync(file, "utf8")).closing).toBe(w.closing);
+    // The stand-in writes the file in place, so a read can land mid-write.
+    const shown = () => {
+      try {
+        return JSON.parse(readFileSync(file, "utf8"));
+      } catch {
+        return null;
+      }
+    };
+    expect(shown().closing).toBe(w.closing);
     await until(() => store.state.investigations[0].reviewFlow.edits);
     expect(store.state.investigations[0].reviewFlow.edits.edits).toEqual([expect.objectContaining({ id: "closing", before: w.closing, after: edited.closing })]);
     // The file shows the suggestion in place until the human decides.
-    expect(JSON.parse(readFileSync(file, "utf8")).closing).toBe(edited.closing);
+    await until(() => shown()?.closing === edited.closing);
     // A change the app cannot use is refused, and the file goes back as it was.
     writeFileSync(stepsFile, JSON.stringify([{ tool: "Edit", input: { file_path: "walkthroughs/batch-1.json" }, writes: { "walkthroughs/batch-1.json": JSON.stringify(broken) } }]));
     host.tell("Tidy the walkthrough.");
     const received = () => (existsSync(join(host.folder!, "received.jsonl")) ? readFileSync(join(host.folder!, "received.jsonl"), "utf8") : "");
-    await until(() => received().includes("was not used") && JSON.parse(readFileSync(file, "utf8")).steps.length === w.steps.length, 800);
+    await until(() => received().includes("was not used") && shown()?.steps.length === w.steps.length, 800);
     expect(received()).toContain("Your change to walkthroughs/batch-1.json was not used: Keep the steps as they are");
     expect(store.state.investigations[0].reviewFlow.edits.edits).toHaveLength(1);
   }, 20_000);

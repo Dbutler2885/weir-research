@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { executableOnPath } from './researchers.mjs';
 import { LiveActivity, fileDescriber, writerFiles } from './live-activity.mjs';
-import { AgentSupervisor } from './agents/supervisor.mjs';
+import { AgentSupervisor, stoppedAgent } from './agents/supervisor.mjs';
 import { placeSkills } from './agents/isolation.mjs';
 import { validateWalkthrough } from './review-flow.mjs';
 import { sourceLibrary } from '../src/domain/findings.ts';
@@ -94,7 +94,7 @@ export class WalkthroughWriters {
     task.agent.on('turn', ({outcome}) => { if (outcome !== 'interrupted') this.turnEnded(task); });
     task.agent.on('paused', ({reason}) => this.update(id, (w) => { w.progress = reason; }, `Walkthrough writer ${reason.charAt(0).toLowerCase()}${reason.slice(1)}`));
     task.agent.on('resumed', () => this.update(id, (w) => { w.progress = 'Writing the walkthrough.'; }, 'The usage limit reset; the walkthrough writer carries on.'));
-    task.agent.on('intruder', () => this.update(id, () => {}, 'The walkthrough writer tried to start another agent, and the app stopped it.'));
+    task.agent.on('intruder', (found) => this.update(id, () => {}, stoppedAgent('walkthrough writer', found)));
     task.agent.on('failed', (error) => this.pause(id, `The walkthrough writer could not start: ${error.message}`));
     task.agent.on('exit', () => {
       this.active.delete(id);

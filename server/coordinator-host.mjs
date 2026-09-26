@@ -217,7 +217,11 @@ export class CoordinatorHost {
     mkdirSync(join(this.folder, 'walkthroughs'), {recursive: true});
     for (const {file, text} of this.walkthroughFiles()) {
       if (touched.has(file) && !consume) continue;
-      if (read(file) !== text) writeFileSync(file, text);
+      // Written whole, so the coordinator never reads half a walkthrough.
+      if (read(file) !== text) {
+        writeFileSync(`${file}.tmp`, text);
+        renameSync(`${file}.tmp`, file);
+      }
       this.written[file] = text;
     }
   }

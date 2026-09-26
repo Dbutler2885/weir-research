@@ -45,6 +45,30 @@ function cliArguments(command) {
   return at < 0 ? null : parts.slice(at + 1).join(" ");
 }
 
+// The agent CLIs running beneath an agent's process, from one listing of processes.
+// An agent CLI's launcher, such as the node script npm installs for codex, starts the
+// program itself under the same name and passes its arguments on unchanged: that
+// program is the agent. A process with its parent's exact command line is the parent
+// part-way through starting a command, not yet that command.
+export function agentsBeneath(processes, root) {
+  const byPid = new Map(processes.map((p) => [p.pid, p]));
+  const children = new Map();
+  for (const p of processes) children.set(p.ppid, [...(children.get(p.ppid) || []), p]);
+  let self = byPid.get(root);
+  for (let only = children.get(self?.pid) || []; self && only.length === 1 && agentCli(only[0].command) && cliArguments(only[0].command) === cliArguments(self.command); only = children.get(self.pid) || []) self = only[0];
+  if (!self) return [];
+  const beneath = [...(children.get(self.pid) || [])];
+  for (let i = 0; i < beneath.length; i++) beneath.push(...(children.get(beneath[i].pid) || []));
+  return beneath.filter((p) => agentCli(p.command) && byPid.get(p.ppid)?.command !== p.command);
+}
+
+// What the human is told when the app stops an agent a worker started, naming the
+// command so a mistaken stop can be seen for what it was.
+export function stoppedAgent(role, { command = "" } = {}) {
+  const shown = command.replace(/\s+/g, " ").trim();
+  return `The ${role} tried to start another agent (${shown.length > 120 ? `${shown.slice(0, 117)}...` : shown}), and the app stopped it.`;
+}
+
 // Launches and supervises agent processes. Each agent keeps its input open, so
 // it can be sent messages, steered mid-turn, interrupted and stopped; what it
 // does is read from its output stream and reported to the live activity model.
@@ -80,25 +104,22 @@ export class AgentSupervisor {
     const running = [...this.agents].filter((a) => a.child?.pid && !a.ended);
     if (!running.length) return;
     const processes = await listProcesses();
-    const children = new Map();
-    for (const p of processes) children.set(p.ppid, [...(children.get(p.ppid) || []), p]);
     for (const agent of running) {
-      // An agent CLI's launcher, such as the node script npm installs for codex, starts
-      // the program itself under the same name: that program is the agent, not another.
-      // It passes its own arguments on unchanged, where another agent gets its own.
-      let self = processes.find((p) => p.pid === agent.child.pid);
-      for (let only = children.get(self?.pid) || []; self && only.length === 1 && agentCli(only[0].command) && cliArguments(only[0].command) === cliArguments(self.command); only = children.get(self.pid) || []) self = only[0];
-      if (!self) continue;
-      const beneath = [...(children.get(self.pid) || [])];
-      for (let i = 0; i < beneath.length; i++) beneath.push(...(children.get(beneath[i].pid) || []));
-      for (const p of beneath.filter((p) => agentCli(p.command))) {
+      // One sighting could be a moment's accident of timing; an agent CLI still there at
+      // the next look is one. A real agent runs far longer than the interval.
+      const suspects = new Map(agentsBeneath(processes, agent.child.pid).map((p) => [p.pid, p.command]));
+      const seen = agent.suspects || new Map();
+      agent.suspects = suspects;
+      for (const [pid, command] of suspects) {
+        if (seen.get(pid) !== command) continue;
         try {
-          process.kill(p.pid, "SIGKILL");
+          process.kill(pid, "SIGKILL");
         } catch {
           continue;
         }
+        suspects.delete(pid);
         agent.emit("action", "Tried to start another agent; the app stopped it");
-        agent.emit("intruder", { command: p.command });
+        agent.emit("intruder", { command });
       }
     }
   }

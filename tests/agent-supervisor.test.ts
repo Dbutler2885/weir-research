@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { chmodSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { AgentSupervisor, agentCli } from "../server/agents/supervisor.mjs";
+import { AgentSupervisor, agentCli, agentsBeneath } from "../server/agents/supervisor.mjs";
 import { claudeAdapter } from "../server/agents/claude.mjs";
 import { codexAdapter } from "../server/agents/codex.mjs";
 import { LiveActivity, fileDescriber, researcherFiles } from "../server/live-activity.mjs";
@@ -166,6 +166,21 @@ describe("isolation", () => {
     expect(intruder.command).toContain(claude);
     expect(a.actions).toContain("Tried to start another agent; the app stopped it");
     expect(a.live.list()[0]!.latest!.text).toBe("Tried to start another agent; the app stopped it");
+  });
+  it("tells another agent from the agent's own processes in one listing", () => {
+    const args = "app-server -c features.multi_agent=false";
+    const processes = [
+      { pid: 10, ppid: 1, command: `node /home/u/bin/codex ${args}` },
+      // The launcher's own program, with the same arguments.
+      { pid: 11, ppid: 10, command: `/home/u/vendor/bin/codex ${args}` },
+      // The program part-way through starting a command: a copy with its command line.
+      { pid: 12, ppid: 11, command: `/home/u/vendor/bin/codex ${args}` },
+      { pid: 13, ppid: 11, command: "/bin/zsh -lc sips -Z 1400 page.jpg" },
+      // A second agent started from its shell.
+      { pid: 14, ppid: 13, command: "/usr/local/bin/claude -p find the census" },
+    ];
+    expect(agentsBeneath(processes, 10).map((p: any) => p.pid)).toEqual([14]);
+    expect(agentsBeneath(processes.slice(0, 4), 10)).toEqual([]);
   });
   it("leaves alone the program an agent CLI's own launcher starts", async () => {
     // Installed from npm, codex is a node script that starts the native program, also named codex.

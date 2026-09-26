@@ -14,7 +14,7 @@ import {
   fileDescriber,
   researcherFiles,
 } from "./live-activity.mjs";
-import { AgentSupervisor } from "./agents/supervisor.mjs";
+import { AgentSupervisor, stoppedAgent } from "./agents/supervisor.mjs";
 import { queueOf } from "../src/domain/queue.ts";
 import { AgentProblem } from "./agents/problem.mjs";
 import { placeSkills } from "./agents/isolation.mjs";
@@ -365,7 +365,7 @@ Your final message should be a short completion status. The host will validate r
       task.pausedAt = null;
       this.note(task, "The usage limit reset; the researcher carries on.");
     });
-    task.agent.on("intruder", () => this.note(task, "The researcher tried to start another agent, and the app stopped it."));
+    task.agent.on("intruder", (found) => this.note(task, stoppedAgent("researcher", found)));
   }
   // A researcher that has written its result is done; one that has not waits for the coordinator.
   turnEnded(task, outcome) {

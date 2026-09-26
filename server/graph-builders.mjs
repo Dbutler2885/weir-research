@@ -7,7 +7,7 @@ import { draftTables, graphToTables, DraftError } from '../src/domain/graph-csv.
 import { commentaryHeaders, readDelivery } from '../src/domain/graph-delivery.ts';
 import { receiveDraft } from './review-flow.mjs';
 import { LiveActivity, fileDescriber, builderFiles } from './live-activity.mjs';
-import { AgentSupervisor } from './agents/supervisor.mjs';
+import { AgentSupervisor, stoppedAgent } from './agents/supervisor.mjs';
 
 // The files a builder hands back: the graph tables and its commentary beside them.
 const deliveryFiles = [...draftTables, ...Object.keys(commentaryHeaders), 'submission.txt'];
@@ -282,7 +282,7 @@ export class GraphBuilders {
         this.log(next, id, 'The usage limit reset; the graph builder carries on.');
       });
     });
-    task.agent.on('intruder', () => this.store.update(next => this.log(next, id, 'The graph builder tried to start another agent, and the app stopped it.')));
+    task.agent.on('intruder', (found) => this.store.update(next => this.log(next, id, stoppedAgent('graph builder', found))));
   }
   finished(task, code) {
     const id = task.id;
