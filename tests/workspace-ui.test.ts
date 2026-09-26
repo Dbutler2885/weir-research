@@ -85,6 +85,10 @@ beforeEach(() => {
         const result = flowCommand(store, JSON.parse(options.body), "human");
         return { ok: true, json: async () => result };
       }
+      if (path === "/api/coordinator/fresh") {
+        state.coordinator = { ...state.coordinator!, connected: true, listening: true, problem: null };
+        return { ok: true, json: async () => ({ started: true }) };
+      }
       if (path === "/api/review-settings") {
         state.reviewSettings = JSON.parse(options.body);
         return { ok: true, json: async () => state.reviewSettings };
@@ -222,6 +226,16 @@ describe("investigation workspace", () => {
     await vi.waitFor(() =>
       expect(document.querySelector(".coordinator-presence")!.textContent).toContain("Research coordinator is listening"),
     );
+  });
+  it("says when the coordinator stopped, and starts it again", async () => {
+    state.coordinator = { enabled: true, connected: false, name: null, handoff: "", awaitingSynthesis: [], problem: "The coordinator stopped at 4:18 AM when it lost contact with the app." };
+    mount();
+    click("[data-add-instruction]");
+    const presence = () => document.querySelector(".coordinator-presence")!.textContent;
+    expect(presence()).toContain("The coordinator stopped at 4:18 AM when it lost contact with the app. Messages wait here until it starts.");
+    click("[data-start-coordinator]");
+    await vi.waitFor(() => expect(presence()).toContain("Your coordinator is listening"));
+    expect(vi.mocked(fetch).mock.calls.some(([path]) => path === "/api/coordinator/fresh")).toBe(true);
   });
   it("shows research running now from every tab", async () => {
     expect(document.querySelector<HTMLElement>("[data-running]")!.hidden).toBe(true);

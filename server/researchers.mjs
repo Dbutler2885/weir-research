@@ -352,7 +352,7 @@ Your final message should be a short completion status. The host will validate r
           : `${engine} could not start. Check its installation and existing sign-in, or choose another researcher.`,
       ),
     );
-    task.agent.on("exit", ({ code }) => this.closed(task, code, engine));
+    task.agent.on("exit", ({ code, reason }) => this.closed(task, code, engine, reason));
     // A usage-limit pause is not a failure, and its wait does not count against a time limit.
     task.agent.on("paused", ({ reason }) => {
       task.pausedAt = Date.now();
@@ -388,7 +388,7 @@ Your final message should be a short completion status. The host will validate r
       next.investigations.find((i) => i.id === task.id).events.push({ at: new Date().toISOString(), message }),
     );
   }
-  closed(task, code, engine) {
+  closed(task, code, engine, reason) {
     const { id, token, directory } = task;
     this.checkpoint(task);
     try {
@@ -402,7 +402,7 @@ Your final message should be a short completion status. The host will validate r
       this.fail(
         task,
         code !== 0
-          ? `${engine} stopped before completing a proposal. Resume with this or another provider; saved checkpoints are retained.`
+          ? `${engine} stopped ${reason === "lost" ? "when it lost contact with the app" : "before completing a proposal"}. Resume with this or another provider; saved checkpoints are retained.`
           : `Proposal needs another pass: ${error.message}`,
       );
     } finally {

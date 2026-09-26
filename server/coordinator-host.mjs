@@ -75,10 +75,11 @@ export class CoordinatorHost {
     });
     agent.on('resumed', () => this.coordinator.noteText('The usage limit reset; carrying on.'));
     agent.on('failed', (error) => { this.problem = `The coordinator could not start: ${error.message}`; });
-    agent.on('exit', () => {
+    agent.on('exit', ({reason} = {}) => {
       if (this.agent !== agent) return;
       this.agent = null;
-      this.problem ||= 'The coordinator stopped. Reopen the project to start a fresh one.';
+      const at = new Date().toLocaleTimeString('en-US', {hour: 'numeric', minute: '2-digit'});
+      this.problem ||= `The coordinator stopped at ${at}${reason === 'lost' ? ' when it lost contact with the app' : ''}.`;
       this.coordinator.problem = this.problem;
       this.close();
     });

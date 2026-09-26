@@ -115,6 +115,20 @@ describe("the app's coordinator", () => {
     // Several real processes run here, which is slow when the whole suite runs at once.
   }, 20_000);
 
+  it("says when its coordinator stopped, and starts a fresh one on request", async () => {
+    const f = fixture();
+    const host = f.open();
+    const first = host.agent!;
+    await until(() => f.received(host).length === 1);
+    // Its process ends on its own, as when the app loses it.
+    (first as any).child.kill("SIGKILL");
+    await until(() => !host.agent);
+    expect(f.coordinator.status()).toMatchObject({ connected: false, problem: expect.stringMatching(/^The coordinator stopped at \d{1,2}:\d{2} [AP]M\.$/) });
+    expect(host.startFresh()).toBe(true);
+    expect(host.agent).not.toBe(first);
+    expect(f.coordinator.status()).toMatchObject({ connected: true, problem: null });
+  }, 20_000);
+
   it("says when no agent CLI is installed to run it", () => {
     const f = fixture();
     const host = new CoordinatorHost({

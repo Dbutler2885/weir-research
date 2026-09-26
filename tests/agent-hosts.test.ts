@@ -86,6 +86,23 @@ describe("agents under their own host process", () => {
     await until(() => !p.alive(pid));
   }, 20_000);
 
+  it("keep their agent through the computer sleeping", async () => {
+    const p = place();
+    const { supervisor } = p.app();
+    const agent = start(supervisor, p.folder, steps([read("brief.json", 20_000)]));
+    cleanups.push(() => agent.stop());
+    await new Promise((done) => agent.once("action", done));
+    const pid = p.pidOf(agent.record);
+    // Asleep, the host hears no heartbeat for well past the timeout; on waking, the
+    // app's heartbeat arrives only after the host has looked at the clock.
+    process.kill(pid, "SIGSTOP");
+    await new Promise((done) => setTimeout(done, 4000));
+    process.kill(pid, "SIGCONT");
+    await new Promise((done) => setTimeout(done, 2000));
+    expect(p.alive(pid)).toBe(true);
+    expect(agent.ended).toBe(false);
+  }, 20_000);
+
   it("keep running when kept, and are taken back by the app when it opens again", async () => {
     const p = place();
     const first = p.app();

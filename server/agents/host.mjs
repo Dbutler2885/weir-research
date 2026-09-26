@@ -43,6 +43,8 @@ agent.on("failed", (error) => publish("failed", { message: error.message, proble
 
 let lastBeat = Date.now();
 let kept = false;
+// Set when the host stops the agent itself, having lost the app.
+let stopReason = null;
 const commands = {
   send: ({ text }) => agent.send(text),
   steer: ({ text }) => agent.steer(text),
@@ -110,9 +112,17 @@ const server = createServer((socket) => {
 rmSync(spec.socket, { force: true });
 server.listen(spec.socket);
 
-// Without the app's heartbeat, a worker that was not kept running stops.
+// Without the app's heartbeat, a worker that was not kept running stops. A computer
+// that slept paused the app too, so on waking its heartbeat gets its full time again.
+let lastCheck = Date.now();
 const check = setInterval(() => {
-  if (!kept && Date.now() - lastBeat > spec.heartbeatTimeout) agent.stop();
+  const now = Date.now();
+  if (now - lastCheck > 3000) lastBeat = now;
+  lastCheck = now;
+  if (!kept && now - lastBeat > spec.heartbeatTimeout) {
+    stopReason = "lost";
+    agent.stop();
+  }
 }, 1000);
 
 agent.on("exit", ({ code, stopped }) => {
@@ -120,7 +130,7 @@ agent.on("exit", ({ code, stopped }) => {
   // Recorded before the app hears of it, so an app that then forgets the host is not undone.
   record.ended = true;
   save();
-  publish("exit", { code, stopped });
+  publish("exit", { code, stopped, ...(stopReason ? { reason: stopReason } : {}) });
   // Let a connected app read the last event before the socket goes.
   setTimeout(() => {
     server.close();

@@ -14,6 +14,8 @@ export interface DrawerHost {
   command(data: ResearchCommand): Promise<unknown>;
   navigate(reference: AnnotationTarget): void;
   batchAction(batchId: string, action: "walkthrough" | "graph"): void;
+  // Starts a coordinator again from the project's saved state, after one stopped.
+  startCoordinator(): Promise<unknown>;
   // True when the workspace service cannot be reached right now.
   offline?(): boolean;
   changed(): void;
@@ -211,6 +213,9 @@ ${this.presence(state)}<form class="message-form" data-message-form><div class="
       return `<p class="coordinator-presence is-busy"><span class="presence-dot"></span>${who} is working${
         c.lastSeenSecondsAgo == null ? "" : `, last seen ${elapsed(c.lastSeenSecondsAgo)} ago`
       }. Messages wait until it checks back.</p>`;
+    if (c.waiting) return '<p class="coordinator-presence">Your coordinator starts when you write to it.</p>';
+    if (c.problem)
+      return `<p class="coordinator-presence is-away"><span>${html(c.problem)} Messages wait here until it starts.</span><button type="button" data-start-coordinator>Start it again</button></p>`;
     return '<p class="coordinator-presence is-away">No coordinator is attached. Messages wait here until one connects.</p>';
   }
 
@@ -373,6 +378,10 @@ ${this.presence(state)}<form class="message-form" data-message-form><div class="
     } else if (button.closest("[data-message-form]") && button.type === "submit") {
       event.preventDefault();
       await this.sendMessage();
+    } else if (button.hasAttribute("data-start-coordinator")) {
+      button.disabled = true;
+      if (await this.run(() => this.host.startCoordinator())) this.render();
+      else button.disabled = false;
     } else if (button.dataset.decide && messageId) {
       if (
         await this.run(() =>

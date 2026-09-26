@@ -515,6 +515,10 @@ export function mountResearchWorkspace(
     command: (data) => command(data, false),
     navigate,
     batchAction: (batchId, kind) => void requestReview(batchId, kind),
+    startCoordinator: async () => {
+      await request("/api/coordinator/fresh", {});
+      await refresh();
+    },
     offline: () => offline,
     changed: () => updateCounts(),
   });

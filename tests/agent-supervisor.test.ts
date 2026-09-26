@@ -26,12 +26,12 @@ const providers = {
 };
 const steps = (list: object[]) => `steps:${JSON.stringify(list)}`;
 
-function start(provider: "claude" | "codex", prompt?: string, env: Record<string, string> = {}, watchInterval = 2000) {
+function start(provider: "claude" | "codex", prompt?: string, env: Record<string, string> = {}, watchInterval = 2000, logSegment?: number) {
   const folder = mkdtempSync(join(tmpdir(), "agent-"));
   cleanups.push(() => rmSync(folder, { recursive: true, force: true }));
-  cleanups.push(() => rmSync(`${folder}.log`, { force: true }));
+  cleanups.push(() => ["", ".1", ".2", ".3", ".4", ".5"].forEach((n) => rmSync(`${folder}.log${n}`, { force: true })));
   const live = new LiveActivity();
-  const supervisor = new AgentSupervisor({ live, stopGrace: 200, watchInterval });
+  const supervisor = new AgentSupervisor({ live, stopGrace: 200, watchInterval, logSegment });
   const agent = supervisor.start({
     key: "research:fixture",
     provider,
@@ -113,6 +113,14 @@ describe.each(["claude", "codex"] as const)("agent supervisor with a %s agent", 
   it("keeps the raw stream on disk for diagnosis, outside the agent's folder", async () => {
     const a = start(provider, steps([read("brief.json")]));
     await a.next("turn");
+    expect(readFileSync(`${a.folder}.log`, "utf8")).toContain("Done.");
+  });
+
+  it("sets a long log aside as it grows, so the end of the run is always kept", async () => {
+    const a = start(provider, steps([read("brief.json"), read("findings.ts"), read("types.ts"), read("brief.json"), read("findings.ts")]), {}, 2000, 600);
+    await a.next("turn");
+    expect(existsSync(`${a.folder}.log.1`)).toBe(true);
+    expect(existsSync(`${a.folder}.log.6`)).toBe(false);
     expect(readFileSync(`${a.folder}.log`, "utf8")).toContain("Done.");
   });
 });

@@ -1,7 +1,7 @@
 import { execFile, spawn } from "node:child_process";
 import { basename, dirname, join } from "node:path";
 import { EventEmitter } from "node:events";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { createConnection } from "node:net";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
@@ -10,7 +10,11 @@ import { LiveActivity } from "../live-activity.mjs";
 import { claudeAdapter } from "./claude.mjs";
 import { codexAdapter } from "./codex.mjs";
 
-const LOG_LIMIT = 2_000_000;
+// An agent's raw stream is kept whole for diagnosis. A log that grows past this is
+// set aside as log.1, and so on, keeping the most recent ones: the end of a long
+// run, which says how it stopped, is never the part that is lost.
+const LOG_SEGMENT = 20_000_000;
+const LOG_KEPT = 5;
 const AGENT_CLIS = new Set(["claude", "codex"]);
 
 // The processes running beneath each agent, from one listing of the system's processes.
@@ -41,12 +45,13 @@ export class AgentSupervisor {
   // Homes are the app's own Codex home and home folder, from agentHomes. With hosts,
   // each agent runs under its own host process, which can outlive the app; the
   // registry folder records them and the socket folder holds their sockets.
-  constructor({ hosts = /** @type {any} */ (null), launch = spawn, live = new LiveActivity(), adapters = { claude: claudeAdapter, codex: codexAdapter }, stopGrace = 5000, homes = null, watchInterval = 2000, quotaWait = { unknown: 30 * 60_000, margin: 60_000 } } = {}) {
+  constructor({ hosts = /** @type {any} */ (null), launch = spawn, live = new LiveActivity(), adapters = { claude: claudeAdapter, codex: codexAdapter }, stopGrace = 5000, homes = null, watchInterval = 2000, quotaWait = { unknown: 30 * 60_000, margin: 60_000 }, logSegment = LOG_SEGMENT } = {}) {
     this.launch = launch;
     this.homes = homes;
     this.live = live;
     this.adapters = adapters;
     this.stopGrace = stopGrace;
+    this.logSegment = logSegment;
     this.agents = new Set();
     this.watchInterval = watchInterval;
     this.quotaWait = quotaWait;
@@ -109,11 +114,16 @@ export class AgentSupervisor {
     let logSize = 0;
     // The log is for diagnosis only; losing it, say because its folder was removed, stops nothing.
     const append = (chunk) => {
-      if ((logSize += chunk.length) > LOG_LIMIT) return;
       try {
+        if (logSize + chunk.length > this.logSegment && logSize > 0) {
+          for (let n = LOG_KEPT - 1; n >= 1; n--) if (existsSync(`${log}.${n}`)) renameSync(`${log}.${n}`, `${log}.${n + 1}`);
+          renameSync(log, `${log}.1`);
+          logSize = 0;
+        }
         writeFileSync(log, chunk, { flag: "a", mode: 0o600 });
+        logSize += chunk.length;
       } catch {
-        logSize = LOG_LIMIT;
+        /* Diagnosis only. */
       }
     };
     child.stdout.on("data", append);
