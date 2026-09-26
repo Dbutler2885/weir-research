@@ -94,7 +94,7 @@ const supervisor = new AgentSupervisor({
 });
 // One research browser for the app, with its own profile, shared by every project.
 const researchBrowser = new ResearchBrowser(appDirectory, { root });
-const setupScreen = setupRoutes({ homes: agentHomes(appDirectory) });
+const setupScreen = setupRoutes({ homes: agentHomes(appDirectory), next: { label: "Back to your project", href: "/" } });
 const researchers = new ResearcherPool(store, directory, root, { coordinator, live, supervisor, browser: researchBrowser });
 coordinator.researchers = researchers;
 const graphBuilders = new GraphBuilders(store, directory, root, { live, supervisor });

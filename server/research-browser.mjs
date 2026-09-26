@@ -3,17 +3,30 @@ import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { executableOnPath } from './researchers.mjs';
 
-const MAC_CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+// The Chromium browsers the research browser can drive, in the order it prefers them.
+const BROWSERS = [
+  {name: 'Google Chrome', mac: 'Google Chrome', linux: ['google-chrome', 'google-chrome-stable']},
+  {name: 'Brave', mac: 'Brave Browser', linux: ['brave-browser', 'brave']},
+  {name: 'Microsoft Edge', mac: 'Microsoft Edge', linux: ['microsoft-edge', 'microsoft-edge-stable']},
+  {name: 'Chromium', mac: 'Chromium', linux: ['chromium', 'chromium-browser']},
+];
 
-// The installed Google Chrome, which the research browser drives, or the Chrome
-// named by RESEARCH_BROWSER_CHROME.
-export function findChrome(find = executableOnPath) {
-  if (process.env.RESEARCH_BROWSER_CHROME) return process.env.RESEARCH_BROWSER_CHROME;
-  if (process.platform === 'darwin' && existsSync(MAC_CHROME)) return MAC_CHROME;
-  return ['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser'].map(find).find(Boolean) || null;
+// The installed browser the research browser drives, and its name; or the one
+// RESEARCH_BROWSER_CHROME names.
+export function findBrowser(find = executableOnPath, exists = existsSync) {
+  if (process.env.RESEARCH_BROWSER_CHROME) return {path: process.env.RESEARCH_BROWSER_CHROME, name: 'The browser RESEARCH_BROWSER_CHROME names'};
+  for (const browser of BROWSERS) {
+    const path = process.platform === 'darwin'
+      ? [`/Applications/${browser.mac}.app/Contents/MacOS/${browser.mac}`].find((file) => exists(file))
+      : browser.linux.map(find).find(Boolean);
+    if (path) return {path, name: browser.name};
+  }
+  return null;
 }
+export const findChrome = () => findBrowser()?.path || null;
 
-// One research browser for the app: Google Chrome with the app's own profile,
+// One research browser for the app: an installed Chromium browser, such as Chrome
+// or Brave, run with the app's own profile,
 // separate from the human's browsers. The human signs in to archives in it once;
 // every worker reaches it through Chrome DevTools MCP and works in its own tab.
 export class ResearchBrowser {
@@ -27,7 +40,7 @@ export class ResearchBrowser {
   // The browser's DevTools address, starting it when it is not already running.
   // Every project's service shares it, so a running one is reused.
   async open() {
-    if (!this.chrome) throw new Error('Google Chrome is not installed. Install it to give researchers a browser.');
+    if (!this.chrome) throw new Error('No Chromium browser, such as Chrome or Brave, is installed for researchers to share.');
     const running = await this.running();
     if (running) return running;
     mkdirSync(this.profile, {recursive: true});

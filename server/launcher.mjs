@@ -10,7 +10,7 @@ import { agentHomes } from './agents/isolation.mjs';
 import { setupRoutes } from './setup-routes.mjs';
 import { home } from '../scripts/workspace-lib.mjs';
 
-const setup = setupRoutes({homes: agentHomes(resolve(home))});
+const setup = setupRoutes({homes: agentHomes(resolve(home)), next: {label: 'Continue', href: '/welcome'}});
 let lastRequest = Date.now();
 const server = createServer(async (req, res) => {
   lastRequest = Date.now();
