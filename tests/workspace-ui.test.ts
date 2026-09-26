@@ -406,8 +406,7 @@ describe("investigation workspace", () => {
     await vi.waitFor(() => expect(state.investigations[0]!.status).toBe("queued"));
   });
   it("saves an optional time limit and restores unlimited research", async () => {
-    click('[data-view="work"]');
-    click("[data-open-settings]");
+    click('[data-view="settings"]');
     expect(
       document.querySelector<HTMLSelectElement>("#research-time-limit-mode")!
         .value,

@@ -36,7 +36,8 @@ You can also write an annotation there with no selection.
 The sidebar docks beside the surface, preserves drafts when closed, and supports editing queued annotations before you send them together.
 Choose Interface feedback to record product observations separately from historical research.
 The destination stays selected between saves; the Feedback button and save confirmation open all saved interface notes.
-Investigations separates Findings, Your annotations, and Activity, with researcher preferences under Research settings.
+Investigations separates Findings, Queue, and Activity.
+The gear at the top opens Research settings.
 Queue annotations or investigate immediately.
 Follow-up annotations on a proposal stay in its investigation and retain the exact revision they address.
 Review individual findings in cards or a continuous view, with evidence and qualifications alongside each decision.

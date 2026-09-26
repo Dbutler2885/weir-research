@@ -52,6 +52,16 @@
   text-decoration: underline;
   text-underline-offset: 6px;
 }
+/* Research settings is a gear; while it is open, the gear takes the accent colour. */
+.research-app .workspace-actions > .settings-destination {
+  display: inline-flex;
+  align-items: center;
+  color: var(--ink-soft);
+}
+.research-app .workspace-actions > .settings-destination:hover,
+.research-app .workspace-actions > .settings-destination[aria-current] {
+  color: var(--sea-dark);
+}
 .research-app .local-indicator {
   display: none;
 }
