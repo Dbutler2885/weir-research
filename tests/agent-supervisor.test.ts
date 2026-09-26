@@ -122,7 +122,8 @@ describe.each(["claude", "codex"] as const)("agent supervisor with a %s agent", 
     await a.next("turn");
     expect(existsSync(`${a.folder}.log.1`)).toBe(true);
     expect(existsSync(`${a.folder}.log.6`)).toBe(false);
-    expect(readFileSync(`${a.folder}.log`, "utf8")).toContain("Done.");
+    // The last segment may have just been set aside; between them the two newest hold the end.
+    expect(readFileSync(`${a.folder}.log.1`, "utf8") + readFileSync(`${a.folder}.log`, "utf8")).toContain("Done.");
   });
 });
 

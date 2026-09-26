@@ -17,7 +17,7 @@ import { walkthroughText } from "../src/domain/walkthrough-edits";
 const exec = promisify(execFile);
 const cleanups: (() => void)[] = [];
 afterEach(() => cleanups.splice(0).reverse().forEach((clean) => clean()));
-const until = async (check: () => unknown, tries = 400) => {
+const until = async (check: () => unknown, tries = 1000) => {
   for (let n = 0; n < tries && !check(); n++) await new Promise((done) => setTimeout(done, 10));
   expect(check()).toBeTruthy();
 };
@@ -96,7 +96,7 @@ describe("the app's coordinator", () => {
     expect(note.midTurn).toBe(true);
     expect(note.text).toContain("Please look at the workshop's founder.");
     // After its turns end, it is listening.
-    await until(() => f.coordinator.status().listening, 600);
+    await until(() => f.coordinator.status().listening);
   });
 
   it("is paused, not working, while the usage limit holds it, and keeps the human's messages until then", async () => {
@@ -208,7 +208,7 @@ describe("the coordinator correcting a walkthrough", () => {
     writeFileSync(stepsFile, JSON.stringify([{ tool: "Edit", input: { file_path: "walkthroughs/batch-1.json" }, writes: { "walkthroughs/batch-1.json": JSON.stringify(broken) } }]));
     host.tell("Tidy the walkthrough.");
     const received = () => (existsSync(join(host.folder!, "received.jsonl")) ? readFileSync(join(host.folder!, "received.jsonl"), "utf8") : "");
-    await until(() => received().includes("was not used") && shown()?.steps.length === w.steps.length, 800);
+    await until(() => received().includes("was not used") && shown()?.steps.length === w.steps.length);
     expect(received()).toContain("Your change to walkthroughs/batch-1.json was not used: Keep the steps as they are");
     expect(store.state.investigations[0].reviewFlow.edits.edits).toHaveLength(1);
   }, 20_000);

@@ -7,18 +7,29 @@ import { join, resolve } from "node:path";
 import { AgentSupervisor } from "../server/agents/supervisor.mjs";
 import { LiveActivity, fileDescriber, researcherFiles } from "../server/live-activity.mjs";
 
-const cleanups: (() => void)[] = [];
-afterEach(() => cleanups.splice(0).reverse().forEach((clean) => clean()));
+const cleanups: (() => unknown)[] = [];
+afterEach(async () => {
+  for (const clean of cleanups.splice(0).reverse()) await clean();
+});
 const until = async (check: () => unknown, tries = 500) => {
   for (let n = 0; n < tries && !check(); n++) await new Promise((done) => setTimeout(done, 20));
   expect(check()).toBeTruthy();
 };
+// Stops an agent and waits for its host to report the exit.
+const stopped = (agent: any) =>
+  new Promise<void>((done) => {
+    if (agent.ended) return done();
+    agent.once("exit", () => done());
+    agent.stop();
+    setTimeout(done, 3000);
+  });
 const steps = (list: object[]) => `steps:${JSON.stringify(list)}`;
 const read = (file: string, delay = 0) => ({ tool: "Read", input: { file_path: file }, delay });
 
 function place() {
   const root = mkdtempSync(join(tmpdir(), "hosts-"));
-  cleanups.push(() => rmSync(root, { recursive: true, force: true }));
+  // A host can still be writing its last records as it exits.
+  cleanups.push(() => rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }));
   const folder = join(root, "agent");
   require("node:fs").mkdirSync(folder);
   const hosts = { registry: join(root, "registry"), sockets: join(root, "s"), heartbeat: 200, timeout: 1500 };
@@ -57,7 +68,7 @@ describe("agents under their own host process", () => {
     const p = place();
     const { live, supervisor } = p.app();
     const agent = start(supervisor, p.folder, steps([read("brief.json", 400), read("findings.ts", 400)]));
-    cleanups.push(() => agent.stop());
+    cleanups.push(() => stopped(agent));
     const actions: string[] = [];
     agent.on("action", (text: string) => actions.push(text));
     await until(() => actions.length === 1);
@@ -76,7 +87,7 @@ describe("agents under their own host process", () => {
     const p = place();
     const { supervisor } = p.app();
     const agent = start(supervisor, p.folder, steps([{ quota: 600 }]));
-    cleanups.push(() => agent.stop());
+    cleanups.push(() => stopped(agent));
     await new Promise((done) => agent.once("paused", done));
     await until(() => agent.paused && !agent.busy);
     agent.send("hello?");
@@ -102,7 +113,7 @@ describe("agents under their own host process", () => {
     const p = place();
     const { supervisor } = p.app();
     const agent = start(supervisor, p.folder, steps([read("brief.json", 20_000)]));
-    cleanups.push(() => agent.stop());
+    cleanups.push(() => stopped(agent));
     await new Promise((done) => agent.once("action", done));
     const pid = p.pidOf(agent.record);
     // Asleep, the host hears no heartbeat for well past the timeout; on waking, the

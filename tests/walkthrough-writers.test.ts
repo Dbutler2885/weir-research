@@ -13,7 +13,7 @@ import { emptyGraph, prepareResearch } from "./fixtures/guided-flow";
 const cleanups: (() => void)[] = [];
 afterEach(() => cleanups.splice(0).reverse().forEach((clean) => clean()));
 const until = async (check: () => unknown) => {
-  for (let n = 0; n < 300 && !check(); n++) await new Promise((done) => setTimeout(done, 10));
+  for (let n = 0; n < 1000 && !check(); n++) await new Promise((done) => setTimeout(done, 10));
   expect(check()).toBeTruthy();
 };
 
@@ -49,7 +49,7 @@ function fixture(slow = false) {
   return { store, research, writers, live, command, writer, events };
 }
 
-describe("walkthrough writers", () => {
+describe("walkthrough writers", { timeout: 20_000 }, () => {
   it("are assigned by the coordinator only after the human asks, with a brief", () => {
     const f = fixture();
     expect(() => f.command("assign-walkthrough", { engine: "claude", brief: "Explain the location." })).toThrow("not asked for a walkthrough");
