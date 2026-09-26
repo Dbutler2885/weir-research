@@ -1,8 +1,13 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { checkSetup } from "../server/setup.mjs";
-import { setupPage } from "../server/setup-page.mjs";
-import { findBrowser } from "../server/research-browser.mjs";
+import { checkSetup as check } from "../server/setup.mjs";
+import { setupPage as page } from "../server/setup-page.mjs";
+import { findBrowser as browserFor } from "../server/research-browser.mjs";
+
+// The modules are JavaScript; the tests pass them plain stand-ins.
+const checkSetup = (options: object): any => check(options as any);
+const setupPage = (options: object): string => page(options as any);
+const findBrowser = (find: any, exists: (file: string) => boolean, defaultId: () => string): any => browserFor(find, exists as any, defaultId);
 
 // What the CLIs answer, by the command run.
 function machine({ claude = "signed-in", codex = "signed-out", codexVersion = "0.155.1", installed = ["claude", "codex", "bwrap", "socat", "pkexec"] } = {}) {

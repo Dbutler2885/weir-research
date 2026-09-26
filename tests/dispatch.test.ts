@@ -137,8 +137,9 @@ describe("helpers", () => {
     cleanups.push(() => helpers.stop());
     expect(() => helpers.ask({ task: " " })).toThrow("Describe the helper's task");
     helpers.ask({ task: 'steps:[{"tool":"Read","input":{"file_path":"AGENTS.md"},"delay":200}]' });
-    await new Promise((done) => setTimeout(done, 100));
-    expect(liveRows({ investigations: [], conversation: [], live: live.list() } as any)[0]).toMatchObject({ who: "Claude helper", latest: "Reading its instructions" });
+    const row = () => liveRows({ investigations: [], conversation: [], live: live.list() } as any)[0];
+    for (let i = 0; i < 300 && row()?.latest !== "Reading its instructions"; i++) await new Promise((done) => setTimeout(done, 10));
+    expect(row()).toMatchObject({ who: "Claude helper", latest: "Reading its instructions" });
     for (let i = 0; i < 300 && !answers.length; i++) await new Promise((done) => setTimeout(done, 10));
     expect(answers[0]).toContain("Your helper finished");
     expect(answers[0]).toContain("Done.");
