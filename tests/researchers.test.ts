@@ -411,7 +411,7 @@ describe("the research browser for web researchers", () => {
     const f = fixture();
     // A stand-in for the app's research browser.
     const server = { command: "/bin/node", args: ["chrome-devtools-mcp.js", "--browserUrl", "http://127.0.0.1:9333"], env: {} };
-    f.pool.browser = { chrome: "/chrome", open: async () => "http://127.0.0.1:9333", mcpServer: () => server } as any;
+    f.pool.browser = { available: true, open: async () => "http://127.0.0.1:9333", mcpServer: () => server } as any;
     f.queue();
     assignQueued(f.store, f.pool, "claude");
     await new Promise((done) => setTimeout(done, 10));
@@ -424,7 +424,7 @@ describe("the research browser for web researchers", () => {
   it("gives a researcher confined to local documents no browser", async () => {
     const f = fixture();
     let opened = false;
-    f.pool.browser = { chrome: "/chrome", open: async () => ((opened = true), "http://127.0.0.1:9333"), mcpServer: () => ({}) } as any;
+    f.pool.browser = { available: true, open: async () => ((opened = true), "http://127.0.0.1:9333"), mcpServer: () => ({}) } as any;
     f.store.command({ type: "annotate", question: "Local only", target: { label: "R" }, dispatch: true, scope: ["imports"] });
     assignQueued(f.store, f.pool, "claude");
     await new Promise((done) => setTimeout(done, 10));

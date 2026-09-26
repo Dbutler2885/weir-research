@@ -307,7 +307,7 @@ Your final message should be a short completion status. The host will validate r
           this.active.delete(id);
         }
       };
-      if (web && this.browser?.chrome)
+      if (web && this.browser?.available)
         this.browser.open().then((url) => launch(this.browser.mcpServer(url)), () => launch(null));
       else launch(null);
     } catch (error) {

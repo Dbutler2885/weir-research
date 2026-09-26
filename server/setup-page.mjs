@@ -51,7 +51,7 @@ function browserRow(d) {
       : 'Researchers open pages there, including archives you sign in to once.';
   } else {
     status = 'Researchers can search and read the web without one.';
-    detail = `For pages that need a real browser, they drive Chrome, Brave, Edge or another Chromium browser${d.unsupportedDefault ? `; ${esc(d.unsupportedDefault)} can't be driven yet` : ''}. Install one whenever you like.`;
+    detail = `For pages that need a real browser, they drive Chrome, Brave, Edge, Firefox or Chromium${d.unsupportedDefault ? `; ${esc(d.unsupportedDefault)} can't be driven` : ''}. Install one whenever you like.`;
   }
   return `<li class="row"><div class="row-text"><h3>Research browser</h3><p class="status${d.ok ? ' is-ok' : ''}">${status}</p><p class="detail">${detail}</p></div><div class="row-action"></div></li>`;
 }

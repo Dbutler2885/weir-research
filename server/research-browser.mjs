@@ -4,19 +4,20 @@ import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { executableOnPath } from './researchers.mjs';
 
-// The Chromium browsers the research browser can drive, in the order it prefers
-// them when the human's default browser is not one of them.
+// The browsers the research browser can drive, in the order it prefers them when
+// the human's default browser is not one of them. Chromium browsers come first,
+// since each worker reaches them directly; Firefox goes through a relay.
 const BROWSERS = [
   {name: 'Google Chrome', mac: 'Google Chrome', bundle: 'com.google.chrome', linux: ['google-chrome', 'google-chrome-stable'], desktop: 'google-chrome'},
   {name: 'Brave', mac: 'Brave Browser', bundle: 'com.brave.browser', linux: ['brave-browser', 'brave'], desktop: 'brave'},
   {name: 'Microsoft Edge', mac: 'Microsoft Edge', bundle: 'com.microsoft.edgemac', linux: ['microsoft-edge', 'microsoft-edge-stable'], desktop: 'microsoft-edge'},
   {name: 'Vivaldi', mac: 'Vivaldi', bundle: 'com.vivaldi.vivaldi', linux: ['vivaldi', 'vivaldi-stable'], desktop: 'vivaldi'},
   {name: 'Chromium', mac: 'Chromium', bundle: 'org.chromium.chromium', linux: ['chromium', 'chromium-browser'], desktop: 'chromium'},
+  {name: 'Firefox', mac: 'Firefox', binary: 'firefox', bundle: 'org.mozilla.firefox', linux: ['firefox'], desktop: 'firefox', engine: 'firefox'},
 ];
 // Browsers people use that researchers cannot drive, named when one is the default.
 const OTHERS = [
   {name: 'Safari', bundle: 'com.apple.safari', desktop: 'safari'},
-  {name: 'Firefox', bundle: 'org.mozilla.firefox', desktop: 'firefox'},
   {name: 'Arc', bundle: 'company.thebrowser.browser', desktop: 'arc'},
 ];
 
@@ -37,46 +38,73 @@ export function defaultBrowserId(run = (command, args) => spawnSync(command, arg
 
 const matches = (browser, id) => Boolean(id) && (id === browser.bundle || id.startsWith(browser.desktop));
 
-// The installed browser the research browser drives: the human's default when it
-// is a Chromium browser, or else the first one installed. Also says what the
+// The installed browser the research browser drives: the human's default when
+// researchers can drive it, or else the first one installed. Also says what the
 // default is, when it is a browser researchers cannot drive.
 export function findBrowser(find = executableOnPath, exists = existsSync, defaultId = defaultBrowserId) {
-  if (process.env.RESEARCH_BROWSER_CHROME) return {path: process.env.RESEARCH_BROWSER_CHROME, name: 'The browser RESEARCH_BROWSER_CHROME names', isDefault: false};
+  if (process.env.RESEARCH_BROWSER_CHROME) return {path: process.env.RESEARCH_BROWSER_CHROME, name: 'The browser RESEARCH_BROWSER_CHROME names', engine: 'chromium', isDefault: false};
+  if (process.env.RESEARCH_BROWSER_FIREFOX) return {path: process.env.RESEARCH_BROWSER_FIREFOX, name: 'The Firefox RESEARCH_BROWSER_FIREFOX names', engine: 'firefox', isDefault: false};
   const pathOf = (browser) => process.platform === 'darwin'
-    ? [`/Applications/${browser.mac}.app/Contents/MacOS/${browser.mac}`].find((file) => exists(file))
+    ? [`/Applications/${browser.mac}.app/Contents/MacOS/${browser.binary || browser.mac}`].find((file) => exists(file))
     : browser.linux.map(find).find(Boolean);
   const id = defaultId();
   const preferred = BROWSERS.find((b) => matches(b, id));
   const other = OTHERS.find((b) => matches(b, id))?.name || null;
   for (const browser of preferred ? [preferred, ...BROWSERS.filter((b) => b !== preferred)] : BROWSERS) {
     const path = pathOf(browser);
-    if (path) return {path, name: browser.name, isDefault: browser === preferred, unsupportedDefault: other};
+    if (path) return {path, name: browser.name, engine: browser.engine || 'chromium', isDefault: browser === preferred, unsupportedDefault: other};
   }
-  return {path: null, name: null, isDefault: false, unsupportedDefault: other};
+  return {path: null, name: null, engine: null, isDefault: false, unsupportedDefault: other};
 }
-export const findChrome = () => findBrowser().path;
 
-// One research browser for the app: an installed Chromium browser, such as Chrome
-// or Brave, run with the app's own profile,
-// separate from the human's browsers. The human signs in to archives in it once;
-// every worker reaches it through Chrome DevTools MCP and works in its own tab.
+// One research browser for the app: an installed browser, such as Chrome, Brave
+// or Firefox, run with the app's own profile, separate from the human's browsers.
+// The human signs in to archives in it once; every worker reaches it through its
+// browser tools and works in its own tab.
 export class ResearchBrowser {
-  constructor(appDirectory, {chrome = findChrome(), headless = false, root} = {}) {
-    this.profile = join(appDirectory, 'research-browser', 'profile');
-    this.chrome = chrome;
+  constructor(appDirectory, {browser = findBrowser(), headless = false, root} = {}) {
+    this.folder = join(appDirectory, 'research-browser');
+    this.browser = browser;
+    this.engine = browser.path ? (browser.engine === 'firefox' ? new FirefoxEngine(this.folder, browser.path, {headless, root}) : new ChromiumEngine(this.folder, browser.path, {headless, root})) : null;
+  }
+  get available() {
+    return Boolean(this.engine);
+  }
+  get profile() {
+    return this.engine?.profile;
+  }
+  // The address workers' tools reach the browser at, starting it when it is not
+  // already running. Every project's service shares it, so a running one is reused.
+  async open() {
+    if (!this.engine) throw new Error('No browser researchers can drive, such as Chrome, Brave or Firefox, is installed.');
+    return (await this.engine.running()) || this.engine.start();
+  }
+  // Opens a tab for the human, to sign in to archives.
+  async show() {
+    await this.engine.show(await this.open());
+  }
+  // The MCP server a worker uses to reach the browser.
+  mcpServer(url) {
+    return this.engine.mcpServer(url);
+  }
+  async stop() {
+    await this.engine?.stop();
+  }
+}
+
+// Chrome, Brave and the other Chromium browsers: each worker's Chrome DevTools MCP
+// connects to the browser itself.
+class ChromiumEngine {
+  constructor(folder, path, {headless, root}) {
+    this.profile = join(folder, 'profile');
+    this.path = path;
     this.headless = headless;
     this.root = root;
-    this.url = null;
   }
-  // The browser's DevTools address, starting it when it is not already running.
-  // Every project's service shares it, so a running one is reused.
-  async open() {
-    if (!this.chrome) throw new Error('No Chromium browser, such as Chrome or Brave, is installed for researchers to share.');
-    const running = await this.running();
-    if (running) return running;
+  async start() {
     mkdirSync(this.profile, {recursive: true});
     rmSync(join(this.profile, 'DevToolsActivePort'), {force: true});
-    const child = spawn(this.chrome, [
+    const child = spawn(this.path, [
       `--user-data-dir=${this.profile}`,
       '--remote-debugging-port=0',
       '--remote-debugging-address=127.0.0.1',
@@ -107,10 +135,11 @@ export class ResearchBrowser {
     } catch {
       return null;
     }
-    this.url = url;
     return url;
   }
-  // The MCP server a worker uses to reach the browser.
+  async show(url) {
+    await fetch(`${url}/json/new?about:blank`, {method: 'PUT'}).catch(() => {});
+  }
   mcpServer(url) {
     return {
       command: process.execPath,
@@ -122,6 +151,66 @@ export class ResearchBrowser {
     if (!this.child) return;
     try {
       process.kill(this.child.pid);
+    } catch {
+      /* Already closed. */
+    }
+  }
+}
+
+// Firefox: it allows one automation session, so a relay process holds it and
+// runs every worker's browser tools through it.
+class FirefoxEngine {
+  constructor(folder, path, {headless, root}) {
+    this.folder = folder;
+    this.profile = join(folder, 'firefox-profile');
+    this.relayFile = join(folder, 'firefox-relay.json');
+    this.path = path;
+    this.headless = headless;
+    this.root = root;
+  }
+  relay() {
+    try {
+      return JSON.parse(readFileSync(this.relayFile, 'utf8'));
+    } catch {
+      return null;
+    }
+  }
+  async start() {
+    mkdirSync(this.folder, {recursive: true});
+    const child = spawn(process.execPath, [join(this.root, 'server', 'firefox-relay.mjs'), this.folder, this.path, ...(this.headless ? ['--headless'] : [])], {detached: true, stdio: 'ignore'});
+    child.unref();
+    // Firefox makes a new profile slowly the first time.
+    for (let n = 0; n < 400; n++) {
+      const url = await this.running();
+      if (url) return url;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    throw new Error('The research browser did not start.');
+  }
+  // The relay's address, when it is running.
+  async running() {
+    const relay = this.relay();
+    if (!relay) return null;
+    try {
+      const response = await fetch(`${relay.url}/status`, {headers: {authorization: `Bearer ${relay.token}`}, signal: AbortSignal.timeout(1500)});
+      return response.ok ? relay.url : null;
+    } catch {
+      return null;
+    }
+  }
+  async show() {
+    const relay = this.relay();
+    await fetch(`${relay.url}/show`, {method: 'POST', headers: {authorization: `Bearer ${relay.token}`}}).catch(() => {});
+  }
+  mcpServer() {
+    return {command: process.execPath, args: [join(this.root, 'server', 'firefox-mcp.mjs')], env: {RESEARCH_BROWSER_RELAY: this.relayFile}};
+  }
+  // Stops the relay, which quits Firefox.
+  async stop() {
+    const relay = this.relay();
+    if (!relay) return;
+    try {
+      process.kill(relay.pid);
     } catch {
       /* Already closed. */
     }

@@ -50,10 +50,19 @@ describe("choosing the research browser", () => {
     if (process.platform !== "darwin") return;
     expect(findBrowser(() => null, installed("Google Chrome", "Brave Browser"), () => "com.brave.browser")).toMatchObject({ name: "Brave", isDefault: true });
   });
+  it("uses Firefox when it is the human's default", () => {
+    if (process.platform !== "darwin") return;
+    expect(findBrowser(() => null, installed("Google Chrome", "Firefox"), () => "org.mozilla.firefox")).toMatchObject({ path: "/Applications/Firefox.app/Contents/MacOS/firefox", name: "Firefox", engine: "firefox", isDefault: true });
+  });
+  it("prefers a Chromium browser to Firefox when neither is the default", () => {
+    if (process.platform !== "darwin") return;
+    expect(findBrowser(() => null, installed("Firefox", "Brave Browser"), () => "com.apple.safari")).toMatchObject({ name: "Brave", engine: "chromium", unsupportedDefault: "Safari" });
+    expect(findBrowser(() => null, installed("Firefox"), () => "com.apple.safari")).toMatchObject({ name: "Firefox", engine: "firefox", isDefault: false });
+  });
   it("uses another installed Chromium browser when the default is Safari, and says so", () => {
     if (process.platform !== "darwin") return;
     expect(findBrowser(() => null, installed("Google Chrome"), () => "com.apple.safari")).toMatchObject({ name: "Google Chrome", isDefault: false, unsupportedDefault: "Safari" });
-    expect(findBrowser(() => null, installed(), () => "com.apple.safari")).toEqual({ path: null, name: null, isDefault: false, unsupportedDefault: "Safari" });
+    expect(findBrowser(() => null, installed(), () => "com.apple.safari")).toEqual({ path: null, name: null, engine: null, isDefault: false, unsupportedDefault: "Safari" });
   });
 });
 
