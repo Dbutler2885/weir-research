@@ -1,6 +1,6 @@
 import { checkSetup, startInstall, startSignIn } from './setup.mjs';
-import { setupPage } from './setup-page.mjs';
-import { createTopicProject, openProject, project } from '../scripts/workspace-lib.mjs';
+import { setupPage, welcomePage } from './setup-page.mjs';
+import { createTopicProject, openProject, project, projects, sampleProject } from '../scripts/workspace-lib.mjs';
 
 // The setup screen's routes, served on first run by the launcher and later by any
 // project's service, so the human can come back to it from Research settings.
@@ -34,10 +34,16 @@ export function setupRoutes({homes, next}) {
     return {signingIn: signingIn && {agent: signingIn.agent, url: signingIn.url}, installing: installing && {id: installing.id}};
   };
   // Handles a setup request, returning false for any other.
-  return async (req, url, {json, html, body}) => {
+  return async (req, url, {json, html, body, redirect}) => {
     if (req.method === 'GET' && url.pathname === '/setup') {
       cached = null;
       return html(setupPage({setup: check(), ...current(), installProblem, next}));
+    }
+    // Until an account is connected, there is nothing to start.
+    if (req.method === 'GET' && url.pathname === '/welcome') {
+      cached = null;
+      if (!check().ready) return redirect('/setup');
+      return html(welcomePage({projects: projects().filter((p) => !p.sample)}));
     }
     if (req.method === 'GET' && url.pathname === '/api/setup') return json({setup: check(), ...current()});
     if (req.method !== 'POST') return false;
@@ -69,6 +75,13 @@ export function setupRoutes({homes, next}) {
       if (!check().ready) throw new Error('Connect an account first.');
       const opened = await openProject(createTopicProject(topic.trim()), {browser: false});
       return json({url: opened.url});
+    }
+    // The sample spends nothing on opening; its coordinator waits for the visitor.
+    // It opens on its Review page, where its results are.
+    if (url.pathname === '/api/setup/sample') {
+      const address = new URL((await openProject(await sampleProject(), {browser: false})).url);
+      address.searchParams.set('view', 'review');
+      return json({url: address.href});
     }
     if (url.pathname === '/api/setup/open') {
       const {id} = await body();

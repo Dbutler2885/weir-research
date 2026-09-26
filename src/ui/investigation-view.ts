@@ -49,6 +49,8 @@ export function feedbackView(state: ResearchState): string {
 
 // Whether the app's coordinator is running, and what that means, as settings says it.
 export function coordinatorStatus(coordinator: ResearchState["coordinator"]): { status: string; description: string } {
+  if (!coordinator?.connected && coordinator?.waiting)
+    return { status: "The coordinator starts when you write to it", description: "This is the sample project, so nothing is spent until you send something." };
   return coordinator?.connected
     ? { status: "The coordinator is running", description: "It starts fresh each time the app opens this project, and handles new research assignments." }
     : { status: "The coordinator is not running", description: coordinator?.problem || "It starts when the app opens this project. Saved work remains available." };

@@ -1,7 +1,7 @@
 # Slice 10: Sample project
 
 **Type**: AFK
-**Status**: Not started
+**Status**: Done
 
 ## Blocked by
 
@@ -14,9 +14,9 @@ See **Setup**.
 
 ## Acceptance criteria
 
-- [ ] The sample opens from setup with sources, findings and a draft graph
-- [ ] All sample content is explicitly fictional
-- [ ] Opening the sample spends no quota until the human sends something
+- [x] The sample opens from setup with sources, findings and a draft graph
+- [x] All sample content is explicitly fictional
+- [x] Opening the sample spends no quota until the human sends something
 
 ## User stories addressed
 

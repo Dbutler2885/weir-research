@@ -75,6 +75,7 @@ export class Coordinator {
       listening: Boolean(live) && this.hosted() && this.host.status().listening,
       latest: live ? this.latest : null,
       problem: live ? null : this.problem,
+      waiting: !live && Boolean(this.waiting),
       // How full the app's coordinator's context is, and where it compacts.
       context: this.hosted() ? this.host.status().context ?? null : null,
       name: owner ? owner.name : null,

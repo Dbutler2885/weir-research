@@ -26,12 +26,14 @@ const server = createServer(async (req, res) => {
     if (![`127.0.0.1:${port}`, `localhost:${port}`].includes(host)) return json({error: 'Local host required.'}, 403);
     if (req.headers.origin && req.headers.origin !== `http://${host}`) return json({error: 'Cross-origin requests are not allowed.'}, 403);
     if (req.headers['sec-fetch-site'] === 'cross-site') return json({error: 'Open the setup screen directly.'}, 403);
-    if (url.pathname === '/') {
-      res.writeHead(302, {Location: '/setup'});
-      return res.end();
-    }
+    const redirect = (location) => {
+      res.writeHead(302, {Location: location});
+      res.end();
+    };
+    if (url.pathname === '/') return redirect('/setup');
     const handled = await setup(req, url, {
       json,
+      redirect,
       html: (text) => {
         res.writeHead(200, {'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store'});
         res.end(text);

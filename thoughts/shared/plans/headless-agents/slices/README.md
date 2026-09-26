@@ -14,8 +14,8 @@ Parent PRD: [Headless agents](../prd.md)
 | 06 | [Starting the app](06-starting-the-app.md) | AFK | Done | 05 |
 | 07 | [Progress without self-reporting](07-progress-without-self-reporting.md) | AFK | Done | 03 |
 | 08 | [Dispatch rules](08-dispatch-rules.md) | AFK | Done | 05 |
-| 09 | [Setup screen](09-setup-screen.md) | HITL | Not started | 04 |
-| 10 | [Sample project](10-sample-project.md) | AFK | Not started | 09 |
+| 09 | [Setup screen](09-setup-screen.md) | HITL | Done | 04 |
+| 10 | [Sample project](10-sample-project.md) | AFK | Done | 09 |
 | 11 | [Research browser](11-research-browser.md) | AFK | Done | 04 |
 | 12 | [Quota](12-quota.md) | AFK | Done | 03 |
 | 13 | [Detached workers](13-detached-workers.md) | AFK | Done | 12 |

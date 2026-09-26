@@ -71,6 +71,8 @@ export function liveRows(state: ResearchState): LiveRow[] {
       latest: c.latest ? `${c.listening ? "Last: " : ""}${c.latest.text}` : undefined,
       since: c.listening ? undefined : c.latest?.at,
     });
+  else if (c?.waiting)
+    rows.push({ who: "Coordinator", stage: "Starts when you write to it; this sample spends nothing until then." });
   else if (c?.problem)
     rows.push({ who: "Coordinator", stage: c.problem });
   else if (waiting)
@@ -139,7 +141,8 @@ export function runningSummary(state: ResearchState): string {
   return [
     coordinatorWorking(state) ? "Coordinator working" : "",
     // Why the coordinator is not running shows in the panel this opens.
-    !c?.connected && c?.problem ? "Coordinator not running" : "",
+    !c?.connected && c?.waiting ? "Coordinator starts when you write" : "",
+    !c?.connected && !c?.waiting && c?.problem ? "Coordinator not running" : "",
     waiting && !coordinatorWorking(state) ? `${plural(waiting, "note", "notes")} waiting for the coordinator` : "",
     running ? `${plural(running, "researcher", "researchers")} working` : "",
     queued ? `${plural(queued, "batch", "batches")} waiting for a researcher` : "",

@@ -65,25 +65,8 @@ function sandboxRow(d, installing) {
   return `<li class="row"><div class="row-text"><h3>Sandbox tools</h3><p class="status is-missing">Claude Code needs ${esc(d.packages.join(' and '))} to keep its work contained.</p><p class="detail">${d.canInstall ? 'Installing asks for your computer\'s password.' : `Install them with <code>${esc(d.command)}</code> in a terminal, then come back.`}</p></div><div class="row-action">${action}</div></li>`;
 }
 
-// The whole page, drawn from a setup check. Next is where Continue leads: the
-// start screen on a first visit, or back to the project the human came from.
-export function setupPage({setup, signingIn = null, installing = null, installProblem = null, next = {label: 'Continue', href: '/welcome'}}) {
-  const sandbox = setup.dependencies.find((d) => d.id === 'sandbox');
-  const sandboxMissing = Boolean(sandbox && !sandbox.ok);
-  const connected = setup.agents.filter((a) => a.installed && a.signedIn && !a.outdated);
-  const rows = setup.agents.map((a) => accountRow(a, {signingIn, installing, sandboxMissing})).join('');
-  const others = setup.dependencies.map((d) => (d.id === 'sandbox' ? sandboxRow(d, installing) : browserRow(d))).join('');
-  const ready = setup.ready
-    ? `<p class="ready-note">${connected.length > 1 ? 'Both accounts can take on any job.' : `${esc(connected[0]?.account)} can take on every job.`} You can choose which does what later, in Research settings.</p><a class="button primary" href="${esc(next.href)}">${esc(next.label)}</a>`
-    : `<p class="ready-note">${sandboxMissing && setup.agents.some((a) => a.id === 'claude' && a.signedIn) ? 'Install the sandbox tools to continue.' : 'Connect an account to continue.'}</p><span class="button primary is-disabled" aria-disabled="true">${esc(next.label)}</span>`;
-  return `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Welcome to the research workspace</title>
-<style>
-:root {
+// The look the setup and welcome screens share.
+const STYLE = `:root {
   --ink: #18333c; --ink-soft: #5d6d70; --paper: #f7f3e9; --paper-deep: #eee8da; --line: #c9c2b3;
   --rust: #ae4f32; --sea: #277177; --sea-dark: #164e54; --gold: #9a6f22;
   color-scheme: light;
@@ -131,7 +114,27 @@ button:disabled { opacity: 0.55; cursor: default; }
   .continue { flex-direction: column; align-items: stretch; }
   .continue .button { text-align: center; }
 }
-</style>
+`;
+
+// The whole page, drawn from a setup check. Next is where Continue leads: the
+// start screen on a first visit, or back to the project the human came from.
+export function setupPage({setup, signingIn = null, installing = null, installProblem = null, next = {label: 'Continue', href: '/welcome'}}) {
+  const sandbox = setup.dependencies.find((d) => d.id === 'sandbox');
+  const sandboxMissing = Boolean(sandbox && !sandbox.ok);
+  const connected = setup.agents.filter((a) => a.installed && a.signedIn && !a.outdated);
+  const rows = setup.agents.map((a) => accountRow(a, {signingIn, installing, sandboxMissing})).join('');
+  const others = setup.dependencies.map((d) => (d.id === 'sandbox' ? sandboxRow(d, installing) : browserRow(d))).join('');
+  const ready = setup.ready
+    ? `<p class="ready-note">${connected.length > 1 ? 'Both accounts can take on any job.' : `${esc(connected[0]?.account)} can take on every job.`} You can choose which does what, and with which model, later in Research settings.</p><a class="button primary" href="${esc(next.href)}">${esc(next.label)}</a>`
+    : `<p class="ready-note">${sandboxMissing && setup.agents.some((a) => a.id === 'claude' && a.signedIn) ? 'Install the sandbox tools to continue.' : 'Connect an account to continue.'}</p><span class="button primary is-disabled" aria-disabled="true">${esc(next.label)}</span>`;
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Welcome to the research workspace</title>
+<style>
+${STYLE}</style>
 </head>
 <body>
 <main class="setup">
@@ -184,6 +187,81 @@ document.addEventListener('click', async (event) => {
 // Coming back from a browser sign-in or a terminal, the page checks again.
 document.addEventListener('visibilitychange', () => { if (!document.hidden) location.reload(); });
 ${signingIn || installing ? `setInterval(async () => { const s = await (await fetch('/api/setup')).json(); if (!s.signingIn && !s.installing) location.reload(); }, 2000);` : ''}
+</script>
+</body>
+</html>`;
+}
+
+// Where Continue leads on a first visit: start a project, open one already made,
+// or look around the fictional sample first.
+/** @param {{projects?: {id: string, name: string}[]}} options */
+export function welcomePage({projects = []}) {
+  const rows = projects.map((p) => `<li class="row"><div class="row-text"><h3>${esc(p.name)}</h3></div><div class="row-action"><button type="button" data-open="${esc(p.id)}">Open</button></div></li>`).join('');
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Start researching</title>
+<style>
+${STYLE}
+.topic { display: grid; gap: 14px; margin: 0 0 44px; }
+.topic textarea { font: inherit; font-size: 17px; line-height: 1.5; color: var(--ink); background: #fffdf8; border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; resize: vertical; min-height: 84px; }
+.topic textarea:focus { outline: 2px solid var(--sea); outline-offset: 1px; border-color: var(--sea); }
+.topic .button { justify-self: end; padding: 11px 26px; font-size: 16px; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+</style>
+</head>
+<body>
+<main class="setup">
+<p class="eyebrow">Welcome</p>
+<h1>What would you like to research?</h1>
+<p class="lede">Name a person, a family or a question. Your coordinator plans the research with you from there.</p>
+<form class="topic" data-start>
+<label class="visually-hidden" for="topic">Your research topic</label>
+<textarea id="topic" name="topic" maxlength="300" required placeholder="For example, where my great-grandparents came from"></textarea>
+<button class="button primary">Start researching</button>
+</form>
+${rows ? `<section aria-labelledby="projects-heading"><h2 id="projects-heading">Your projects</h2><ul class="rows">${rows}</ul></section>` : ''}
+<section aria-labelledby="sample-heading">
+<h2 id="sample-heading">Or look around first</h2>
+<ul class="rows"><li class="row"><div class="row-text"><h3>Sample project</h3><p class="detail">Finished research on an invented family, with its sources, findings and a draft family graph to review. It uses nothing from your account until you write to it.</p></div><div class="row-action"><button type="button" data-sample>Open the sample</button></div></li></ul>
+</section>
+<p class="problem" data-problem hidden></p>
+<p class="recheck"><a href="/setup">Back to setup</a></p>
+</main>
+<script>
+const problem = document.querySelector('[data-problem]');
+const post = async (path, body) => {
+  const response = await fetch(path, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body || {})});
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || 'Something went wrong.');
+  return result;
+};
+// Opening a project starts its own service, which takes a moment.
+const go = async (control, path, body, busy) => {
+  const label = control.textContent;
+  control.disabled = true;
+  control.textContent = busy;
+  problem.hidden = true;
+  try {
+    location.href = (await post(path, body)).url;
+  } catch (error) {
+    control.disabled = false;
+    control.textContent = label;
+    problem.textContent = error.message;
+    problem.hidden = false;
+  }
+};
+document.querySelector('[data-start]').addEventListener('submit', (event) => {
+  event.preventDefault();
+  go(event.target.querySelector('button'), '/api/setup/start', {topic: event.target.topic.value}, 'Starting…');
+});
+document.addEventListener('click', (event) => {
+  const button = event.target.closest('button');
+  if (button?.dataset.open) go(button, '/api/setup/open', {id: button.dataset.open}, 'Opening…');
+  else if (button?.hasAttribute('data-sample')) go(button, '/api/setup/sample', {}, 'Opening…');
+});
 </script>
 </body>
 </html>`;

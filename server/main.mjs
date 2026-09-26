@@ -128,7 +128,17 @@ process.on("exit", () => helpers.stop());
 if (process.env.RESEARCH_COORDINATOR_AGENT === "prepare") {
   const prompt = coordinatorHost.prepare();
   writeFileSync(join(directory, "coordinator", "prepared.json"), JSON.stringify({ folder: coordinatorHost.folder, prompt }));
-} else if (process.env.RESEARCH_COORDINATOR_AGENT !== "0") coordinatorHost.start();
+} else if (process.env.RESEARCH_COORDINATOR_AGENT !== "0") {
+  // The sample project spends nothing until the visitor first sends something.
+  if (store.state.sample) coordinator.waiting = true;
+  else coordinatorHost.start();
+}
+// Starts the sample's coordinator on the visitor's first message to it.
+function startWaitingCoordinator() {
+  if (!coordinator.waiting) return;
+  coordinator.waiting = false;
+  coordinatorHost.start();
+}
 process.on("exit", () => coordinatorHost.stop());
 const token = randomBytes(32).toString("hex");
 const coordinatorToken = randomBytes(32).toString("hex");
@@ -291,6 +301,10 @@ const server = createServer(async (req, res) => {
         res.end(text);
       },
       body: () => body(req),
+      redirect: (location) => {
+        res.writeHead(302, { Location: location });
+        res.end();
+      },
     });
     if (handled !== false) return;
     if (url.pathname === "/api/coordinator" && req.method === "POST") {
@@ -369,6 +383,7 @@ const server = createServer(async (req, res) => {
       if (!workerCommands.has(command.type) && !userCommands.has(command.type))
         throw new Error("Unknown command.");
       const result = store.command(command);
+      if (!isWorker) startWaitingCoordinator();
       researchers.pump();
       return json(res, 200, { result, revision: store.state.revision });
     }

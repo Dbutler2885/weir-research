@@ -1,7 +1,7 @@
 # Slice 09: Setup screen
 
 **Type**: HITL
-**Status**: Not started
+**Status**: Done
 
 ## Blocked by
 
@@ -18,12 +18,12 @@ See **Setup**.
 
 ## Acceptance criteria
 
-- [ ] A machine with one CLI can complete setup
-- [ ] Sign-in status is correct for each CLI, and sign-in uses the provider's own flow
-- [ ] Missing Chrome or Linux packages are named with their install command
-- [ ] The app never reads, copies or stores credentials
-- [ ] Setup works on macOS and Linux
-- [ ] The human has reviewed and approved the screen's design
+- [x] A machine with one CLI can complete setup
+- [x] Sign-in status is correct for each CLI, and sign-in uses the provider's own flow
+- [x] Missing Chrome or Linux packages are named with their install command
+- [x] The app never reads, copies or stores credentials
+- [x] Setup works on macOS and Linux
+- [x] The human has reviewed and approved the screen's design
 
 ## User stories addressed
 

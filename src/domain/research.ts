@@ -208,6 +208,8 @@ export interface ResearchState {
     latest?: { at: string; text: string } | null;
     // Why the app's coordinator is not running, when it is not.
     problem?: string | null;
+    // The sample's coordinator, which starts when the human first writes to it.
+    waiting?: boolean;
     // How full its context is, and the size at which it compacts.
     context?: { tokens: number; threshold: number; compactions: number; compacting: boolean } | null;
     lastSeenSecondsAgo?: number | null;

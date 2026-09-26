@@ -114,6 +114,21 @@ export function createTopicProject(topic) {
   return created;
 }
 
+// The fictional sample project, built the first time a visitor opens it.
+export async function sampleProject() {
+  const registry = read(join(home, "projects.json"), []);
+  const known = registry.find((p) => p.sample);
+  if (known && existsSync(join(known.directory, "workspace.json"))) return known;
+  let id = "sample";
+  for (let number = 2; projects().some((p) => p.id === id) || existsSync(join(home, "projects", id)); number++) id = `sample-${number}`;
+  const directory = join(home, "projects", id);
+  const { buildSample } = await import("../server/sample-project.mjs");
+  buildSample(directory);
+  const created = { id, name: "Sample: the fictional Marrow family", directory, sample: true };
+  save(join(home, "projects.json"), [...registry.filter((p) => p !== known), created]);
+  return created;
+}
+
 function newest(path) {
   if (!existsSync(path)) return 0;
   return statSync(path).isDirectory()
