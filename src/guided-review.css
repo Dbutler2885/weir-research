@@ -82,3 +82,27 @@
 .research-table table { width: 100%; border-collapse: collapse; font-size: .95rem; line-height: 1.5; }
 .research-table th, .research-table td { padding: 8px 12px 8px 0; border-bottom: 1px solid #e4dccd; text-align: left; vertical-align: top; }
 .research-table th { border-bottom-color: #d4cbbc; font-weight: 650; white-space: nowrap; }
+/* The coordinator's suggested edits to a walkthrough, each in place, decided by the human. */
+.walkthrough-edits-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 12px 0; border-bottom: 1px solid #d4cbbc; font-size: .88rem; }
+.walkthrough-edits-bar > div { flex: 1; min-width: 220px; display: grid; gap: 2px; }
+.walkthrough-edits-bar strong { font-weight: 600; color: #18333c; }
+.walkthrough-edits-bar span { color: #53696d; }
+.walkthrough-edits-bar button { font-size: .86rem; padding: 7px 12px; }
+.walkthrough-edit { margin: 8px 0 16px; padding: 12px 14px; border-left: 3px solid #c8a44d; border-radius: 0 8px 8px 0; background: #fbf6e8; }
+.walkthrough-edit.is-accept { border-left-color: #277177; }
+.walkthrough-edit.is-decline { border-left-color: #9b9588; }
+.walkthrough-edit-label { margin: 0 0 6px; color: #53696d; font-size: .78rem; font-weight: 600; letter-spacing: .02em; }
+.walkthrough-edit-before { color: #793523; text-decoration: line-through; text-decoration-color: rgb(121 53 35 / 55%); }
+.walkthrough-edit-after { margin-top: 4px; background: rgb(39 113 119 / 9%); border-radius: 3px; box-shadow: 0 0 0 3px rgb(39 113 119 / 9%); }
+.walkthrough-edit.is-decline .walkthrough-edit-after { opacity: .55; }
+.walkthrough-edit.is-decline .walkthrough-edit-before { text-decoration: none; color: inherit; }
+.walkthrough-edit-before p, .walkthrough-edit-after p, .walkthrough-edit-earlier p { margin: 0 0 .5em; }
+.walkthrough-edit-before p:last-child, .walkthrough-edit-after p:last-child, .walkthrough-edit-earlier p:last-child { margin-bottom: 0; }
+.walkthrough-edit-earlier { margin-top: 8px; color: #53696d; font-size: .88rem; text-decoration: line-through; }
+.walkthrough-edit-earlier span { display: block; text-decoration: none; margin-bottom: 2px; }
+.walkthrough-edit-note { margin: 8px 0 0; color: #53696d; font-size: .86rem; }
+.walkthrough-edit-actions { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.walkthrough-edit-actions button { font-size: .84rem; padding: 5px 12px; }
+.walkthrough-edit-actions button[aria-pressed="true"] { background: #164e54; border-color: #164e54; color: #fff; }
+.walkthrough-edit-position { margin-left: auto; color: #53696d; font-size: .8rem; }
+.walkthrough-edit textarea { width: 100%; margin-top: 10px; padding: 8px 10px; border: 1px solid #c9c2b3; border-radius: 7px; font: inherit; font-size: .9rem; background: #fff; }

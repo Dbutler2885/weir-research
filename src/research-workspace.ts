@@ -625,6 +625,8 @@ export function mountResearchWorkspace(
     open?.();
   });
   notice.querySelector("[data-notice-dismiss]")!.addEventListener("click", hideNotice);
+  // When the coordinator last suggested edits to a batch's walkthrough, if it has.
+  const editsSuggested = (i?: Investigation) => i?.reviewFlow?.edits?.suggestedAt;
   function openActivity(batchId: string) {
     const flow = state.investigations.find((i) => i.id === batchId)?.reviewFlow;
     if (flow?.graphReviews.at(-1)?.status === "pending") openReview(batchId, "graph");
@@ -1209,7 +1211,8 @@ export function mountResearchWorkspace(
           return i.reviewFlow?.walkthroughs.at(-1)?.id !== prior?.reviewFlow?.walkthroughs.at(-1)?.id
             || i.reviewFlow?.graphReviews.at(-1)?.id !== prior?.reviewFlow?.graphReviews.at(-1)?.id
             || i.reviewFlow?.jobs.at(-1)?.status !== prior?.reviewFlow?.jobs.at(-1)?.status
-            || i.proposals.length !== prior?.proposals.length;
+            || i.proposals.length !== prior?.proposals.length
+            || editsSuggested(i) !== editsSuggested(prior);
         });
         const seen = new Set((previous.conversation || []).map((m) => m.id));
         const arrived = (state.conversation || []).filter((m) => m.author === "coordinator" && !seen.has(m.id));
@@ -1221,6 +1224,11 @@ export function mountResearchWorkspace(
         else if (changed && !noticeMessage && !(guidedReview && current?.id === changed.id)) {
           const job = changed.reviewFlow?.jobs.at(-1);
           const subject = investigationSubject(changed);
+          const edits = editsSuggested(changed) !== editsSuggested(previous.investigations.find((p) => p.id === changed.id)) ? changed.reviewFlow?.edits : undefined;
+          if (edits) {
+            showNotice("Walkthrough edits to review", `Batch ${changed.number} · ${edits.edits.length} ${edits.edits.length === 1 ? "edit" : "edits"} suggested by the coordinator`, "Review edits", () => openReview(changed.id, "reading"));
+            return;
+          }
           const [title, action] = changed.reviewFlow?.graphReviews.at(-1)?.status === "pending"
             ? ["A graph update is ready for review", "Open review"]
             : job?.status === "paused" ? ["Graph preparation paused", "Open review"]

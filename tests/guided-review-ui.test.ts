@@ -6,6 +6,7 @@ import {prepareResearch,emptyGraph,returnDraft,tourFor} from './fixtures/guided-
 import {transition} from '../src/domain/research';
 import {flowCommand} from '../server/review-flow.mjs';
 import {organize} from '../server/organization.mjs';
+import {walkthroughText} from '../src/domain/walkthrough-edits';
 let view: GuidedReview;
 // The review's content and decision are under test here, not the SVG graph renderer.
 vi.mock('../src/ui/graph-renderer',()=>({GraphRenderer:class{render(){} centerOn(){} focusRegion(){} fitAll(){} zoomBy(){} destroy(){}}}));
@@ -41,12 +42,56 @@ describe('guided reading',()=>{
  it('keeps the reader on their revision until they choose the corrected explanation',()=>{
   const f=fixture();f.click('[data-guided-next]');
   const old=f.store.state.investigations[0].reviewFlow.walkthroughs[0];
+  flowCommand(f.store,{action:'request-walkthrough',investigationId:f.research.investigationId},'human');
   flowCommand(f.store,{action:'publish-walkthrough',...f.research,basedOnWalkthroughId:old.id,walkthrough:{...f.research.walkthrough,title:'Corrected location',correction:'The town identification needs qualification.'},engine:'manual'});
   view.update(f.store.state,f.store.state.investigations[0]);
   expect(f.host.querySelector('h1')?.textContent).toBe('A town, but not a street');
   f.click('[data-guided-latest]');
   expect(f.host.querySelector('h1')?.textContent).toBe('Corrected location');
   expect(f.host.textContent).toContain('The town identification needs qualification.');
+ });
+});
+describe('suggested walkthrough edits',()=>{
+ it('shows each edit in place, takes Yes, No and a comment, and sends them as one review',async()=>{
+  const f=fixture();
+  const w=f.store.state.investigations[0].reviewFlow.walkthroughs[0];
+  const text=walkthroughText(w);
+  text.answer='Example Works stood in the fictional town, on a street no record names.';
+  text.steps[0]!.body=`${w.steps[0]!.body} The register gives no street.`;
+  flowCommand(f.store,{action:'suggest-walkthrough-edits',investigationId:f.research.investigationId,walkthrough:text});
+  view.update(f.store.state,f.store.state.investigations[0]);
+  const bar=()=>f.host.querySelector('.walkthrough-edits-bar')!.textContent;
+  expect(bar()).toContain('2 edits suggested by the coordinator');
+  const answer=()=>f.host.querySelector('[data-edit-id="answer"]')!;
+  expect(answer().querySelector('.walkthrough-edit-before')!.textContent).toBe(w.answer);
+  expect(answer().querySelector('.walkthrough-edit-after')!.textContent).toBe(text.answer);
+  expect(f.host.querySelector<HTMLButtonElement>('[data-guided-edits-send]')!.disabled).toBe(true);
+  f.click('[data-edit-id="answer"] [data-guided-edit="accept"]');
+  expect(answer().classList.contains('is-accept')).toBe(true);
+  expect(bar()).toContain('1 accepted, 1 to decide');
+  // The next edit is on the first step's page.
+  f.click('[data-guided-edits-next]');
+  expect(f.host.querySelector('h1')?.textContent).toBe(w.steps[0]!.title);
+  const step=`[data-edit-id="steps.${w.steps[0]!.id}.body"]`;
+  f.click(`${step} [data-guided-edit="comment"]`);
+  f.host.querySelector<HTMLTextAreaElement>(`${step} [data-edit-comment]`)!.value='Say which register.';
+  f.click(`${step} [data-guided-edit-comment-save]`);
+  expect(f.host.querySelector(step)!.textContent).toContain('Your comment, sent with your review: “Say which register.”');
+  expect(bar()).toContain('1 accepted, 1 with a comment');
+  // Choices survive the reader being opened again, until they are sent.
+  view.destroy();view=new GuidedReview(f.host,f.store.state,f.store.state.investigations[0],f.options);
+  expect(bar()).toContain('1 accepted, 1 with a comment');
+  f.options.command.mockImplementation(async(data:any)=>{flowCommand(f.store,data,'human');});
+  f.click('[data-guided-edits-send]');
+  await vi.waitFor(()=>expect(f.options.command).toHaveBeenCalled());
+  expect(f.options.command.mock.calls[0]![0]).toMatchObject({action:'review-walkthrough-edits',decisions:{answer:{decision:'accept'},[`steps.${w.steps[0]!.id}.body`]:{decision:'comment',comment:'Say which register.'}}});
+  // The page rebuilds the reader after a command; it goes on to the revision the review made.
+  view.destroy();view=new GuidedReview(f.host,f.store.state,f.store.state.investigations[0],f.options);
+  expect(f.host.querySelector('[data-guided-latest]')).toBeNull();
+  // The accepted edit is the new revision; the commented one stays open on it.
+  expect(f.store.state.investigations[0].reviewFlow.walkthroughs.at(-1).answer).toBe(text.answer);
+  expect(bar()).toContain('1 edit suggested by the coordinator');
+  expect(f.host.querySelector(step)!.textContent).toContain('You commented: “Say which register.”');
  });
 });
 describe('graph review',()=>{

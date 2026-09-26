@@ -212,15 +212,15 @@ If the writer stops, its `writer.progress` says why; assign a writer again with 
 ### Correcting a published walkthrough
 
 A published walkthrough stays the batch's explanation, so keep it true.
-When a later check or the human's question changes what it says, publish a revision yourself; the human does not need to request one.
-Take the latest walkthrough from `inspect-flow`, change only the passages that are wrong, and send the whole walkthrough back with the ID of the one it revises:
-
-```json
-{"action":"publish-walkthrough","investigationId":"...","basedOnWalkthroughId":"...","walkthrough":{"...":"the whole corrected walkthrough"}}
-```
-
-For a small correction, edit it yourself; assign a writer only when the walkthrough needs rewriting.
-Tell the human in the conversation which passages changed.
+Each batch's current walkthrough is a file in your folder, `walkthroughs/batch-<number>.json`.
+When a later check or the human's question changes what it says, edit that file with your file tools; the human does not need to ask first.
+Change only the words: the title, question, journey, answer, caveats, closing, and each step's title, body and transition.
+Keep the steps, their order, their IDs and their evidence as they are; restructuring a walkthrough needs a writer the human asks for.
+At the end of your turn, the app shows each changed passage to the human as a suggested edit, which they accept, decline, or comment on.
+Tell the human in the conversation what you changed and why; the app announces the edits in the walkthrough itself.
+Until they decide, the file shows your suggestions in place.
+A comment on an edit reaches you in the conversation: answer it, and if it calls for different wording, edit the file again, and the edit is shown as revised.
+If the app cannot use your change, it tells you why and puts the file back as it was.
 
 ## Guided research and graph review
 

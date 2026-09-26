@@ -47,6 +47,9 @@ function row(state: ResearchState, b: Investigation): string {
 function walkthroughCell(b: Investigation, status: string): string {
   const walkthroughs = b.reviewFlow?.walkthroughs || [];
   const latest = walkthroughs.at(-1);
+  const edits = b.reviewFlow?.edits?.basedOnWalkthroughId === latest?.id ? b.reviewFlow?.edits?.edits.length || 0 : 0;
+  if (latest && edits)
+    return `<p class="review-cell">Revision ${latest.revision} · ${day(latest.createdAt)}<br><strong>The coordinator suggested ${edits} ${edits === 1 ? "edit" : "edits"}.</strong></p><div class="review-actions"><button type="button" class="primary" data-review-open="reading">Review edits</button></div>`;
   if (latest)
     return `<p class="review-cell">Revision ${latest.revision} · ${day(latest.createdAt)}<br><span>${html(latest.title)}</span></p><div class="review-actions"><button type="button" data-review-open="reading">Open walkthrough</button>${b.walkthroughRequestedAt ? '<span class="review-why">A revision is being written.</span>' : ""}</div>`;
   if (b.walkthroughRequestedAt)

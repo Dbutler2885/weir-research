@@ -9,6 +9,7 @@ export interface WalkthroughStep {
   evidenceRefs: string[];
   transition: string;
 }
+import type { WalkthroughEdits } from './walkthrough-edits';
 export interface Walkthrough {
   id: string;
   revision: number;
@@ -103,6 +104,8 @@ export interface ReviewFlow {
   jobs: GraphJob[];
   graphReviews: GraphReview[];
   writer?: WalkthroughWriter;
+  // Edits the coordinator suggested to the latest walkthrough, awaiting the human.
+  edits?: WalkthroughEdits;
 }
 
 // A finished graph review ends a batch: no more graph work belongs to it.

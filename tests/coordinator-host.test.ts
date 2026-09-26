@@ -11,6 +11,8 @@ import { Coordinator } from "../server/coordinator.mjs";
 import { CoordinatorHost } from "../server/coordinator-host.mjs";
 import { AgentSupervisor } from "../server/agents/supervisor.mjs";
 import { LiveActivity } from "../server/live-activity.mjs";
+import { buildSample } from "../server/sample-project.mjs";
+import { walkthroughText } from "../src/domain/walkthrough-edits";
 
 const exec = promisify(execFile);
 const cleanups: (() => void)[] = [];
@@ -143,6 +145,52 @@ describe("the app's coordinator", () => {
     expect(host.start()).toBeNull();
     expect(f.coordinator.status()).toMatchObject({ connected: false, problem: expect.stringContaining("No agent CLI") });
   });
+});
+
+describe("the coordinator correcting a walkthrough", () => {
+  it("edits the batch's walkthrough file, which becomes suggested edits when its turn ends, and is told when an edit cannot be used", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "coordinator-edits-"));
+    cleanups.push(() => rmSync(directory, { recursive: true, force: true }));
+    const store: any = buildSample(directory);
+    const coordinator = new Coordinator(store);
+    const w = store.state.investigations[0].reviewFlow.walkthroughs[0];
+    const edited = { ...walkthroughText(w), closing: "We have both parents; where Thomas was born is still open." };
+    const broken = { ...walkthroughText(w), steps: [] };
+    const stepsFile = join(directory, "fake-steps.json");
+    process.env.FAKE_CLAUDE_STEPS = stepsFile;
+    process.env.FAKE_CLAUDE_RECORD = "1";
+    cleanups.push(() => {
+      delete process.env.FAKE_CLAUDE_STEPS;
+      delete process.env.FAKE_CLAUDE_RECORD;
+    });
+    // Its first turn edits the file as any agent edits a file.
+    writeFileSync(stepsFile, JSON.stringify([{ tool: "Edit", input: { file_path: "walkthroughs/batch-1.json" }, writes: { "walkthroughs/batch-1.json": JSON.stringify(edited) } }]));
+    const host = new CoordinatorHost({
+      store,
+      coordinator,
+      supervisor: new AgentSupervisor({ live: new LiveActivity(), stopGrace: 200 }),
+      directory,
+      root: resolve("."),
+      debounce: 20,
+      findExecutable: (name: string) => (name === "claude" ? resolve("tests/fixtures/fake-claude.mjs") : null),
+      handle: (data: any) => coordinator.command(data),
+    });
+    cleanups.push(() => host.stop());
+    host.start();
+    const file = join(host.folder!, "walkthroughs", "batch-1.json");
+    expect(JSON.parse(readFileSync(file, "utf8")).closing).toBe(w.closing);
+    await until(() => store.state.investigations[0].reviewFlow.edits);
+    expect(store.state.investigations[0].reviewFlow.edits.edits).toEqual([expect.objectContaining({ id: "closing", before: w.closing, after: edited.closing })]);
+    // The file shows the suggestion in place until the human decides.
+    expect(JSON.parse(readFileSync(file, "utf8")).closing).toBe(edited.closing);
+    // A change the app cannot use is refused, and the file goes back as it was.
+    writeFileSync(stepsFile, JSON.stringify([{ tool: "Edit", input: { file_path: "walkthroughs/batch-1.json" }, writes: { "walkthroughs/batch-1.json": JSON.stringify(broken) } }]));
+    host.tell("Tidy the walkthrough.");
+    const received = () => (existsSync(join(host.folder!, "received.jsonl")) ? readFileSync(join(host.folder!, "received.jsonl"), "utf8") : "");
+    await until(() => received().includes("was not used") && JSON.parse(readFileSync(file, "utf8")).steps.length === w.steps.length, 800);
+    expect(received()).toContain("Your change to walkthroughs/batch-1.json was not used: Keep the steps as they are");
+    expect(store.state.investigations[0].reviewFlow.edits.edits).toHaveLength(1);
+  }, 20_000);
 });
 
 describe("the coordinator in the live panel", () => {

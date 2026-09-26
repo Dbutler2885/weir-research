@@ -204,8 +204,9 @@ describe('guided research flow',()=>{
     expect(f.job().status).toBe('queued');
     expect(f.job().submissions).toHaveLength(1);
     expect(()=>f.command('publish-graph-review',{tour:tourFor()})).toThrow('completed');
-    // Correcting a published walkthrough needs no request; the refusal says what to send.
-    expect(()=>f.command('publish-walkthrough',{walkthrough:{...f.walkthrough,correction:'The answer has been qualified.'}})).toThrow(`send the whole corrected walkthrough with basedOnWalkthroughId "${f.walkthroughId}"`);
+    // A published walkthrough is corrected through its file; only a requested rewrite replaces it.
+    expect(()=>f.command('publish-walkthrough',{walkthrough:{...f.walkthrough,correction:'The answer has been qualified.'},basedOnWalkthroughId:f.walkthroughId})).toThrow(/edit walkthroughs\/batch-.*\.json/);
+    f.command('request-walkthrough',{},'human');
     f.command('publish-walkthrough',{walkthrough:{...f.walkthrough,correction:'The answer has been qualified.'},basedOnWalkthroughId:f.walkthroughId});
     expect(f.store.state.investigations[0].reviewFlow.walkthroughs).toHaveLength(2);
     // Walkthroughs and graph updates are independent; a revision does not discard graph work.

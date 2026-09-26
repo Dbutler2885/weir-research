@@ -4,6 +4,8 @@ import { randomUUID } from 'node:crypto';
 import { executableOnPath } from './researchers.mjs';
 import { fileDescriber } from './live-activity.mjs';
 import { placeSkills } from './agents/isolation.mjs';
+import { flowCommand } from './review-flow.mjs';
+import { applyEdits } from '../src/domain/walkthrough-edits.ts';
 
 const SKILLS = ['coordinate-research', 'research-contract', 'prepare-research-graph'];
 const coordinatorFiles = {
@@ -61,6 +63,7 @@ export class CoordinatorHost {
     agent.on('action', (text) => this.coordinator.noteText(text));
     agent.on('turn', () => {
       this.since = null;
+      this.syncWalkthroughs(true);
       this.flush();
     });
     agent.on('paused', ({reason}) => this.coordinator.noteText(reason));
@@ -110,6 +113,8 @@ export class CoordinatorHost {
     const snapshot = this.coordinator.snapshot(this.secret);
     this.cursor = snapshot.revision;
     this.folder = folder;
+    this.written = {};
+    this.syncWalkthroughs(false);
     this.watcher = watch(join(folder, 'requests'), () => this.mailbox());
     // The regular sweep still reads the mailbox if watching the folder fails.
     this.watcher.on('error', () => {});
@@ -174,9 +179,52 @@ export class CoordinatorHost {
     clearTimeout(this.timer);
     this.timer = setTimeout(() => this.flush(), this.debounce);
   }
+  // Each batch's walkthrough as a file in the coordinator's folder, with its suggested
+  // edits in place, so it corrects one by editing the file. At the end of its turn the
+  // app reads what it changed as suggested edits; a file it is still editing mid-turn
+  // is left alone, and the others follow the project.
+  walkthroughFiles() {
+    return this.store.state.investigations.filter(i => i.number && i.reviewFlow?.walkthroughs.length).map(i => {
+      const latest = i.reviewFlow.walkthroughs.at(-1);
+      const edits = i.reviewFlow.edits?.basedOnWalkthroughId === latest.id ? i.reviewFlow.edits.edits : [];
+      return {i, file: join(this.folder, 'walkthroughs', `batch-${i.number}.json`), text: `${JSON.stringify(applyEdits(latest, edits), null, 2)}\n`};
+    });
+  }
+  syncWalkthroughs(consume) {
+    if (!this.folder) return;
+    const read = (file) => {
+      try {
+        return readFileSync(file, 'utf8');
+      } catch {
+        return null;
+      }
+    };
+    const touched = new Set();
+    for (const {i, file} of this.walkthroughFiles()) {
+      const disk = read(file);
+      if (disk === null || this.written[file] === undefined || disk === this.written[file]) continue;
+      touched.add(file);
+      if (!consume) continue;
+      try {
+        const before = this.store.state.revision;
+        flowCommand(this.store, {action: 'suggest-walkthrough-edits', investigationId: i.id, walkthrough: JSON.parse(disk)});
+        // The coordinator knows what its own edit changed.
+        if (this.cursor === before) this.cursor = this.store.state.revision;
+      } catch (error) {
+        this.tell(`Your change to walkthroughs/batch-${i.number}.json was not used: ${error.message} The file is back as it was.`);
+      }
+    }
+    mkdirSync(join(this.folder, 'walkthroughs'), {recursive: true});
+    for (const {file, text} of this.walkthroughFiles()) {
+      if (touched.has(file) && !consume) continue;
+      if (read(file) !== text) writeFileSync(file, text);
+      this.written[file] = text;
+    }
+  }
   // Every change the coordinator has not yet been told about, as one message.
   flush() {
     if (!this.agent || this.agent.finishing) return;
+    this.syncWalkthroughs(false);
     const delta = this.coordinator.delta(this.secret, this.cursor);
     this.cursor = delta.revision;
     if (delta.unchanged) return;

@@ -3,6 +3,7 @@ import { sourceLibrary } from '../src/domain/findings.ts';
 import { acceptDraft, citedResearch } from '../src/domain/graph-delivery.ts';
 import { graphBlocker, graphWorkFinished, validateDraftTour, feedbackAwaitingDraft } from '../src/domain/review-flow.ts';
 import { choose } from '../src/domain/dispatch.ts';
+import { applyEdits, editsBetween } from '../src/domain/walkthrough-edits.ts';
 
 const fail = (ok, message) => { if (!ok) throw new Error(message); };
 const text = value => typeof value === 'string' && value.trim() && value.length <= 100_000;
@@ -59,7 +60,7 @@ export function flowCommand(store, command, actor = 'coordinator') {
   const i = store.state.investigations.find(i => i.id === command.investigationId);
   fail(i, 'Unknown investigation.');
   const action = command.action;
-  const humanActions = ['request-walkthrough', 'request-graph', 'graph-job-pause', 'graph-job-resume', 'graph-resume-decision', 'graph-accept', 'graph-set-aside'];
+  const humanActions = ['request-walkthrough', 'review-walkthrough-edits', 'request-graph', 'graph-job-pause', 'graph-job-resume', 'graph-resume-decision', 'graph-accept', 'graph-set-aside'];
   fail(actor === 'coordinator' ? !humanActions.includes(action) : humanActions.includes(action), 'This action belongs to the other review role.');
   if (action === 'inspect-flow') return structuredClone(i.reviewFlow || {walkthroughs: [], jobs: [], graphReviews: []});
   if (action === 'assign-walkthrough') {
@@ -77,6 +78,65 @@ export function flowCommand(store, command, actor = 'coordinator') {
     });
     return {writerId: id};
   }
+  // The coordinator's changes to a walkthrough's file, read by the app at the end of
+  // its turn, become suggested edits for the human. A comment the coordinator has
+  // answered by changing its suggestion keeps what it suggested before.
+  if (action === 'suggest-walkthrough-edits') {
+    const latest = i.reviewFlow?.walkthroughs.at(-1);
+    fail(latest, 'This batch has no walkthrough to edit.');
+    const found = editsBetween(latest, command.walkthrough);
+    validateWalkthrough(i, {...latest, ...applyEdits(latest, found)});
+    const previous = new Map((i.reviewFlow.edits?.edits || []).map(e => [e.id, e]));
+    const edits = found.map(e => {
+      const was = previous.get(e.id);
+      if (!was) return e;
+      if (was.after === e.after) return {...e, ...(was.comment ? {comment: was.comment} : {}), ...(was.earlier ? {earlier: was.earlier} : {})};
+      return {...e, ...(was.comment ? {earlier: was.after} : {})};
+    });
+    const unchanged = JSON.stringify(edits) === JSON.stringify(i.reviewFlow.edits?.edits || []);
+    if (unchanged) return {edits: edits.length};
+    store.update(next => {
+      const flow = flowFor(next.investigations.find(x => x.id === i.id));
+      if (edits.length) flow.edits = {basedOnWalkthroughId: latest.id, suggestedAt: new Date().toISOString(), edits};
+      else delete flow.edits;
+      next.investigations.find(x => x.id === i.id).events.push({at: new Date().toISOString(), message: edits.length ? `Coordinator suggested ${edits.length} ${edits.length === 1 ? 'edit' : 'edits'} to the walkthrough.` : 'Coordinator withdrew its suggested walkthrough edits.'});
+    });
+    return {edits: edits.length};
+  }
+  // The human's review of the suggested edits, sent at once: accepted edits make the next
+  // revision, declined ones go, and comments go to the coordinator with their edits kept open.
+  if (action === 'review-walkthrough-edits') {
+    const pending = i.reviewFlow?.edits;
+    fail(pending, 'There are no suggested edits to review.');
+    const latest = i.reviewFlow.walkthroughs.at(-1);
+    fail(pending.basedOnWalkthroughId === latest.id, 'The walkthrough changed since these edits were suggested.');
+    const decisions = command.decisions || {};
+    const decided = (e, d) => decisions[e.id]?.decision === d;
+    const accepted = pending.edits.filter(e => decided(e, 'accept'));
+    const comments = pending.edits.filter(e => decided(e, 'comment') && text(decisions[e.id].comment));
+    const open = pending.edits.filter(e => !decided(e, 'accept') && !decided(e, 'decline'));
+    fail(accepted.length || comments.length || pending.edits.some(e => decided(e, 'decline')), 'Decide at least one edit before sending your review.');
+    const at = new Date().toISOString();
+    let walkthroughId;
+    store.update(next => {
+      const investigation = next.investigations.find(x => x.id === i.id), flow = flowFor(investigation);
+      if (accepted.length) {
+        walkthroughId = randomUUID();
+        flow.walkthroughs.push({...structuredClone(latest), ...applyEdits(latest, accepted), id: walkthroughId, createdAt: at, revision: flow.walkthroughs.length + 1});
+      }
+      const kept = open.map(e => comments.includes(e) ? {...e, comment: decisions[e.id].comment.trim()} : e);
+      if (kept.length) flow.edits = {...pending, basedOnWalkthroughId: walkthroughId || latest.id, edits: kept};
+      else delete flow.edits;
+      const count = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+      const declined = pending.edits.length - accepted.length - open.length;
+      investigation.events.push({at, message: `You reviewed the walkthrough edits: ${[accepted.length ? `${count(accepted.length, 'edit', 'edits')} accepted${walkthroughId ? ` as revision ${flow.walkthroughs.length}` : ''}` : '', declined ? `${declined} declined` : '', comments.length ? count(comments.length, 'comment', 'comments') + ' sent' : ''].filter(Boolean).join(', ')}.`});
+    });
+    if (comments.length) {
+      const quote = s => { const t = s.replace(/\s+/g, ' ').trim(); return t.length > 160 ? `${t.slice(0, 157)}...` : t; };
+      store.command({type: 'send', text: `Comments on your suggested edits to batch ${i.number}'s walkthrough:\n\n${comments.map(e => `On "${quote(e.after || e.before)}" (${e.where}): ${decisions[e.id].comment.trim()}`).join('\n\n')}`});
+    }
+    return {walkthroughId: walkthroughId ?? null, open: open.length};
+  }
   if (action === 'publish-walkthrough') {
     // Without a walkthrough, the draft the writer handed in is published as it stands.
     const writer = i.reviewFlow?.writer;
@@ -84,14 +144,16 @@ export function flowCommand(store, command, actor = 'coordinator') {
     validateWalkthrough(i, command.walkthrough);
     fail(i.status !== 'paused', 'The investigation is paused. Request human approval before continuing.');
     const prior = i.reviewFlow?.walkthroughs.at(-1);
-    // A published walkthrough is corrected by a revision of it; no request from the human is needed.
-    fail(!prior || command.basedOnWalkthroughId === prior.id, prior && command.basedOnWalkthroughId
-      ? `A newer walkthrough exists (${prior.id}). Inspect it before revising.`
-      : `This batch already has a walkthrough (${prior?.id}). To correct it, send the whole corrected walkthrough with basedOnWalkthroughId "${prior?.id}".`);
+    // A published walkthrough is corrected through its file, where the human reviews each
+    // edit; only a walkthrough the human asked to have rewritten replaces it outright.
+    fail(!prior || i.walkthroughRequestedAt, `Batch ${i.number} already has a walkthrough. To correct it, edit walkthroughs/batch-${i.number}.json in your folder; the human reviews each change.`);
+    fail(!prior || command.basedOnWalkthroughId === prior.id, 'A newer walkthrough exists. Inspect it before revising.');
     const id = randomUUID(), at = new Date().toISOString();
     store.update(next => {
       const investigation = next.investigations.find(x => x.id === i.id), flow = flowFor(investigation);
       flow.walkthroughs.push({...structuredClone(command.walkthrough), id, createdAt: at, revision: flow.walkthroughs.length + 1});
+      // A rewritten walkthrough replaces any edits suggested to the one before.
+      delete flow.edits;
       delete investigation.walkthroughRequestedAt;
       if (flow.writer && flow.writer.status !== 'running') { flow.writer.status = 'published'; delete flow.writer.draft; }
       investigation.events.push({at, message: `Walkthrough revision ${flow.walkthroughs.length} published.`});

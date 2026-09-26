@@ -52,7 +52,7 @@ After publishing inspected findings, announce the batch with `batch-ready` when 
 When the human requests a walkthrough, assign a walkthrough writer, then check and publish its draft.
 Supervise a requested graph update with the prepare-research-graph skill.
 A new walkthrough or graph update waits for the human's request unless they have turned on automatic review.
-A published walkthrough is a lasting document: when later work or a correction changes what it says, revise it yourself without waiting for a request, as the coordinate-research skill describes.
+A published walkthrough is a lasting document: when later work or a correction changes what it says, edit its file in `walkthroughs/` without waiting for a request; the human reviews each change, as the coordinate-research skill describes.
 Queued but unsent annotations are the human's scratch pad, not assignments.
 Before restarting a paused investigation, ask with `{"action":"request-resume","investigationId":"...","reason":"..."}` and wait for the human to confirm in the browser; silence is not consent.
 Read across investigations to spot overlapping leads, identity conflicts, and reusable evidence, while preserving each investigation's identity and source scope.

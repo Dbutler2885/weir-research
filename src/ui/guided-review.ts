@@ -12,8 +12,9 @@ import { GraphRenderer } from './graph-renderer';
 import { renderDetailsPanel, renderContextDetailsPanel } from './details-panel';
 
 import {researchText as paragraphs, researchInline} from './research-text';
+import { editPage, type EditDecision, type WalkthroughEdit } from '../domain/walkthrough-edits';
 
-interface Progress { walkthroughId?: string; stage: 'reading' | 'graph'; step: number; graphReviewId?: string; stop: number; changes?: boolean }
+interface Progress { walkthroughId?: string; stage: 'reading' | 'graph'; step: number; graphReviewId?: string; stop: number; changes?: boolean; followLatest?: boolean }
 interface Options {
   command: (data: Record<string, unknown>) => Promise<void>;
   source: (id: string, quote?: string) => void;
@@ -57,13 +58,19 @@ export class GuidedReview {
   private progress: Progress;
   private key: string;
   private disposed = false;
+  // The human's choices on the coordinator's suggested edits, kept until they send them.
+  private decisions: Record<string, EditDecision> = {};
+  private commenting?: string;
+  private shownEdits = '';
   constructor(private host: HTMLElement, private state: ResearchState, private investigation: Investigation, private options: Options) {
     this.key = `guided-review:${location.origin}:${investigation.id}`;
     let saved;
     try { saved = JSON.parse(localStorage.getItem(this.key) || 'null'); } catch { /* Start at the briefing. */ }
     const flow = investigation.reviewFlow!;
     this.progress = saved || {walkthroughId: flow.walkthroughs.at(-1)?.id, stage: 'reading', step: 0, stop: -1};
-    if (!flow.walkthroughs.some(w => w.id === this.progress.walkthroughId)) this.progress.walkthroughId = flow.walkthroughs.at(-1)?.id;
+    // A reader who just sent a review of edits goes on to the revision it made.
+    if (this.progress.followLatest || !flow.walkthroughs.some(w => w.id === this.progress.walkthroughId)) this.progress.walkthroughId = flow.walkthroughs.at(-1)?.id;
+    delete this.progress.followLatest;
     if (options.start === 'graph' || !this.progress.walkthroughId) {
       const latest = flow.graphReviews.at(-1);
       if (this.progress.graphReviewId !== latest?.id) this.progress.stop = -1;
@@ -72,12 +79,67 @@ export class GuidedReview {
     } else if (options.start === 'reading') this.progress.stage = 'reading';
     host.addEventListener('click', this.click);
     host.addEventListener('change', this.change);
+    this.loadDecisions();
     this.render();
   }
   destroy() { this.disposed = true; this.generation++; this.renderer?.destroy(); this.host.removeEventListener('click', this.click); this.host.removeEventListener('change', this.change); }
   update(state: ResearchState, investigation: Investigation) {
+    const latest = this.investigation.reviewFlow!.walkthroughs.at(-1)?.id;
     this.state = state; this.investigation = investigation;
+    // New or revised edits, or a revision made from them, show at once.
+    if (JSON.stringify(investigation.reviewFlow?.edits || null) !== this.shownEdits) {
+      if (this.progress.walkthroughId === latest) this.progress.walkthroughId = investigation.reviewFlow!.walkthroughs.at(-1)?.id;
+      this.loadDecisions();
+      if (this.progress.stage === 'reading') { this.render(); return; }
+    }
     this.renderStatus();
+  }
+  // Suggested edits apply to the latest walkthrough, and show while it is open.
+  private edits(): WalkthroughEdit[] {
+    const pending = this.investigation.reviewFlow?.edits;
+    return pending && pending.basedOnWalkthroughId === this.progress.walkthroughId ? pending.edits : [];
+  }
+  private decisionsKey() { return `${this.key}:edits:${this.investigation.reviewFlow?.edits?.suggestedAt || ''}`; }
+  private loadDecisions() {
+    this.shownEdits = JSON.stringify(this.investigation.reviewFlow?.edits || null);
+    const ids = new Set(this.investigation.reviewFlow?.edits?.edits.map(e => e.id) || []);
+    try { this.decisions = JSON.parse(localStorage.getItem(this.decisionsKey()) || '{}'); } catch { this.decisions = {}; }
+    for (const id of Object.keys(this.decisions)) if (!ids.has(id)) delete this.decisions[id];
+  }
+  private saveDecisions() {
+    try { localStorage.setItem(this.decisionsKey(), JSON.stringify(this.decisions)); } catch { /* Choices are kept for this page only. */ }
+  }
+  // A passage, or in its place the coordinator's suggested edit to it.
+  private passage(id: string, shown: string): string {
+    const e = this.edits().find(e => e.id === id);
+    return e ? this.editBlock(e) : shown;
+  }
+  private editBlock(e: WalkthroughEdit): string {
+    const d = this.decisions[e.id];
+    const pressed = (kind: EditDecision['decision']) => d?.decision === kind ? 'aria-pressed="true"' : 'aria-pressed="false"';
+    const writing = this.commenting === e.id;
+    const controls = writing
+      ? `<textarea data-edit-comment rows="3" placeholder="Your note to the coordinator about this passage…">${html(d?.comment || '')}</textarea><div class="walkthrough-edit-actions"><button class="primary" data-guided-edit-comment-save>Save comment</button><button data-guided-edit-comment-cancel>Cancel</button></div>`
+      : `<div class="walkthrough-edit-actions"><button data-guided-edit="accept" ${pressed('accept')}>Yes</button><button data-guided-edit="decline" ${pressed('decline')}>No</button><button data-guided-edit="comment" ${pressed('comment')}>Comment</button><span class="walkthrough-edit-position">Edit ${this.edits().indexOf(e) + 1} of ${this.edits().length}</span></div>${d?.decision === 'comment' && d.comment ? `<p class="walkthrough-edit-note">Your comment, sent with your review: “${html(d.comment)}”</p>` : ''}`;
+    return `<div class="walkthrough-edit${d ? ` is-${d.decision}` : ''}" data-edit-id="${html(e.id)}">
+      <p class="walkthrough-edit-label">Suggested edit${e.earlier ? ', revised after your comment' : ''}</p>
+      ${e.before ? `<div class="walkthrough-edit-before">${paragraphs(e.before)}</div>` : ''}
+      ${e.after ? `<div class="walkthrough-edit-after">${paragraphs(e.after)}</div>` : '<p class="walkthrough-edit-note">Removes this passage.</p>'}
+      ${e.earlier ? `<div class="walkthrough-edit-earlier"><span>It suggested before:</span>${paragraphs(e.earlier)}</div>` : ''}
+      ${e.comment && !e.earlier ? `<p class="walkthrough-edit-note">You commented: “${html(e.comment)}”</p>` : ''}
+      ${controls}
+    </div>`;
+  }
+  // How far the human's review has got, with the way to send it.
+  private editsBar(): string {
+    const edits = this.edits();
+    if (!edits.length) return '';
+    const count = (kind: EditDecision['decision']) => edits.filter(e => this.decisions[e.id]?.decision === kind).length;
+    const decided = edits.filter(e => this.decisions[e.id]).length;
+    const summary = decided
+      ? [count('accept') ? `${count('accept')} accepted` : '', count('decline') ? `${count('decline')} declined` : '', count('comment') ? `${count('comment')} with a comment` : '', decided < edits.length ? `${edits.length - decided} to decide` : ''].filter(Boolean).join(', ')
+      : 'Decide each one where it appears, then send your review.';
+    return `<div class="walkthrough-edits-bar"><div><strong>${edits.length} ${edits.length === 1 ? 'edit' : 'edits'} suggested by the coordinator</strong><span>${html(summary)}</span></div><button data-guided-edits-next>${decided < edits.length ? 'Next edit' : 'Show edits'}</button>${decided < edits.length ? '<button data-guided-edits-accept-all>Accept the rest</button>' : ''}<button class="primary" data-guided-edits-send ${decided ? '' : 'disabled'}>Send review</button></div>`;
   }
   private save() { localStorage.setItem(this.key, JSON.stringify(this.progress)); }
   private walkthrough(): Walkthrough | undefined { return this.investigation.reviewFlow!.walkthroughs.find(w => w.id === this.progress.walkthroughId); }
@@ -94,7 +156,7 @@ export class GuidedReview {
     const job = this.job(), review = this.review(), latest = this.investigation.reviewFlow!.walkthroughs.at(-1);
     // A batch whose graph review is finished takes no further graph work.
     const finished = graphWorkFinished(this.investigation);
-    status.innerHTML = `${latest && latest.id !== this.progress.walkthroughId ? `<div class="walkthrough-update">An updated explanation is ready. Your reading position is saved. <button data-guided-latest>Read the update</button></div>` : ''}
+    status.innerHTML = `${this.progress.stage === 'reading' ? this.editsBar() : ''}${latest && latest.id !== this.progress.walkthroughId ? `<div class="walkthrough-update">An updated explanation is ready. Your reading position is saved. <button data-guided-latest>Read the update</button></div>` : ''}
       <div class="guided-activity"><span>${html(review ? review.status === 'pending' ? this.pendingLine(review, job) : review.status === 'undone' ? 'This batch\'s accepted draft was undone.' : 'This batch\'s graph review is complete.' : job ? progressLine(job.progress) : 'No graph update has been requested for this batch.')}</span>
       ${review && this.progress.stage !== 'graph' ? '<button data-guided-graph>Explore the graph</button>' : ''}
       ${job && ['running','queued'].includes(job.status) ? '<button class="text-action" data-guided-pause>Pause graph preparation</button>' : ''}
@@ -113,20 +175,22 @@ export class GuidedReview {
     const index = Math.max(0, Math.min(w.steps.length + 1, this.progress.step));
     let body;
     if (index === 0) {
-      body = `<div class="guided-question" ${target(this.reference('Your research question', 'opening'))}><span class="eyebrow">You asked</span>${paragraphs(w.question)}</div><h1>${html(w.title)}</h1>
-      ${w.correction ? `<div class="walkthrough-correction" ${target(this.reference('What changed', 'opening'))}><h2>What changed</h2>${paragraphs(w.correction)}</div>` : ''}
-      <section ${target(this.reference('How we investigated', 'opening'))}><h2>How we got here</h2>${paragraphs(w.journey)}</section>
-      <section ${target(this.reference('What we found', 'opening'))}><h2>What we found</h2>${paragraphs(w.answer)}</section>
-      ${w.caveats.length ? `<section ${target(this.reference('What remains open', 'opening'))}><h2>What remains open</h2><ul>${w.caveats.map(c => `<li>${researchInline(c)}</li>`).join('')}</ul></section>` : ''}
+      const added = this.edits().filter(e => e.id.startsWith('caveats.') && Number(e.id.slice(8)) >= w.caveats.length);
+      body = `<div class="guided-question" ${target(this.reference('Your research question', 'opening'))}><span class="eyebrow">You asked</span>${this.passage('question', paragraphs(w.question))}</div>${this.passage('title', `<h1>${html(w.title)}</h1>`)}
+      ${w.correction ? `<div class="walkthrough-correction" ${target(this.reference('What changed', 'opening'))}><h2>What changed</h2>${this.passage('correction', paragraphs(w.correction))}</div>` : ''}
+      <section ${target(this.reference('How we investigated', 'opening'))}><h2>How we got here</h2>${this.passage('journey', paragraphs(w.journey))}</section>
+      <section ${target(this.reference('What we found', 'opening'))}><h2>What we found</h2>${this.passage('answer', paragraphs(w.answer))}</section>
+      ${w.caveats.length || added.length ? `<section ${target(this.reference('What remains open', 'opening'))}><h2>What remains open</h2><ul>${w.caveats.map((c, n) => `<li>${this.passage(`caveats.${n}`, researchInline(c))}</li>`).join('')}${added.map(e => `<li>${this.editBlock(e)}</li>`).join('')}</ul></section>` : ''}
       <div class="guided-next"><p>We’ll walk through the evidence in ${w.steps.length} connected ${w.steps.length === 1 ? 'step' : 'steps'}. You can inspect sources and annotate anything along the way.</p><button class="primary" data-guided-next>Begin evidentiary review</button></div>`;
     } else if (index <= w.steps.length) {
       const step = w.steps[index - 1]!;
-      body = `<div class="guided-step-position">Evidence ${index} of ${w.steps.length}</div><section ${target(this.reference(step.title, step.id))}><h1>${html(step.title)}</h1>${paragraphs(step.body)}</section>
+      const id = (key: string) => `steps.${step.id}.${key}`;
+      body = `<div class="guided-step-position">Evidence ${index} of ${w.steps.length}</div><section ${target(this.reference(step.title, step.id))}>${this.passage(id('title'), `<h1>${html(step.title)}</h1>`)}${this.passage(id('body'), paragraphs(step.body))}</section>
       <div class="guided-evidence">${step.evidenceRefs.map(ref => this.evidence(ref, step.id)).join('')}</div>
-      <div class="guided-next" ${target(this.reference('Where this leads', step.id))}>${paragraphs(step.transition)}</div>
+      <div class="guided-next" ${target(this.reference('Where this leads', step.id))}>${this.passage(id('transition'), paragraphs(step.transition))}</div>
       <nav class="guided-navigation"><button data-guided-back>Back</button><button class="primary" data-guided-next>Continue</button><span>${index === w.steps.length ? 'Bringing it together' : html(w.steps[index]?.title)}</span></nav>`;
     } else {
-      body = `<span class="eyebrow">Bringing it together</span><section ${target(this.reference('Research conclusion', 'closing'))}><h1>What we can build on</h1>${paragraphs(w.closing)}</section><nav class="guided-navigation"><button data-guided-back>Back</button><div data-guided-ending-destination></div></nav>`;
+      body = `<span class="eyebrow">Bringing it together</span><section ${target(this.reference('Research conclusion', 'closing'))}><h1>What we can build on</h1>${this.passage('closing', paragraphs(w.closing))}</section><nav class="guided-navigation"><button data-guided-back>Back</button><div data-guided-ending-destination></div></nav>`;
     }
     this.host.querySelector('[data-guided-body]')!.innerHTML = `<article class="guided-reading">${body}<details class="guided-originals"><summary>Research reports and walkthrough history</summary><p>The researchers’ original findings and evidence remain here alongside the coordinator’s explanation.</p>${w.proposalIds.map(id => {
       const p = this.investigation.proposals.find(p => p.id === id)!;
@@ -227,6 +291,56 @@ export class GuidedReview {
       window.requestAnimationFrame(() => { if (!this.disposed && generation === this.generation) this.renderer?.focusRegion(focusIds, focusEdges); });
     }
   }
+  private editElement(id: string) { return [...this.host.querySelectorAll<HTMLElement>('[data-edit-id]')].find(e => e.dataset.editId === id); }
+  // Yes, No and Comment on one edit, and the review as a whole.
+  private editClick(b: HTMLElement): boolean {
+    const id = b.closest<HTMLElement>('[data-edit-id]')?.dataset.editId;
+    const edits = this.edits();
+    if (id && b.dataset.guidedEdit) {
+      const kind = b.dataset.guidedEdit as EditDecision['decision'];
+      if (kind === 'comment') this.commenting = id;
+      else if (this.decisions[id]?.decision === kind) delete this.decisions[id];
+      else this.decisions[id] = {decision: kind};
+    } else if (id && b.hasAttribute('data-guided-edit-comment-save')) {
+      const comment = b.closest('[data-edit-id]')!.querySelector<HTMLTextAreaElement>('[data-edit-comment]')!.value.trim();
+      if (comment) this.decisions[id] = {decision: 'comment', comment};
+      else if (this.decisions[id]?.decision === 'comment') delete this.decisions[id];
+      this.commenting = undefined;
+    } else if (id && b.hasAttribute('data-guided-edit-comment-cancel')) {
+      this.commenting = undefined;
+    } else if (b.hasAttribute('data-guided-edits-accept-all')) {
+      for (const e of edits) this.decisions[e.id] ||= {decision: 'accept'};
+    } else if (b.hasAttribute('data-guided-edits-next')) {
+      const w = this.walkthrough()!;
+      const open = edits.filter(e => !this.decisions[e.id]);
+      const pool = open.length ? open : edits;
+      const here = this.host.querySelector<HTMLElement>('.walkthrough-edit');
+      const after = pool.find(e => editPage(w, e.id) > this.progress.step) || pool.find(e => e.id !== here?.dataset.editId) || pool[0]!;
+      this.progress.step = editPage(w, after.id);
+      this.render();
+      this.editElement(after.id)?.scrollIntoView({block: 'center'});
+      return true;
+    } else if (b.hasAttribute('data-guided-edits-send')) {
+      b.setAttribute('disabled', '');
+      const decisions = this.decisions;
+      this.progress.followLatest = true;
+      this.save();
+      void this.options.command({action: 'review-walkthrough-edits', investigationId: this.investigation.id, decisions})
+        .then(() => { try { localStorage.removeItem(this.decisionsKey()); } catch { /* Nothing kept. */ } })
+        .catch(error => { b.removeAttribute('disabled'); delete this.progress.followLatest; this.save(); this.options.error(error.message); });
+      return true;
+    } else return false;
+    this.saveDecisions();
+    // Only the edit and the bar change; the reader keeps their place.
+    const block = id ? this.editElement(id) : undefined;
+    const edit = id ? edits.find(e => e.id === id) : undefined;
+    if (block && edit) {
+      block.outerHTML = this.editBlock(edit);
+      if (this.commenting === id) this.editElement(id!)?.querySelector<HTMLTextAreaElement>('[data-edit-comment]')?.focus();
+    } else this.render();
+    this.renderStatus();
+    return true;
+  }
   private exploring() { const button = this.host.querySelector<HTMLElement>('[data-guided-return]'); if (button) button.hidden = false; }
   private change = (event: Event) => {
     const input = event.target as HTMLInputElement;
@@ -239,6 +353,7 @@ export class GuidedReview {
     if (!b || ![...b.attributes].some(a => a.name.startsWith('data-guided-'))) return;
     event.stopPropagation();
     if (b.dataset.guidedSource) { this.options.source(b.dataset.guidedSource); return; }
+    if (this.editClick(b)) return;
     if (b.hasAttribute('data-guided-pause') || b.dataset.guidedResume) {
       const action = b.hasAttribute('data-guided-pause') ? 'graph-job-pause' : b.dataset.guidedResume === 'resume' ? 'graph-job-resume' : 'graph-resume-decision';
       void this.options.command({action, investigationId: this.investigation.id, jobId: this.job()!.id, decision: b.dataset.guidedResume}).catch(e => this.options.error(e.message)); return;
