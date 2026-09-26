@@ -1,7 +1,7 @@
 # Slice 15: Context size
 
 **Type**: HITL
-**Status**: Not started
+**Status**: Built; awaiting the human's real-session check of the threshold
 
 ## Blocked by
 
@@ -17,9 +17,9 @@ See **Context size**.
 ## Acceptance criteria
 
 - [ ] The threshold setting takes effect for both providers, confirmed in a real session
-- [ ] Notices appear as the context grows
-- [ ] Compact now works for both providers
-- [ ] Start fresh is available when idle and loses no running or queued work
+- [x] Notices appear as the context grows
+- [ ] Compact now works for both providers (Claude confirmed in a real session on 2026-09-25; Codex awaits a signed-in Codex home)
+- [x] Start fresh is available when idle and loses no running or queued work
 
 ## User stories addressed
 

@@ -35,6 +35,28 @@ export function unansweredNotes(state: ResearchState): number {
 const coordinatorWorking = (state: ResearchState) =>
   Boolean(state.coordinator?.connected && !state.coordinator.listening);
 
+const thousands = (n: number) => `${Math.round(n / 1000).toLocaleString("en-US")}k`;
+// How full the coordinator's context is, as a share of where it compacts.
+export function contextShare(state: ResearchState): number {
+  const c = state.coordinator?.context;
+  return c && c.threshold ? c.tokens / c.threshold : 0;
+}
+// The point it has reached: half, three quarters, or nine tenths of the way.
+export function contextLevel(state: ResearchState): number {
+  const share = contextShare(state);
+  return share >= 0.9 ? 3 : share >= 0.75 ? 2 : share >= 0.5 ? 1 : 0;
+}
+// What the human is told as the coordinator's context grows, and what they can do.
+export function contextNotice(state: ResearchState): { title: string; detail: string; canStartFresh: boolean } | null {
+  const c = state.coordinator?.context;
+  if (!c || !contextLevel(state)) return null;
+  return {
+    title: `The coordinator's context is ${Math.round(contextShare(state) * 100)}% full`,
+    detail: `It compacts on its own at ${thousands(c.threshold)} tokens. You can compact it now, or start a fresh coordinator from the project's saved state${state.coordinator?.listening ? "" : " once it is listening"}.`,
+    canStartFresh: Boolean(state.coordinator?.listening),
+  };
+}
+
 export function liveRows(state: ResearchState): LiveRow[] {
   const rows: LiveRow[] = [];
   const live = state.live || [];
@@ -43,9 +65,9 @@ export function liveRows(state: ResearchState): LiveRow[] {
   if (c?.connected)
     rows.push({
       who: "Coordinator",
-      stage: c.listening
+      stage: `${c.listening
         ? waiting ? `Listening; reading your ${waiting === 1 ? "note" : "notes"} next` : "Listening"
-        : "Working",
+        : "Working"}${c.context?.compacting ? " · compacting its context" : contextLevel(state) ? ` · context ${Math.round(contextShare(state) * 100)}% full` : ""}`,
       latest: c.latest ? `${c.listening ? "Last: " : ""}${c.latest.text}` : undefined,
       since: c.listening ? undefined : c.latest?.at,
     });

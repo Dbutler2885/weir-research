@@ -49,6 +49,7 @@ export class CoordinatorHost {
       executable: this.findExecutable(provider),
       folder: this.folder,
       web: true,
+      compactAt: this.threshold(),
       meta: {project: this.directory, role: 'coordinator'},
       model: choice.model,
       effort: choice.effort,
@@ -59,6 +60,19 @@ export class CoordinatorHost {
     agent.on('action', (text) => this.coordinator.noteText(text));
     agent.on('turn', () => this.flush());
     agent.on('paused', ({reason}) => this.coordinator.noteText(reason));
+    // How full its context is, from its stream.
+    this.context = {tokens: 0, window: null, compactions: 0};
+    agent.on('context', ({tokens, window}) => {
+      if (tokens != null) this.context.tokens = tokens;
+      if (window) this.context.window = window;
+    });
+    agent.on('compacted', ({after}) => {
+      this.context.compactions++;
+      // Its size after compacting, where reported; otherwise the next reply says.
+      this.context.tokens = after ?? 0;
+      this.context.compacting = false;
+      this.coordinator.noteText('Compacted its conversation');
+    });
     agent.on('resumed', () => this.coordinator.noteText('The usage limit reset; carrying on.'));
     agent.on('failed', (error) => { this.problem = `The coordinator could not start: ${error.message}`; });
     agent.on('exit', () => {
@@ -113,8 +127,31 @@ export class CoordinatorHost {
     agent?.stop();
     this.close();
   }
+  // The context size at which the coordinator compacts: the human's setting, 200,000
+  // tokens by default, or the model's own window when that is smaller.
+  threshold() {
+    const set = this.store.state.researchSettings?.compactAt ?? 200_000;
+    return this.context?.window ? Math.min(set, this.context.window) : set;
+  }
   status() {
-    return {connected: Boolean(this.agent), listening: Boolean(this.agent) && !this.agent.busy, problem: this.problem};
+    const context = this.context && {tokens: this.context.tokens, threshold: this.threshold(), compactions: this.context.compactions, compacting: Boolean(this.context.compacting)};
+    return {connected: Boolean(this.agent), listening: Boolean(this.agent) && !this.agent.busy, problem: this.problem, context};
+  }
+  // Compacts the coordinator's conversation now.
+  compact() {
+    if (!this.agent) throw new Error('The coordinator is not running.');
+    this.context.compacting = true;
+    this.agent.compact();
+    this.coordinator.noteText('Compacting its conversation');
+  }
+  // A fresh coordinator from the project's saved state, when this one is idle.
+  // Workers and queued work carry on; the new coordinator starts from them.
+  startFresh() {
+    if (this.agent?.busy) throw new Error('The coordinator is working. Start fresh once it is listening.');
+    this.stop();
+    this.problem = null;
+    this.coordinator.problem = null;
+    return Boolean(this.start());
   }
   // Something for the coordinator that is not in the project's state, such as a helper's answer.
   tell(text) {

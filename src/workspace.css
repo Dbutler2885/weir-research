@@ -1414,3 +1414,32 @@ dialog .muted {
   line-height: 1.6;
   color: var(--ink-soft);
 }
+
+.context-notice {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+}
+.context-notice .notice-dot {
+  margin-top: 5px;
+}
+.context-notice div span {
+  margin-top: 3px;
+  line-height: 1.45;
+  white-space: normal;
+  overflow: visible;
+}
+.context-actions [data-context="keep"] {
+  background: transparent;
+  color: white;
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 45%);
+}
+.context-actions {
+  grid-column: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.context-actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

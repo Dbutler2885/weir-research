@@ -75,6 +75,8 @@ export class Coordinator {
       listening: Boolean(live) && this.hosted() && this.host.status().listening,
       latest: live ? this.latest : null,
       problem: live ? null : this.problem,
+      // How full the app's coordinator's context is, and where it compacts.
+      context: this.hosted() ? this.host.status().context ?? null : null,
       name: owner ? owner.name : null,
       lastSeenSecondsAgo: owner ? Math.round((this.now() - owner.seen) / 1000) : null,
       handoff: (this.store.state.coordination?.handoff || "").slice(0, 6000),

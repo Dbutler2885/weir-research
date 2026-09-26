@@ -31,7 +31,7 @@ describe("recognising a reached usage limit", () => {
     expect(rejected!.usage).toMatchObject({ exhausted: true, resetsAt: 1789635600_000 });
     expect(message).toEqual({ actions: [] });
     // It reports success with an error flag; that is a quota stop, not a finished turn.
-    expect(result!.turn).toMatchObject({ ok: false, quota: true });
+    expect((result as any).turn).toMatchObject({ ok: false, quota: true });
   });
 
   it("from Codex's recorded rate-limit report and a turn it failed for usage", () => {

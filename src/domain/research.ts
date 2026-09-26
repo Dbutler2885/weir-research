@@ -187,7 +187,7 @@ export interface ResearchState {
     };
   }[];
   engine?: "manual" | "codex" | "claude";
-  researchSettings?: { timeLimitMinutes: number | null; maxWorkers?: number };
+  researchSettings?: { timeLimitMinutes: number | null; maxWorkers?: number; compactAt?: number };
   reviewSettings?: { autoWalkthrough: boolean; autoGraph: boolean };
   organization?: {
     history: {
@@ -208,6 +208,8 @@ export interface ResearchState {
     latest?: { at: string; text: string } | null;
     // Why the app's coordinator is not running, when it is not.
     problem?: string | null;
+    // How full its context is, and the size at which it compacts.
+    context?: { tokens: number; threshold: number; compactions: number; compacting: boolean } | null;
     lastSeenSecondsAgo?: number | null;
     name: string | null;
     handoff: string;

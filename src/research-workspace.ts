@@ -1,5 +1,6 @@
 import { menus, rowChoice } from "./ui/dispatch-settings";
 import { closedNotice, quitDialog } from "./ui/quit-dialog";
+import { contextLevel, contextNotice } from "./ui/live-panel";
 import {
   investigationSubject,
   feedbackView,
@@ -105,6 +106,38 @@ export function mountResearchWorkspace(
   notice.innerHTML =
     '<i class="notice-dot"></i><div><strong></strong><span></span></div><button type="button" data-notice-open>Open</button><button type="button" class="notice-dismiss" data-notice-dismiss aria-label="Dismiss">×</button>';
   shell.append(notice);
+  // As the coordinator's context grows, the human chooses to keep going, compact now, or start fresh.
+  const contextBar = document.createElement("div");
+  contextBar.className = "workspace-notice context-notice";
+  contextBar.hidden = true;
+  contextBar.setAttribute("role", "status");
+  shell.append(contextBar);
+  let contextDismissed = 0;
+  function updateContextNotice() {
+    const level = contextLevel(state);
+    // After a compaction the context is small again, and later growth is worth a notice.
+    if (level < contextDismissed) contextDismissed = level;
+    const said = contextNotice(state);
+    if (!said || level <= contextDismissed) {
+      contextBar.hidden = true;
+      return;
+    }
+    contextBar.innerHTML = `<i class="notice-dot"></i><div><strong>${escape(said.title)}</strong><span>${escape(said.detail)}</span></div><div class="context-actions"><button type="button" data-context="compact">Compact now</button><button type="button" data-context="fresh" ${said.canStartFresh ? "" : "disabled"}>Start fresh</button><button type="button" data-context="keep">Keep going</button></div>`;
+    contextBar.hidden = false;
+  }
+  contextBar.addEventListener("click", async (event) => {
+    const choice = (event.target as Element).closest<HTMLButtonElement>("[data-context]")?.dataset.context;
+    if (!choice) return;
+    contextDismissed = contextLevel(state);
+    contextBar.hidden = true;
+    if (choice === "keep") return;
+    try {
+      await request(choice === "compact" ? "/api/coordinator/compact" : "/api/coordinator/fresh", {});
+      message(choice === "compact" ? "The coordinator is compacting its context." : "A fresh coordinator is starting from the project's saved state.");
+    } catch (error) {
+      message((error as Error).message);
+    }
+  });
   let noticeOpen: (() => void) | undefined;
   let noticeMessage: string | undefined;
   function showNotice(title: string, detail: string, action: string, open: () => void, messageId?: string) {
@@ -225,6 +258,7 @@ export function mountResearchWorkspace(
     const indicator = nav.querySelector<HTMLButtonElement>("[data-running]")!;
     indicator.textContent = summary;
     indicator.hidden = !summary;
+    updateContextNotice();
     if (liveOpen) live.innerHTML = livePanel(state);
   }
   // The indicator opens and closes the panel itself; fill and place it as it opens.
@@ -748,6 +782,26 @@ export function mountResearchWorkspace(
       try {
         await request("/api/research-browser", {});
         message("The research browser is open. Sign in to your archives there.");
+      } catch (error) {
+        message((error as Error).message);
+      }
+    });
+    surface.querySelector<HTMLFormElement>("#compact-form")?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const compactAt = surface.querySelector<HTMLInputElement>("#compact-at")!.valueAsNumber;
+      try {
+        await request("/api/research-settings", { compactAt });
+        await refresh();
+        message(`The coordinator compacts at ${compactAt.toLocaleString("en-US")} tokens from its next fresh start.`);
+      } catch (error) {
+        message((error as Error).message);
+      }
+    });
+    surface.querySelector("[data-coordinator-fresh]")?.addEventListener("click", async () => {
+      try {
+        await request("/api/coordinator/fresh", {});
+        message("A fresh coordinator is starting from the project's saved state.");
+        await refresh();
       } catch (error) {
         message((error as Error).message);
       }

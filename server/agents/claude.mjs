@@ -21,7 +21,8 @@ export function claudeUsage(info) {
 // open. A message written mid-turn reaches it after its current tool step.
 export const claudeAdapter = {
   // The agent is confined to its folder; web adds the web tools.
-  args({ folder, instructions = "", model = "", effort = "", web = false, browser = null }) {
+  // compactAt is the context size, in tokens, at which Claude Code compacts on its own.
+  args({ folder, instructions = "", model = "", effort = "", web = false, browser = null, compactAt = 0 }) {
     return [
       "--print",
       "--input-format",
@@ -33,7 +34,7 @@ export const claudeAdapter = {
       "dontAsk",
       ...(model ? ["--model", model] : []),
       ...(effort ? ["--effort", effort] : []),
-      ...claudeIsolationArgs(folder, { web, browser }),
+      ...claudeIsolationArgs(folder, { web, browser, compactAt }),
       ...(instructions ? ["--append-system-prompt", instructions] : []),
     ];
   },
@@ -47,15 +48,29 @@ export const claudeAdapter = {
       interrupt() {
         write({ type: "control_request", request_id: randomUUID(), request: { subtype: "interrupt" } });
       },
+      // Claude Code compacts its conversation when sent /compact.
+      compact() {
+        write({ type: "user", message: { role: "user", content: "/compact" } });
+      },
       // The actions in one output event, its report of usage, and whether it ends a
       // turn successfully or because the usage limit was reached.
       read(event) {
         const actions = streamActions(event, describe);
         if (event.type === "rate_limit_event") return { actions, usage: claudeUsage(event.rate_limit_info || {}) };
+        // How full its context is, read from each reply's usage.
+        const used = event.type === "assistant" && event.message?.usage;
+        if (used) {
+          const tokens = (used.input_tokens || 0) + (used.cache_read_input_tokens || 0) + (used.cache_creation_input_tokens || 0) + (used.output_tokens || 0);
+          return { actions, context: { tokens } };
+        }
+        if (event.type === "system" && event.subtype === "compact_boundary")
+          return { actions, compacted: { before: event.compact_metadata?.pre_tokens ?? null, after: event.compact_metadata?.post_tokens ?? null } };
         if (event.type !== "result") return { actions };
         // A turn stopped by the usage limit reports success with an error flag and HTTP 429.
         const quota = event.is_error === true && event.api_error_status === 429;
-        return { actions, turn: { ok: event.subtype === "success" && !event.is_error, quota, text: typeof event.result === "string" ? event.result : "" } };
+        // The model's context window, where the result reports it.
+        const window = Object.values(event.modelUsage || {}).map((m) => m.contextWindow).find(Boolean) || null;
+        return { actions, turn: { ok: event.subtype === "success" && !event.is_error, quota, text: typeof event.result === "string" ? event.result : "" }, ...(window ? { context: { window } } : {}) };
       },
     };
   },

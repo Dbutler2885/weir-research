@@ -303,6 +303,9 @@ class HostedAgent extends EventEmitter {
   interrupt() {
     this.command({ op: "interrupt" });
   }
+  compact() {
+    this.command({ op: "compact" });
+  }
   finish() {
     this.finishing = true;
     this.command({ op: "finish" });
@@ -362,8 +365,10 @@ class Agent extends EventEmitter {
         } catch (error) {
           result = { actions: [], failure: error };
         }
-        const { actions, turn, failure, usage } = result;
+        const { actions, turn, failure, usage, context, compacted } = result;
         for (const text of actions) this.emit("action", text);
+        if (context) this.emit("context", context);
+        if (compacted) this.emit("compacted", compacted);
         if (usage) {
           this.usage = usage;
           this.emit("usage", usage);
@@ -430,6 +435,12 @@ class Agent extends EventEmitter {
     if (!this.busy || this.closed) return;
     this.interrupting = true;
     this.session.interrupt();
+  }
+  // Compacts the agent's conversation now, with its CLI's own compaction.
+  compact() {
+    if (this.finishing) return;
+    this.session.compact?.();
+    this.busy = true;
   }
   // Closes input once the agent is idle, so it exits after anything already sent.
   finish() {

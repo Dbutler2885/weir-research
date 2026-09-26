@@ -19,8 +19,8 @@ export function appServerVersion(userAgent) {
 // started once with the folder, sandbox, approval policy and model; each message
 // then starts a turn, or steers the running turn.
 export const codexAdapter = {
-  args({ folder, browser = null }) {
-    return ["app-server", ...codexIsolationArgs(folder, { browser })];
+  args({ folder, browser = null, compactAt = 0 }) {
+    return ["app-server", ...codexIsolationArgs(folder, { browser, compactAt })];
   },
   // Codex agents use the app's own Codex home and home folder, never the human's.
   env(base, { homes }) {
@@ -100,6 +100,10 @@ export const codexAdapter = {
       interrupt() {
         if (threadId && turnId) request("turn/interrupt", { threadId, turnId });
       },
+      // The app server's own compaction request.
+      compact() {
+        if (threadId) request("thread/compact/start", { threadId });
+      },
       read(message) {
         // A response to one of this adapter's requests.
         if (message.id !== undefined && !message.method) {
@@ -139,6 +143,12 @@ export const codexAdapter = {
         }
         if (message.method === "item/completed" && message.params?.item?.type === "agentMessage") reply = message.params.item.text || "";
         if (message.method === "account/rateLimits/updated") return { actions: [], usage: codexUsage(message.params.rateLimits || {}) };
+        // How full its context is: the last response's tokens, and the model's window.
+        if (message.method === "thread/tokenUsage/updated") {
+          const usage = message.params.tokenUsage || {};
+          return { actions: [], context: { tokens: usage.last?.totalTokens ?? null, window: usage.modelContextWindow ?? null } };
+        }
+        if (message.method === "thread/compacted") return { actions: [], compacted: { before: null, after: null } };
         if (message.method === "turn/completed") {
           turnId = null;
           flush();

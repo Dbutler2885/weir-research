@@ -103,6 +103,16 @@ export class ResearcherPool {
   }
   // Research settings: a time limit per pass, and how many workers run at once.
   configure(settings) {
+    // The coordinator's compaction threshold, in tokens.
+    if ("compactAt" in settings) {
+      const { compactAt } = settings;
+      if (!Number.isSafeInteger(compactAt) || compactAt < 20_000 || compactAt > 2_000_000)
+        throw new Error("The compaction threshold must be a whole number of tokens from 20,000 to 2,000,000.");
+      this.store.update((next) => {
+        next.researchSettings = { ...(next.researchSettings || { timeLimitMinutes: null }), compactAt };
+      });
+      return this.store.state.researchSettings;
+    }
     if ("maxWorkers" in settings) {
       const { maxWorkers } = settings;
       if (!Number.isSafeInteger(maxWorkers) || maxWorkers < 1 || maxWorkers > 20)

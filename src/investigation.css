@@ -551,3 +551,31 @@
 #max-workers-form .page-context {
   margin: 12px 0 0;
 }
+.setting-link {
+  display: inline-block;
+  padding: 9px 16px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--paper);
+  color: var(--ink);
+  text-decoration: none;
+  font-size: 14px;
+}
+.setting-link:hover {
+  border-color: var(--sea);
+}
+#compact-at {
+  width: 130px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+}
+#compact-form {
+  margin-bottom: 18px;
+}
+#compact-form .page-context {
+  margin: 12px 0 0;
+}

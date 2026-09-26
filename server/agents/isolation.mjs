@@ -13,9 +13,11 @@ const node = () => realpathSync(process.execPath);
 
 // Claude Code: sandboxed Bash that cannot read the human's home folder except
 // the agent's own folder, and permission rules keeping its file tools there.
-export function claudeSettings(folder, { web = true, browser = null } = {}) {
+export function claudeSettings(folder, { web = true, browser = null, compactAt = 0 } = {}) {
   const own = realpathSync(folder);
   return {
+    // The context size at which it compacts on its own, when the human set one.
+    ...(compactAt ? { autoCompactWindow: compactAt } : {}),
     sandbox: {
       enabled: true,
       autoAllowBashIfSandboxed: true,
@@ -48,7 +50,7 @@ export function claudeIsolationArgs(folder, options = {}) {
 // Codex: a permission profile that reads only minimal system files and writes
 // only the agent's folder, with network access. Its homes are the app's own,
 // so it never loads the human's instructions, skills, hooks or MCP servers.
-export function codexIsolationArgs(folder, { browser = null } = {}) {
+export function codexIsolationArgs(folder, { browser = null, compactAt = 0 } = {}) {
   const own = realpathSync(folder);
   // The research browser's MCP server, which Codex starts outside the sandbox.
   const mcp = browser
@@ -63,6 +65,7 @@ export function codexIsolationArgs(folder, { browser = null } = {}) {
     : [];
   return [
     ...mcp,
+    ...(compactAt ? ["-c", `model_auto_compact_token_limit=${compactAt}`] : []),
     "-c",
     `permissions.agent.filesystem={":minimal"="read", ${JSON.stringify(node())}="read", ${JSON.stringify(own)}="write"}`,
     "-c",

@@ -38,7 +38,9 @@ async function turn(steps) {
       out({ type: "result", subtype: "success", is_error: true, result: "You've hit your session limit", api_error_status: 429 });
       return;
     }
-    out({ type: "assistant", message: { content: [{ type: "tool_use", id: `tool-${++n}`, name: step.tool, input: step.input || {} }] } });
+    // {tokens} reports that much context in use, as Claude's usage does.
+    const usage = step.tokens ? { input_tokens: step.tokens, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, output_tokens: 0 } : undefined;
+    out({ type: "assistant", message: { content: [{ type: "tool_use", id: `tool-${++n}`, name: step.tool, input: step.input || {} }], usage } });
     if (step.run) spawn(step.run[0], step.run.slice(1), { stdio: "ignore" });
     const until = Date.now() + (step.delay || 0);
     while (Date.now() < until && !interrupted) await sleep(5);
@@ -60,9 +62,18 @@ async function turn(steps) {
   out({ type: "result", subtype: "success", result: "Done." });
 }
 
+// /compact compacts the conversation, as Claude reports it.
+async function compact() {
+  out({ type: "system", subtype: "compact_boundary", compact_metadata: { trigger: "manual", pre_tokens: 150000 } });
+  out({ type: "result", subtype: "success", result: "Compacted." });
+}
+
 async function loop() {
   for (;;) {
-    if (inbox.length) {
+    if (inbox[0] === "/compact") {
+      inbox.shift();
+      await compact();
+    } else if (inbox.length) {
       running = turn(stepsFor(inbox.shift()));
       await running;
       running = null;

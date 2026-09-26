@@ -29,6 +29,7 @@ import { agentCatalog } from "./agents/catalog.mjs";
 import { DispatchRules } from "./dispatch.mjs";
 import { Helpers } from "./helpers.mjs";
 import { ResearchBrowser } from "./research-browser.mjs";
+import { setupRoutes } from "./setup-routes.mjs";
 import { validateChoice } from "../src/domain/dispatch.ts";
 import { LiveActivity } from "./live-activity.mjs";
 import { projectSkills } from "./skills.mjs";
@@ -93,6 +94,7 @@ const supervisor = new AgentSupervisor({
 });
 // One research browser for the app, with its own profile, shared by every project.
 const researchBrowser = new ResearchBrowser(appDirectory, { root });
+const setupScreen = setupRoutes({ homes: agentHomes(appDirectory) });
 const researchers = new ResearcherPool(store, directory, root, { coordinator, live, supervisor, browser: researchBrowser });
 coordinator.researchers = researchers;
 const graphBuilders = new GraphBuilders(store, directory, root, { live, supervisor });
@@ -281,6 +283,16 @@ const server = createServer(async (req, res) => {
       return json(res, 403, { error: "Open the local workspace directly." });
     res.setHeader("X-Content-Type-Options", "nosniff");
     const url = new URL(req.url, `http://${host}`);
+    // The setup screen, to come back to from Research settings.
+    const handled = await setupScreen(req, url, {
+      json: (value) => json(res, 200, value),
+      html: (text) => {
+        res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+        res.end(text);
+      },
+      body: () => body(req),
+    });
+    if (handled !== false) return;
     if (url.pathname === "/api/coordinator" && req.method === "POST") {
       if (req.headers.authorization !== `Bearer ${coordinatorToken}`)
         return json(res, 403, { error: "Coordinator credentials required." });
@@ -381,6 +393,13 @@ const server = createServer(async (req, res) => {
       setTimeout(close, 100);
       return;
     }
+    // The human compacts the coordinator's context now, or starts a fresh one when it is idle.
+    if (req.method === "POST" && url.pathname === "/api/coordinator/compact") {
+      coordinatorHost.compact();
+      return json(res, 200, { compacting: true });
+    }
+    if (req.method === "POST" && url.pathname === "/api/coordinator/fresh")
+      return json(res, 200, { started: coordinatorHost.startFresh() });
     // The human opens the research browser to sign in to archives once.
     if (req.method === "POST" && url.pathname === "/api/research-browser") {
       const address = await researchBrowser.open();
