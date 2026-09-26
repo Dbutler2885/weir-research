@@ -72,6 +72,18 @@ describe("agents under their own host process", () => {
     expect(live.list()).toEqual([]);
   }, 20_000);
 
+  it("stay paused, not busy, when a message arrives while the usage limit holds them", async () => {
+    const p = place();
+    const { supervisor } = p.app();
+    const agent = start(supervisor, p.folder, steps([{ quota: 600 }]));
+    cleanups.push(() => agent.stop());
+    await new Promise((done) => agent.once("paused", done));
+    await until(() => agent.paused && !agent.busy);
+    agent.send("hello?");
+    expect(agent.busy).toBe(false);
+    expect(agent.paused).toMatchObject({ resetsAt: expect.any(Number) });
+  }, 20_000);
+
   it("stop their agent when the app's heartbeat stops", async () => {
     const p = place();
     const { supervisor } = p.app();

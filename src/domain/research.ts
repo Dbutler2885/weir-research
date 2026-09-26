@@ -217,6 +217,8 @@ export interface ResearchState {
     trail?: { at: string; text: string }[];
     // When its current turn began, while it is working.
     since?: string | null;
+    // When the usage limit holds it: messages wait until it resets.
+    paused?: { until: string } | null;
     // Why the app's coordinator is not running, when it is not.
     problem?: string | null;
     // The sample's coordinator, which starts when the human first writes to it.

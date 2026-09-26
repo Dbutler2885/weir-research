@@ -387,6 +387,7 @@
   font-size: 12px;
 }
 .coordinator-presence .presence-dot {
+  flex: none;
   width: 7px;
   height: 7px;
   border-radius: 50%;
@@ -400,4 +401,14 @@
 }
 .coordinator-presence.is-busy .presence-dot {
   background: #c8a44d;
+}
+/* Held by the usage limit: nothing moves until it resets. */
+.coordinator-presence.is-paused {
+  color: var(--ink-soft);
+}
+.coordinator-presence.is-paused .presence-dot {
+  background: #9b9588;
+}
+.coordinator-working.is-paused {
+  border-left-color: #9b9588;
 }

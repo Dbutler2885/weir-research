@@ -43,7 +43,9 @@ export function unansweredNotes(state: ResearchState): number {
 }
 
 const coordinatorWorking = (state: ResearchState) =>
-  Boolean(state.coordinator?.connected && !state.coordinator.listening);
+  Boolean(state.coordinator?.connected && !state.coordinator.listening && !state.coordinator.paused);
+// A time of day, as "1:00 PM".
+export const clock = (iso: string) => new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 
 const thousands = (n: number) => `${Math.round(n / 1000).toLocaleString("en-US")}k`;
 // How full the coordinator's context is, as a share of where it compacts.
@@ -72,7 +74,9 @@ export function liveRows(state: ResearchState): LiveRow[] {
   const live = state.live || [];
   const waiting = unansweredNotes(state);
   const c = state.coordinator;
-  if (c?.connected) {
+  if (c?.connected && c.paused)
+    rows.push({ group: "waiting", who: "Coordinator", stage: `Paused until ${clock(c.paused.until)}: the usage limit is reached. Messages wait until then.` });
+  else if (c?.connected) {
     // Only what it has done in this turn; an idle coordinator shows none.
     const steps = c.listening ? [] : [c.latest, ...(c.trail || [])].filter((s) => s && (!c.since || s.at >= c.since));
     rows.push({
@@ -182,6 +186,7 @@ export function runningSummary(state: ResearchState): string {
   const c = state.coordinator;
   return [
     coordinatorWorking(state) ? "Coordinator working" : "",
+    c?.connected && c.paused ? `Coordinator paused until ${clock(c.paused.until)}` : "",
     // Why the coordinator is not running shows in the panel this opens.
     !c?.connected && c?.waiting ? "Coordinator starts when you write" : "",
     !c?.connected && !c?.waiting && c?.problem ? "Coordinator not running" : "",

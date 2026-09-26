@@ -80,7 +80,10 @@ export class CoordinatorHost {
       this.context.compacting = false;
       this.coordinator.noteText('Compacted its conversation');
     });
-    agent.on('resumed', () => this.coordinator.noteText('The usage limit reset; carrying on.'));
+    agent.on('resumed', () => {
+      this.since = Date.now();
+      this.coordinator.noteText('The usage limit reset; carrying on.');
+    });
     agent.on('failed', (error) => { this.problem = `The coordinator could not start: ${error.message}`; });
     agent.on('exit', ({reason} = {}) => {
       if (this.agent !== agent) return;
@@ -147,7 +150,9 @@ export class CoordinatorHost {
   status() {
     const context = this.context && {tokens: this.context.tokens, threshold: this.threshold(), compactions: this.context.compactions, compacting: Boolean(this.context.compacting)};
     const since = this.agent?.busy && this.since ? new Date(this.since).toISOString() : null;
-    return {connected: Boolean(this.agent), listening: Boolean(this.agent) && !this.agent.busy, problem: this.problem, context, since};
+    // Held by the usage limit: neither working nor listening, until it resets.
+    const paused = this.agent?.paused ? {until: new Date(this.agent.paused.resetsAt).toISOString()} : null;
+    return {connected: Boolean(this.agent), listening: Boolean(this.agent) && !this.agent.busy && !paused, problem: this.problem, context, since, paused};
   }
   // Compacts the coordinator's conversation now.
   compact() {

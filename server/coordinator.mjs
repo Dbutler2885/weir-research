@@ -78,6 +78,8 @@ export class Coordinator {
       trail: live ? this.trail : [],
       // When its current turn began, while it is working.
       since: live && this.hosted() ? this.host.status().since : null,
+      // When the usage limit holds it, and until when.
+      paused: live && this.hosted() ? this.host.status().paused ?? null : null,
       problem: live ? null : this.problem,
       waiting: !live && Boolean(this.waiting),
       // How full the app's coordinator's context is, and where it compacts.

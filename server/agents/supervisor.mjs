@@ -339,7 +339,8 @@ class HostedAgent extends EventEmitter {
   send(text) {
     if (this.finishing) throw new Error("This agent has already closed its input.");
     this.command({ op: "send", text });
-    this.busy = true;
+    // The host holds a message while the usage limit pauses the agent.
+    if (!this.paused) this.busy = true;
   }
   steer(text) {
     this.send(text);

@@ -252,6 +252,16 @@ describe("investigation workspace", () => {
     await vi.waitFor(() => expect(working()).toBeNull());
     expect(document.querySelector(".coordinator-presence")!.textContent).toBe("Coordinator is listening.");
   });
+  it("says when the usage limit pauses the coordinator, and until when", async () => {
+    const until = new Date(2026, 8, 26, 13, 0).toISOString();
+    state.coordinator = { enabled: true, connected: true, listening: false, paused: { until }, since: null, name: "Coordinator", handoff: "", awaitingSynthesis: [] };
+    state.conversation = [{ id: "m1", author: "human", text: "hello?", at: new Date().toISOString() } as never];
+    mount();
+    click("[data-add-instruction]");
+    expect(document.querySelector(".coordinator-presence")!.textContent).toBe("Coordinator is paused until 1:00 PM. Messages you send wait until then.");
+    expect(document.querySelector(".coordinator-working")!.textContent).toMatch(/Coordinator is paused\s*until 1:00 PM\s*The usage limit is reached/);
+    expect(document.querySelector("[data-running]")!.textContent).toContain("Coordinator paused until 1:00 PM");
+  });
   it("says when the coordinator stopped, and starts it again", async () => {
     state.coordinator = { enabled: true, connected: false, name: null, handoff: "", awaitingSynthesis: [], problem: "The coordinator stopped at 4:18 AM when it lost contact with the app." };
     mount();

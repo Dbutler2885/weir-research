@@ -99,6 +99,19 @@ describe("the app's coordinator", () => {
     await until(() => f.coordinator.status().listening, 600);
   });
 
+  it("is paused, not working, while the usage limit holds it, and keeps the human's messages until then", async () => {
+    const f = fixture([{ quota: 600 }]);
+    const host = f.open();
+    await until(() => f.coordinator.status().paused);
+    const paused = f.coordinator.status();
+    expect(paused).toMatchObject({ connected: true, listening: false, since: null });
+    expect(Date.parse(paused.paused!.until) - Date.now()).toBeGreaterThan(590_000);
+    f.store.command({ type: "send", text: "hello?" });
+    await new Promise((done) => setTimeout(done, 100));
+    expect(f.coordinator.status()).toMatchObject({ listening: false, since: null, paused: paused.paused });
+    expect(f.received(host)).toHaveLength(1);
+  });
+
   it("answers commands from its tool, without telling it about its own changes", async () => {
     const f = fixture();
     const host = f.open();
