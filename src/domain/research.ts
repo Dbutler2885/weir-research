@@ -206,6 +206,10 @@ export interface ResearchState {
     listening?: boolean;
     // What it last did, from its output stream or the command it sent.
     latest?: { at: string; text: string } | null;
+    // The few steps before the latest, most recent first.
+    trail?: { at: string; text: string }[];
+    // When its current turn began, while it is working.
+    since?: string | null;
     // Why the app's coordinator is not running, when it is not.
     problem?: string | null;
     // The sample's coordinator, which starts when the human first writes to it.
@@ -244,6 +248,8 @@ export interface LiveWorker {
   jobId?: string;
   startedAt: string;
   latest: { at: string; text: string } | null;
+  // The few steps before the latest, most recent first.
+  trail?: { at: string; text: string }[];
 }
 
 export function initialState(source: FamilyDataset | LegacyDataset): ResearchState {

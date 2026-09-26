@@ -6,6 +6,7 @@ import type {
 } from "../domain/research";
 import type { Message } from "../domain/conversation";
 import { html } from "./finding-review";
+import { running } from "./live-panel";
 
 export type DrawerTab = "conversation" | "queue";
 
@@ -196,8 +197,41 @@ ${this.tab === "conversation" ? this.conversation(state) : this.queue(state)}`;
         return separator + this.message(state, m);
       })
       .join("");
-    return `<div class="conversation" aria-label="Conversation with the coordinator">${items || '<p class="conversation-empty">Ask the coordinator anything, or queue annotations from the page and send them together.</p>'}</div>
-${this.presence(state)}<form class="message-form" data-message-form><div class="message-box"><textarea data-message rows="2" placeholder="Message the coordinator…" aria-label="Message the coordinator">${html(this.draft.message || "")}</textarea><button type="submit" class="primary">Send</button></div>${this.error && this.tab === "conversation" ? `<p class="form-error" role="alert">${html(this.error)}</p>` : ""}</form>`;
+    return `<div class="conversation" aria-label="Conversation with the coordinator">${items || '<p class="conversation-empty">Ask the coordinator anything, or queue annotations from the page and send them together.</p>'}<div data-coordinator-activity>${this.activity(state)}</div></div>
+<div data-presence>${this.presence(state)}</div><form class="message-form" data-message-form><div class="message-box"><textarea data-message rows="2" placeholder="Message the coordinator…" aria-label="Message the coordinator">${html(this.draft.message || "")}</textarea><button type="submit" class="primary">Send</button></div>${this.error && this.tab === "conversation" ? `<p class="form-error" role="alert">${html(this.error)}</p>` : ""}</form>`;
+  }
+
+  // What the coordinator is doing about the human's message, and whether it is
+  // listening, as it changes between renders; the rest of the drawer is untouched.
+  updateActivity(): void {
+    if (this.tab !== "conversation") return;
+    const state = this.host.state();
+    const activity = this.root.querySelector<HTMLElement>("[data-coordinator-activity]");
+    const presence = this.root.querySelector<HTMLElement>("[data-presence]");
+    const said = this.activity(state);
+    if (activity && activity.dataset.shown !== said) {
+      activity.innerHTML = said;
+      activity.dataset.shown = said;
+      const list = this.root.querySelector<HTMLElement>(".conversation");
+      if (list && this.following) list.scrollTop = list.scrollHeight;
+    }
+    const line = this.presence(state);
+    if (presence && presence.dataset.shown !== line) {
+      presence.innerHTML = line;
+      presence.dataset.shown = line;
+    }
+  }
+
+  // The coordinator at work on the human's latest message: the step it is on now and
+  // the one before, until its reply takes their place.
+  private activity(state: ResearchState): string {
+    const c = state.coordinator;
+    const last = state.conversation?.at(-1);
+    if (!c?.connected || c.listening || last?.author !== "human") return "";
+    const since = c.since || last.at;
+    const steps = [c.latest, ...(c.trail || [])].filter((s): s is { at: string; text: string } => Boolean(s && s.at >= since));
+    const before = steps[1]?.text || (steps[0] ? "Read your message" : "");
+    return `<div class="coordinator-working" aria-live="polite"><div class="coordinator-working-head"><strong>${html(c.name || "Coordinator")} is working</strong><time datetime="${html(since)}" data-elapsed>${html(running(since, Date.now()))}</time></div><p>${html(steps[0]?.text || "Reading your message")}</p>${before ? `<p class="coordinator-working-before">Before that: ${html(before.charAt(0).toLowerCase() + before.slice(1))}</p>` : ""}</div>`;
   }
 
   // Whether anyone is listening, said where the human types.
@@ -207,8 +241,12 @@ ${this.presence(state)}<form class="message-form" data-message-form><div class="
     const c = state.coordinator;
     if (!c?.enabled) return "";
     const who = html(c.name || "Your coordinator");
-    if (c.connected)
+    if (c.connected && c.listening)
       return `<p class="coordinator-presence"><span class="presence-dot"></span>${who} is listening.</p>`;
+    if (c.connected)
+      return `<p class="coordinator-presence is-busy"><span class="presence-dot"></span>${
+        state.conversation?.at(-1)?.author === "human" ? `${who} is working on your message.` : `${who} is working. A message you send reaches it at its next step.`
+      }</p>`;
     if (c.attached)
       return `<p class="coordinator-presence is-busy"><span class="presence-dot"></span>${who} is working${
         c.lastSeenSecondsAgo == null ? "" : `, last seen ${elapsed(c.lastSeenSecondsAgo)} ago`

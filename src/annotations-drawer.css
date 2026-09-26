@@ -329,6 +329,48 @@
   outline-offset: 6px;
   border-radius: 8px;
 }
+/* The coordinator at work on the human's message, where the reply will appear. */
+.coordinator-working {
+  display: grid;
+  gap: 3px;
+  margin: 4px 0 8px;
+  padding: 9px 12px;
+  border-left: 2px solid #c8a44d;
+  border-radius: 0 8px 8px 0;
+  background: #f6f1e4;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.coordinator-working p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.coordinator-working-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.coordinator-working-head strong {
+  font-weight: 600;
+}
+.coordinator-working-head time {
+  margin-left: auto;
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.coordinator-working-before {
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+.coordinator-presence.is-busy .presence-dot {
+  animation: research-pulse 1.8s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .coordinator-presence.is-busy .presence-dot {
+    animation: none;
+  }
+}
 .coordinator-presence {
   display: flex;
   align-items: center;

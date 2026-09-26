@@ -1248,8 +1248,38 @@ dialog .muted {
 .running-indicator[hidden] {
   display: none;
 }
+/* Who is working and the step they are on, taking turns when several are. */
+.workspace-actions > .running-indicator {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 330px;
+}
+.running-indicator .ticker-who {
+  flex: none;
+  color: var(--ink);
+  font-weight: 600;
+}
+.running-indicator .ticker-what {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.running-indicator .ticker-more {
+  flex: none;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.running-indicator .ticker-who,
+.running-indicator .ticker-what {
+  transition: opacity 0.25s;
+}
+.running-indicator.is-turning .ticker-who,
+.running-indicator.is-turning .ticker-what {
+  opacity: 0;
+}
 .running-indicator::before {
   content: "";
+  flex: none;
   width: 6px;
   height: 6px;
   border-radius: 50%;
@@ -1293,26 +1323,26 @@ dialog .muted {
 .live-panel h2:not(:first-child) {
   margin-top: 18px;
 }
-.live-now,
-.live-recent,
-.live-usage {
+.live-working,
+.live-attention,
+.live-waiting,
+.live-trail {
   margin: 0;
   padding: 0;
   list-style: none;
 }
-.live-now li {
-  padding: 9px 0;
+.live-agent {
+  padding: 10px 0;
   border-top: 1px solid var(--paper-deep);
 }
-.live-now li:first-child {
+.live-agent:first-child {
   border-top: 0;
   padding-top: 0;
 }
 .live-panel [data-live-open] {
   cursor: pointer;
 }
-.live-now [data-live-open]:hover strong,
-.live-recent [data-live-open]:hover span {
+.live-agent[data-live-open]:hover strong {
   color: var(--sea-dark);
 }
 .live-who {
@@ -1332,41 +1362,59 @@ dialog .muted {
   margin-left: auto;
   font-variant-numeric: tabular-nums;
 }
-.live-stage,
-.live-latest {
-  margin: 2px 0 0;
+/* The step it is on now, with a dot that pulses while it works. */
+/* Wrapped lines hang beside the dot rather than under it. */
+.live-now {
+  margin: 4px 0 0;
+  padding-left: 14px;
+  text-indent: -14px;
   line-height: 1.4;
   overflow-wrap: anywhere;
 }
-.live-latest {
+.live-now::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin: 0 8px 1px 0;
+  border-radius: 50%;
+  background: #c8a44d;
+  animation: research-pulse 1.8s ease-in-out infinite;
+}
+.live-now.is-listening::before {
+  background: var(--sea);
+  animation: none;
+}
+.live-now.is-quiet {
   color: var(--ink-soft);
 }
-.live-empty {
-  margin: 0;
-  color: var(--ink-soft);
-}
-.live-usage li {
-  padding: 3px 0;
-  line-height: 1.4;
-  color: var(--ink-soft);
-}
-.live-recent li {
-  display: grid;
-  grid-template-columns: 62px minmax(0, 1fr);
-  gap: 8px;
-  padding: 4px 0;
-  line-height: 1.4;
-}
-.live-recent time {
+.live-trail {
+  margin: 3px 0 0 14px;
   color: var(--ink-soft);
   font-size: 12px;
-  font-variant-numeric: tabular-nums;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
 }
-.live-recent b {
-  font-weight: 600;
+.live-attention li,
+.live-waiting li {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 5px 0;
+  line-height: 1.4;
 }
+.live-attention li span,
+.live-waiting li span {
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+.live-attention li span {
+  color: var(--rust-dark);
+}
+.live-attention .text-action,
+.live-waiting .text-action,
 .live-panel [data-live-all] {
-  margin-top: 14px;
+  flex: none;
   padding: 0;
   border: 0;
   background: none;
@@ -1376,8 +1424,24 @@ dialog .muted {
   text-underline-offset: 3px;
   cursor: pointer;
 }
+.live-attention .text-action:hover,
+.live-waiting .text-action:hover,
 .live-panel [data-live-all]:hover {
   color: var(--sea);
+}
+.live-empty {
+  margin: 0;
+  color: var(--ink-soft);
+}
+.live-foot {
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid var(--paper-deep);
+}
+@media (prefers-reduced-motion: reduce) {
+  .live-now::before {
+    animation: none;
+  }
 }
 
 .quit-dialog {

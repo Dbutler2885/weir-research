@@ -20,7 +20,7 @@ import "./findings.css";
 import "./annotations-drawer.css";
 import "./guided-review.css";
 import { mountOrganizationPanel } from "./ui/organization-panel";
-import { livePanel, runningSummary } from "./ui/live-panel";
+import { livePanel, running, runningSummary, tickerEntries } from "./ui/live-panel";
 import type {
   AnnotationTarget,
   Investigation,
@@ -253,14 +253,39 @@ export function mountResearchWorkspace(
   live.addEventListener("toggle", (event) => {
     liveOpen = (event as ToggleEvent).newState === "open";
   });
+  // The header takes turns showing each worker and the step it is on.
+  let turn = 0;
+  let ticker = "";
   function updateRunning() {
-    const summary = runningSummary(state);
     const indicator = nav.querySelector<HTMLButtonElement>("[data-running]")!;
-    indicator.textContent = summary;
-    indicator.hidden = !summary;
+    const entries = tickerEntries(state);
+    const entry = entries[turn % Math.max(1, entries.length)];
+    const shown = entry
+      ? `<span class="ticker-who">${escape(entry.who)}</span><span class="ticker-what">${escape(entry.what)}</span>${entries.length > 1 ? `<span class="ticker-more">+${entries.length - 1}</span>` : ""}`
+      : escape(runningSummary(state));
+    if (shown !== ticker) indicator.innerHTML = ticker = shown;
+    indicator.title = entry ? `${entry.who}: ${entry.what}` : "";
+    indicator.hidden = !shown;
     updateContextNotice();
     if (liveOpen) live.innerHTML = livePanel(state);
+    if (dialog.open) drawer?.updateActivity();
   }
+  window.setInterval(() => {
+    if (tickerEntries(state).length < 2 || document.hidden) return;
+    const indicator = nav.querySelector<HTMLButtonElement>("[data-running]")!;
+    indicator.classList.add("is-turning");
+    window.setTimeout(() => {
+      turn++;
+      updateRunning();
+      indicator.classList.remove("is-turning");
+    }, 250);
+  }, 3500);
+  // Times counting up while work runs, in the panel and the conversation.
+  window.setInterval(() => {
+    const now = Date.now();
+    for (const time of document.querySelectorAll<HTMLTimeElement>("time[data-elapsed]"))
+      time.textContent = running(time.dateTime, now);
+  }, 1000);
   // The indicator opens and closes the panel itself; fill and place it as it opens.
   live.addEventListener("beforetoggle", (event) => {
     if ((event as ToggleEvent).newState !== "open") return;

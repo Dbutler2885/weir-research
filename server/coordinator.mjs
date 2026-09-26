@@ -12,7 +12,7 @@ import {
   inspectContext,
   searchContext,
 } from "./research-context.mjs";
-import { coordinatorAction } from "./live-activity.mjs";
+import { coordinatorAction, step } from "./live-activity.mjs";
 import { buildCoordinatorContext } from "../src/domain/coordinator-context.ts";
 
 // Durable research state belongs to the store; session liveness belongs to this server.
@@ -28,6 +28,7 @@ export class Coordinator {
     this.ownership = ownership;
     this.session = null;
     this.latest = null;
+    this.trail = [];
     // The app's own coordinator, when it runs one; it says whether it is working.
     this.host = null;
     this.problem = null;
@@ -46,7 +47,7 @@ export class Coordinator {
   }
   // What the coordinator is doing, read from its output stream.
   noteText(text) {
-    if (text) this.latest = { at: new Date(this.now()).toISOString(), text };
+    Object.assign(this, step(this, text, this.now()));
   }
   // The app's coordinator owns the project for as long as it runs.
   hosted() {
@@ -74,6 +75,9 @@ export class Coordinator {
       // An attached coordinator from outside the app reports no turns; it is shown as working.
       listening: Boolean(live) && this.hosted() && this.host.status().listening,
       latest: live ? this.latest : null,
+      trail: live ? this.trail : [],
+      // When its current turn began, while it is working.
+      since: live && this.hosted() ? this.host.status().since : null,
       problem: live ? null : this.problem,
       waiting: !live && Boolean(this.waiting),
       // How full the app's coordinator's context is, and where it compacts.
@@ -257,6 +261,7 @@ export class Coordinator {
     if (data.action === "detach") {
       this.session = null;
       this.latest = null;
+      this.trail = [];
       return { detached: true };
     }
     if (data.action === "snapshot") return this.snapshot(data.session);

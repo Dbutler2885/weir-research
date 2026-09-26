@@ -4,10 +4,14 @@ import { writerStatus } from "./review-view";
 
 // One worker, or one piece of work waiting for one, as the Now list shows it.
 export interface LiveRow {
+  // Working now, stopped and needing the human, or waiting its turn.
+  group: "working" | "attention" | "waiting";
   who: string;
   batch?: { id: string; number: number };
   stage: string;
   latest?: string;
+  // The steps before the latest, most recent first.
+  trail?: string[];
   since?: string;
 }
 
@@ -19,6 +23,12 @@ export function elapsed(since: string, now: number): string {
   if (minutes < 60) return `${minutes} min`;
   const hours = Math.floor(minutes / 60);
   return minutes % 60 ? `${hours} h ${minutes % 60} min` : `${hours} h`;
+}
+
+// How long something has been going, to the second while it is under a minute.
+export function running(since: string, now: number): string {
+  const seconds = Math.max(0, Math.floor((now - Date.parse(since)) / 1000));
+  return seconds < 60 ? `${seconds} s` : elapsed(since, now);
 }
 
 // Notes sent since the coordinator last said anything, and not yet put in a batch.
@@ -62,67 +72,99 @@ export function liveRows(state: ResearchState): LiveRow[] {
   const live = state.live || [];
   const waiting = unansweredNotes(state);
   const c = state.coordinator;
-  if (c?.connected)
+  if (c?.connected) {
+    // Only what it has done in this turn; an idle coordinator shows none.
+    const steps = c.listening ? [] : [c.latest, ...(c.trail || [])].filter((s) => s && (!c.since || s.at >= c.since));
     rows.push({
+      group: "working",
       who: "Coordinator",
       stage: `${c.listening
         ? waiting ? `Listening; reading your ${waiting === 1 ? "note" : "notes"} next` : "Listening"
         : "Working"}${c.context?.compacting ? " · compacting its context" : contextLevel(state) ? ` · context ${Math.round(contextShare(state) * 100)}% full` : ""}`,
-      latest: c.latest ? `${c.listening ? "Last: " : ""}${c.latest.text}` : undefined,
-      since: c.listening ? undefined : c.latest?.at,
+      latest: steps[0]?.text,
+      trail: steps.slice(1).map((s) => s!.text),
+      since: c.listening ? undefined : c.since || c.latest?.at,
     });
-  else if (c?.waiting)
-    rows.push({ who: "Coordinator", stage: "Starts when you write to it; this sample spends nothing until then." });
+  } else if (c?.waiting)
+    rows.push({ group: "waiting", who: "Coordinator", stage: "Starts when you write to it; this sample spends nothing until then." });
   else if (c?.problem)
-    rows.push({ who: "Coordinator", stage: c.problem });
+    rows.push({ group: "attention", who: "Coordinator", stage: c.problem });
   else if (waiting)
     rows.push({
+      group: "attention",
       who: "Coordinator",
       stage: `Not connected. ${plural(waiting, "note is", "notes are")} waiting for it.`,
     });
   for (const helper of live.filter((w) => w.role === "helper"))
-    rows.push({ who: helper.name, stage: `Helping the coordinator: ${helper.task}`, latest: helper.latest?.text, since: helper.startedAt });
+    rows.push({ group: "working", who: helper.name, stage: `Helping the coordinator: ${helper.task}`, ...steps(helper), since: helper.startedAt });
   for (const i of state.investigations.filter((i) => i.number && !i.closedAt)) {
     const batch = { id: i.id, number: i.number! };
     if (i.status === "running") rows.push(researcherRow(i, live, batch));
-    else if (i.status === "queued") rows.push({ who: "Researcher", batch, stage: "Waiting to start" });
+    else if (i.status === "queued") rows.push({ group: "waiting", who: "Researcher", batch, stage: i.held ? "Held in the queue." : "Waiting for a researcher." });
     else if (i.status === "paused")
-      rows.push({ who: "Researcher", batch, stage: `Paused. ${i.events.at(-1)?.message || ""}`.trim() });
+      rows.push({ group: "attention", who: "Researcher", batch, stage: `Research paused. ${firstSentence(i.events.at(-1)?.message || "")}`.trim() });
     if (i.walkthroughRequestedAt) {
       const writer = live.find((w) => w.role === "writer" && w.investigationId === i.id);
       rows.push({
+        group: writer ? "working" : i.reviewFlow?.writer?.status === "paused" ? "attention" : "waiting",
         who: writer?.name || "Walkthrough",
         batch,
-        stage: writerStatus(i),
-        latest: writer?.latest?.text,
+        stage: i.reviewFlow?.writer?.status === "paused" ? "The walkthrough writer stopped." : writerStatus(i),
+        ...(writer ? steps(writer) : {}),
         since: writer?.startedAt || i.walkthroughRequestedAt,
       });
     }
     for (const job of i.reviewFlow?.jobs || []) {
       if (!["queued", "running", "returned", "paused"].includes(job.status)) continue;
       const worker = live.find((w) => w.jobId === job.id);
+      const asks = job.resumeRequest?.status === "pending";
       rows.push({
+        group: worker ? "working" : job.status === "paused" ? "attention" : "waiting",
         who: job.status === "returned" ? "Graph draft" : worker?.name || "Graph builder",
         batch,
-        stage: job.progress || "Waiting to start",
-        latest: worker?.latest?.text,
+        // A paused job's progress can be a whole list of problems; the batch shows them.
+        stage: job.status === "paused" ? `The graph builder is paused${asks ? "; the coordinator asks to resume it" : ""}.` : job.progress || "Waiting to start",
+        ...(worker ? steps(worker) : {}),
         since: worker?.startedAt,
       });
     }
   }
-  return rows;
+  const order = { working: 0, attention: 1, waiting: 2 };
+  return rows.sort((a, b) => order[a.group] - order[b.group]);
 }
+
+const firstSentence = (text: string) => {
+  const line = text.split("\n")[0]!;
+  const end = line.search(/[.!?](\s|$)/);
+  const sentence = end < 0 ? line : line.slice(0, end + 1);
+  return sentence.length > 140 ? `${sentence.slice(0, 137)}...` : sentence;
+};
+
+// A live worker's current step and the ones before it.
+const steps = (worker: LiveWorker) => ({ latest: worker.latest?.text, trail: (worker.trail || []).map((s) => s.text) });
 
 function researcherRow(i: Investigation, live: LiveWorker[], batch: LiveRow["batch"]): LiveRow {
   const worker = live.find((w) => w.role === "researcher" && w.investigationId === i.id);
   const lease = i.lease?.worker || "";
   return {
+    group: "working",
     who: worker?.name || (lease.startsWith("Coordinator") ? "Researcher run by the coordinator" : "Researcher"),
     batch,
     stage: `Researching ${i.title}`,
-    latest: worker?.latest?.text,
+    ...(worker ? steps(worker) : {}),
     since: worker?.startedAt || i.lease?.at,
   };
+}
+
+const roles: [RegExp, string][] = [[/walkthrough/i, "walkthrough writer"], [/graph/i, "graph builder"], [/helper/i, "helper"], [/researcher/i, "researcher"]];
+// Who is working and the step they are on, for the header to take turns showing.
+export function tickerEntries(state: ResearchState): { who: string; what: string }[] {
+  return liveRows(state)
+    .filter((r) => r.group === "working" && !(r.who === "Coordinator" && state.coordinator?.listening))
+    .map((r) => {
+      const role = roles.find(([pattern]) => pattern.test(r.who))?.[1];
+      return { who: r.batch && role ? `Batch ${r.batch.number} ${role}` : r.who, what: r.latest || (r.who === "Coordinator" ? "Reading the latest changes" : r.stage) };
+    });
 }
 
 // The line in the header: who is working, said briefly. Empty when nothing is.
@@ -152,9 +194,6 @@ export function runningSummary(state: ResearchState): string {
   ].filter(Boolean).join(" · ");
 }
 
-const clock = (iso: string) =>
-  new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
-
 const labels: Record<string, string> = { claude: "Claude Code", codex: "Codex" };
 const resetTime = (ms: number | null, now: number) => {
   if (!ms) return "";
@@ -172,29 +211,19 @@ export function usageLines(state: ResearchState, now = Date.now()): string[] {
   });
 }
 
+const GROUPS: [LiveRow["group"], string][] = [["working", "Working now"], ["attention", "Needs you"], ["waiting", "Waiting"]];
+
+// Who is working and on which step, what stopped and needs the human, and what waits.
 export function livePanel(state: ResearchState, now = Date.now()): string {
   const rows = liveRows(state);
-  const recent = state.investigations
-    .filter((i) => i.number)
-    .flatMap((i) => i.events.map((e) => ({ ...e, batch: i.number!, id: i.id })))
-    .sort((a, b) => b.at.localeCompare(a.at))
-    .slice(0, 6);
-  const now_ = rows.length
-    ? `<ul class="live-now">${rows
-        .map(
-          (r) =>
-            `<li${r.batch ? ` data-live-open="${html(r.batch.id)}"` : ""}><div class="live-who"><strong>${html(r.who)}</strong>${r.batch ? `<span>Batch ${r.batch.number}</span>` : ""}${r.since ? `<time datetime="${html(r.since)}">${html(elapsed(r.since, now))}</time>` : ""}</div><p class="live-stage">${html(r.stage)}</p>${r.latest ? `<p class="live-latest">${html(r.latest)}</p>` : ""}</li>`,
-        )
-        .join("")}</ul>`
-    : '<p class="live-empty">Nothing is running.</p>';
-  const history = recent.length
-    ? `<ol class="live-recent">${recent
-        .map(
-          (e) =>
-            `<li data-live-open="${html(e.id)}"><time datetime="${html(e.at)}">${html(clock(e.at))}</time><span><b>Batch ${e.batch}</b> ${html(e.message)}</span></li>`,
-        )
-        .join("")}</ol>`
-    : "";
-  const usage = usageLines(state, now);
-  return `<h2>Now</h2>${now_}${history ? `<h2>Recent</h2>${history}` : ""}${usage.length ? `<h2>Usage</h2><ul class="live-usage">${usage.map((u) => `<li>${html(u)}</li>`).join("")}</ul>` : ""}<button type="button" class="text-action" data-live-all>All activity</button>`;
+  const working = (r: LiveRow) =>
+    `<li class="live-agent"${r.batch ? ` data-live-open="${html(r.batch.id)}"` : ""}><div class="live-who"><strong>${html(r.who)}</strong>${r.batch ? `<span>Batch ${r.batch.number}</span>` : ""}${r.since ? `<time datetime="${html(r.since)}" data-elapsed>${html(running(r.since, now))}</time>` : ""}</div><p class="live-now${r.latest ? "" : " is-quiet"}${r.who === "Coordinator" && state.coordinator?.listening ? " is-listening" : ""}">${html(r.latest || r.stage)}</p>${r.trail?.length ? `<ul class="live-trail">${r.trail.map((t) => `<li>${html(t)}</li>`).join("")}</ul>` : ""}</li>`;
+  const line = (r: LiveRow) =>
+    `<li><span>${html(r.batch ? `Batch ${r.batch.number}: ${r.stage}` : r.stage)}</span>${r.batch ? `<button type="button" class="text-action" data-live-open="${html(r.batch.id)}">Open batch ${r.batch.number}</button>` : ""}</li>`;
+  const groups = GROUPS.map(([group, title]) => {
+    const members = rows.filter((r) => r.group === group);
+    if (!members.length) return "";
+    return `<h2>${title}</h2><ul class="live-${group}">${members.map(group === "working" ? working : line).join("")}</ul>`;
+  }).join("");
+  return `${groups || '<p class="live-empty">Nothing is running.</p>'}<div class="live-foot"><button type="button" class="text-action" data-live-all>All activity</button></div>`;
 }

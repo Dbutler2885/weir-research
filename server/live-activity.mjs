@@ -2,17 +2,28 @@ import { basename } from "node:path";
 
 // What each worker is doing at this moment. It lives in memory only: the saved
 // history records the stages, and this fills in the latest action between them.
+// How many earlier steps are kept beside the current one.
+const TRAIL = 3;
+// The current step and the few before it, most recent first, after one more step.
+// The same step said again only moves its time.
+export function step({ latest, trail }, text, now) {
+  if (!text) return { latest, trail };
+  const at = new Date(now).toISOString();
+  if (latest?.text === text) return { latest: { at: latest.at, text }, trail };
+  return { latest: { at, text }, trail: latest ? [latest, ...trail].slice(0, TRAIL) : trail };
+}
+
 export class LiveActivity {
   constructor(now = Date.now) {
     this.now = now;
     this.workers = new Map();
   }
   begin(key, worker) {
-    this.workers.set(key, { ...worker, startedAt: new Date(this.now()).toISOString(), latest: null });
+    this.workers.set(key, { ...worker, startedAt: new Date(this.now()).toISOString(), latest: null, trail: [] });
   }
   note(key, text) {
     const worker = this.workers.get(key);
-    if (worker && text) worker.latest = { at: new Date(this.now()).toISOString(), text };
+    if (worker) Object.assign(worker, step(worker, text, this.now()));
   }
   end(key) {
     this.workers.delete(key);

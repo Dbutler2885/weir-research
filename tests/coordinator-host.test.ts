@@ -150,6 +150,6 @@ describe("the coordinator in the live panel", () => {
     const { runningSummary, liveRows } = await import("../src/ui/live-panel");
     const state = { investigations: [], conversation: [], coordinator: { connected: false, problem: "No agent CLI is installed. Install Claude Code or Codex to start the coordinator." } } as any;
     expect(runningSummary(state)).toBe("Coordinator not running");
-    expect(liveRows(state)).toEqual([{ who: "Coordinator", stage: "No agent CLI is installed. Install Claude Code or Codex to start the coordinator." }]);
+    expect(liveRows(state)).toEqual([{ group: "attention", who: "Coordinator", stage: "No agent CLI is installed. Install Claude Code or Codex to start the coordinator." }]);
   });
 });

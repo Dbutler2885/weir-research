@@ -100,6 +100,23 @@ describe("live activity", () => {
     expect(coordinator.status()).toMatchObject({ listening: true, latest: { text: "Searching the project for “founder”" } });
   });
 
+  it("keeps the few steps before the latest, and a repeated step only once", () => {
+    let now = Date.parse("2026-01-01T00:00:00.000Z");
+    const live = new LiveActivity(() => now);
+    live.begin("r", { role: "researcher", name: "Claude researcher", investigationId: "i" });
+    for (const text of ["Reading its assignment", "Searching the web", "Searching the web", "Reading a page", "Saving its progress", "Reading a page"]) {
+      now += 1000;
+      live.note("r", text);
+    }
+    const [worker] = live.list();
+    expect(worker!.latest!.text).toBe("Reading a page");
+    expect(worker!.trail.map((s: any) => s.text)).toEqual(["Saving its progress", "Reading a page", "Searching the web"]);
+    const coordinator = new Coordinator(store().store);
+    coordinator.noteText("Reading your message");
+    coordinator.noteText("Replying to you");
+    expect(coordinator.trail.map((s: any) => s.text)).toEqual(["Reading your message"]);
+  });
+
   it("shows an outside coordinator as working, never as listening", () => {
     const { store: s } = store();
     const coordinator = new Coordinator(s);

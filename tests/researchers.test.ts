@@ -324,9 +324,10 @@ describe("steerable researchers", () => {
       next.investigations.find((i: any) => i.id === s.id).number = 1;
     });
     expect(liveRows({ ...s.store.state, live: s.live.list() } as any)).toContainEqual({
+      group: "attention",
       who: "Researcher",
       batch: { id: s.id, number: 1 },
-      stage: "Paused. Coordinator stopped the researcher: The human withdrew this question.",
+      stage: "Research paused. Coordinator stopped the researcher: The human withdrew this question.",
     });
     expect(() => s.command({ action: "steer", message: "Too late" })).toThrow("No researcher is running");
   });

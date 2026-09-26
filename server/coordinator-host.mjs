@@ -57,8 +57,12 @@ export class CoordinatorHost {
       describe: fileDescriber(coordinatorFiles),
     });
     this.agent = agent;
+    this.since = Date.now();
     agent.on('action', (text) => this.coordinator.noteText(text));
-    agent.on('turn', () => this.flush());
+    agent.on('turn', () => {
+      this.since = null;
+      this.flush();
+    });
     agent.on('paused', ({reason}) => this.coordinator.noteText(reason));
     // How full its context is, from its stream.
     this.context = {tokens: 0, window: null, compactions: 0};
@@ -78,6 +82,7 @@ export class CoordinatorHost {
     agent.on('exit', ({reason} = {}) => {
       if (this.agent !== agent) return;
       this.agent = null;
+      this.since = null;
       const at = new Date().toLocaleTimeString('en-US', {hour: 'numeric', minute: '2-digit'});
       this.problem ||= `The coordinator stopped at ${at}${reason === 'lost' ? ' when it lost contact with the app' : ''}.`;
       this.coordinator.problem = this.problem;
@@ -136,12 +141,14 @@ export class CoordinatorHost {
   }
   status() {
     const context = this.context && {tokens: this.context.tokens, threshold: this.threshold(), compactions: this.context.compactions, compacting: Boolean(this.context.compacting)};
-    return {connected: Boolean(this.agent), listening: Boolean(this.agent) && !this.agent.busy, problem: this.problem, context};
+    const since = this.agent?.busy && this.since ? new Date(this.since).toISOString() : null;
+    return {connected: Boolean(this.agent), listening: Boolean(this.agent) && !this.agent.busy, problem: this.problem, context, since};
   }
   // Compacts the coordinator's conversation now.
   compact() {
     if (!this.agent) throw new Error('The coordinator is not running.');
     this.context.compacting = true;
+    this.since ??= Date.now();
     this.agent.compact();
     this.coordinator.noteText('Compacting its conversation');
   }
@@ -156,7 +163,12 @@ export class CoordinatorHost {
   }
   // Something for the coordinator that is not in the project's state, such as a helper's answer.
   tell(text) {
-    if (this.agent && !this.agent.finishing) this.agent.send(text);
+    if (this.agent && !this.agent.finishing) this.send(text);
+  }
+  // A message starts a turn when it is idle, or joins the one it is in.
+  send(text) {
+    if (!this.agent.busy) this.since = Date.now();
+    this.agent.send(text);
   }
   schedule() {
     clearTimeout(this.timer);
@@ -171,7 +183,7 @@ export class CoordinatorHost {
     const body = delta.changed
       ? JSON.stringify(delta.changed, null, 1)
       : delta.context.text;
-    this.agent.send(`The project changed. Act on what needs you, answer the human in the conversation, then end your turn.\n\n${body}`);
+    this.send(`The project changed. Act on what needs you, answer the human in the conversation, then end your turn.\n\n${body}`);
   }
   // Each command the coordinator's tool leaves in its mailbox gets an answer beside it.
   async mailbox() {

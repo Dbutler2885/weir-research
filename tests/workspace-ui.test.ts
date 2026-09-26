@@ -221,11 +221,36 @@ describe("investigation workspace", () => {
     mount();
     click("[data-add-instruction]");
     expect(document.querySelector(".coordinator-presence")!.textContent).toContain("No coordinator is attached");
-    state.coordinator = { enabled: true, connected: true, name: "Research coordinator", handoff: "", awaitingSynthesis: [] };
+    state.coordinator = { enabled: true, connected: true, listening: true, name: "Research coordinator", handoff: "", awaitingSynthesis: [] };
     await poll();
     await vi.waitFor(() =>
       expect(document.querySelector(".coordinator-presence")!.textContent).toContain("Research coordinator is listening"),
     );
+  });
+  it("shows the coordinator at work on the human's message, step by step, until it replies", async () => {
+    state.coordinator = { enabled: true, connected: true, listening: true, name: "Coordinator", handoff: "", awaitingSynthesis: [] };
+    mount();
+    click("[data-add-instruction]");
+    const box = document.querySelector<HTMLTextAreaElement>("[data-message]")!;
+    box.value = "Has it saved anything on Gillise yet?";
+    click('[data-message-form] button[type="submit"]');
+    await vi.waitFor(() => expect(state.conversation!.at(-1)!.author).toBe("human"));
+    const since = new Date(Date.now() - 8_000).toISOString();
+    state.coordinator = { ...state.coordinator!, listening: false, since, latest: { at: new Date().toISOString(), text: "Checking batch 6's checkpoints" }, trail: [{ at: since, text: "Reading the project's latest changes" }] };
+    await poll();
+    const working = () => document.querySelector(".coordinator-working");
+    await vi.waitFor(() => expect(working()?.textContent).toContain("Checking batch 6's checkpoints"));
+    expect(working()!.textContent).toContain("Coordinator is working");
+    expect(working()!.textContent).toContain("Before that: reading the project's latest changes");
+    expect(document.querySelector(".coordinator-presence")!.textContent).toBe("Coordinator is working on your message.");
+    // The typed draft is untouched by the updates.
+    box.value = "Also";
+    state.conversation!.push({ id: "reply", author: "coordinator", text: "Not yet.", at: new Date().toISOString() } as never);
+    state.revision++;
+    state.coordinator = { ...state.coordinator!, listening: true, since: null };
+    await poll();
+    await vi.waitFor(() => expect(working()).toBeNull());
+    expect(document.querySelector(".coordinator-presence")!.textContent).toBe("Coordinator is listening.");
   });
   it("says when the coordinator stopped, and starts it again", async () => {
     state.coordinator = { enabled: true, connected: false, name: null, handoff: "", awaitingSynthesis: [], problem: "The coordinator stopped at 4:18 AM when it lost contact with the app." };
@@ -248,17 +273,19 @@ describe("investigation workspace", () => {
     mount();
     const indicator = document.querySelector<HTMLElement>("[data-running]")!;
     expect(indicator.hidden).toBe(false);
-    expect(indicator.textContent).toBe("1 graph update building");
-    // The line opens a panel saying who is working and what each is doing.
+    // The line says who is working and the step it is on.
+    expect(indicator.querySelector(".ticker-who")!.textContent).toBe("Batch 1 graph builder");
+    expect(indicator.querySelector(".ticker-what")!.textContent).toBe("Editing the edges table");
+    expect(indicator.querySelector(".ticker-more")).toBeNull();
+    // It opens a panel: who is working now, what needs the human, and what waits.
     expect(indicator.getAttribute("popovertarget")).toBe("live-panel");
     const panel = document.getElementById("live-panel")!;
     panel.dispatchEvent(Object.assign(new Event("beforetoggle"), { newState: "open" }));
-    const [researcher, builder] = panel.querySelectorAll(".live-now li");
-    expect(researcher!.textContent).toBe("ResearcherBatch 1Paused. Investigation paused; saved findings retained.");
-    expect(builder!.querySelector(".live-who")!.textContent).toBe("Claude graph builderBatch 14 min");
-    expect(builder!.querySelector(".live-stage")!.textContent).toBe("Building a connected graph.");
-    expect(builder!.querySelector(".live-latest")!.textContent).toBe("Editing the edges table");
-    expect(panel.querySelector(".live-recent")!.textContent).toContain("Investigation paused");
+    expect([...panel.querySelectorAll("h2")].map((h) => h.textContent)).toEqual(["Working now", "Needs you"]);
+    const builder = panel.querySelector(".live-working .live-agent")!;
+    expect(builder.querySelector(".live-who")!.textContent).toBe("Claude graph builderBatch 14 min");
+    expect(builder.querySelector(".live-now")!.textContent).toBe("Editing the edges table");
+    expect(panel.querySelector(".live-attention")!.textContent).toBe("Batch 1: Research paused. Investigation paused; saved findings retained.Open batch 1");
     // jsdom has no popover support; the panel only needs to close.
     HTMLElement.prototype.hidePopover = vi.fn();
     panel.querySelector<HTMLElement>("[data-live-all]")!.click();
