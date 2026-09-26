@@ -123,11 +123,14 @@ describe("investigation workspace", () => {
   it("keeps an annotation draft across tabs, page selections and closing the drawer", async () => {
     const investigations = state.investigations.length;
     click('[data-view="work"]');
-    click("[data-add-instruction]");
+    click("[data-open-coordinator]");
     expect(document.querySelector('[data-tab="conversation"]')!.getAttribute("aria-current")).toBe("page");
-    // Opening the drawer is the switch: the page is annotatable while it is open.
+    // Opening the sidebar to talk leaves the page as it is; annotating is its own switch.
+    expect(document.body.classList.contains("research-annotating")).toBe(false);
+    click("[data-annotate]");
     expect(document.body.classList.contains("research-annotating")).toBe(true);
-    click('[data-tab="queue"]');
+    expect(document.querySelector("[data-annotate]")!.getAttribute("aria-checked")).toBe("true");
+    expect(document.querySelector('[data-tab="queue"]')!.getAttribute("aria-current")).toBe("page");
     typeNote("Compare these records");
     click('[data-tab="conversation"]');
     click('[data-tab="queue"]');
@@ -142,8 +145,13 @@ describe("investigation workspace", () => {
     expect(document.querySelector(".note-references")!.textContent).toContain("Fictional register entry");
     expect(document.querySelector<HTMLTextAreaElement>("[data-note]")!.value).toBe("Compare these records");
     click("[data-close]");
+    // Closing the sidebar leaves the switch as it was; turning it off ends annotating.
+    expect(document.body.classList.contains("research-annotating")).toBe(true);
+    click("[data-annotate]");
     expect(document.body.classList.contains("research-annotating")).toBe(false);
-    click("[data-add-instruction]");
+    expect(document.querySelector("#notes-sidebar[open]")).toBeNull();
+    click("[data-open-coordinator]");
+    click('[data-tab="queue"]');
     expect(document.querySelector<HTMLTextAreaElement>("[data-note]")!.value).toBe("Compare these records");
     click('[data-submit="queue"]');
     await vi.waitFor(() => expect(state.queue).toHaveLength(1));
@@ -157,8 +165,8 @@ describe("investigation workspace", () => {
     for (const question of ["Check the workshop register", "Check another workshop"])
       state = transition(state, { type: "queue-annotation", question, references: [] }).state;
     mount();
-    expect(document.querySelector('[data-count="queue"]')!.textContent).toBe("");
-    click("[data-add-instruction]");
+    expect(document.querySelector('[data-count="unread"]')!.textContent).toBe("");
+    click("[data-open-coordinator]");
     click('[data-tab="queue"]');
     expect(document.querySelectorAll(".queue-item")).toHaveLength(2);
     click(".queue-item [data-remove-queued]");
@@ -175,10 +183,10 @@ describe("investigation workspace", () => {
       body: "Two sources disagree about the closing year.",
     }).state;
     mount();
-    const badge = document.querySelector('[data-count="queue"]')!;
+    const badge = document.querySelector('[data-count="unread"]')!;
     expect(badge.textContent).toBe("2");
     expect(badge.classList.contains("alert")).toBe(true);
-    click("[data-add-instruction]");
+    click("[data-open-coordinator]");
     expect(document.querySelector(".msg-decision")!.textContent).toContain("Read the 1884 register?");
     expect(badge.textContent).toBe("");
     click('[data-decide="approve"]');
@@ -214,12 +222,12 @@ describe("investigation workspace", () => {
     click("[data-notice-dismiss]");
     expect(notice.hidden).toBe(true);
     // Dismissing keeps the message unread.
-    expect(document.querySelector('[data-count="queue"]')!.textContent).toBe("1");
+    expect(document.querySelector('[data-count="unread"]')!.textContent).toBe("1");
   });
   it("says in the conversation whether a coordinator is listening", async () => {
     state.coordinator = { enabled: true, connected: false, name: null, handoff: "", awaitingSynthesis: [] };
     mount();
-    click("[data-add-instruction]");
+    click("[data-open-coordinator]");
     expect(document.querySelector(".coordinator-presence")!.textContent).toContain("No coordinator is attached");
     state.coordinator = { enabled: true, connected: true, listening: true, name: "Research coordinator", handoff: "", awaitingSynthesis: [] };
     await poll();
@@ -230,7 +238,7 @@ describe("investigation workspace", () => {
   it("shows the coordinator at work on the human's message, step by step, until it replies", async () => {
     state.coordinator = { enabled: true, connected: true, listening: true, name: "Coordinator", handoff: "", awaitingSynthesis: [] };
     mount();
-    click("[data-add-instruction]");
+    click("[data-open-coordinator]");
     const box = document.querySelector<HTMLTextAreaElement>("[data-message]")!;
     box.value = "Has it saved anything on Gillise yet?";
     click('[data-message-form] button[type="submit"]');
@@ -257,7 +265,7 @@ describe("investigation workspace", () => {
     state.coordinator = { enabled: true, connected: true, listening: false, paused: { until }, since: null, name: "Coordinator", handoff: "", awaitingSynthesis: [] };
     state.conversation = [{ id: "m1", author: "human", text: "hello?", at: new Date().toISOString() } as never];
     mount();
-    click("[data-add-instruction]");
+    click("[data-open-coordinator]");
     expect(document.querySelector(".coordinator-presence")!.textContent).toBe("Coordinator is paused until 1:00 PM. Messages you send wait until then.");
     expect(document.querySelector(".coordinator-working")!.textContent).toMatch(/Coordinator is paused\s*until 1:00 PM\s*The usage limit is reached/);
     expect(document.querySelector("[data-running]")!.textContent).toContain("Coordinator paused until 1:00 PM");
@@ -265,7 +273,7 @@ describe("investigation workspace", () => {
   it("says when the coordinator stopped, and starts it again", async () => {
     state.coordinator = { enabled: true, connected: false, name: null, handoff: "", awaitingSynthesis: [], problem: "The coordinator stopped at 4:18 AM when it lost contact with the app." };
     mount();
-    click("[data-add-instruction]");
+    click("[data-open-coordinator]");
     const presence = () => document.querySelector(".coordinator-presence")!.textContent;
     expect(presence()).toContain("The coordinator stopped at 4:18 AM when it lost contact with the app. Messages wait here until it starts.");
     click("[data-start-coordinator]");
@@ -303,7 +311,7 @@ describe("investigation workspace", () => {
     expect(document.querySelector('[data-investigation-section="activity"]')!.getAttribute("aria-current")).toBe("page");
   });
   it("says the service is unreachable and keeps the typed message", async () => {
-    click("[data-add-instruction]");
+    click("[data-open-coordinator]");
     const box = document.querySelector<HTMLTextAreaElement>("[data-message]")!;
     box.value = "Let us work inside this project";
     box.dispatchEvent(new Event("input", { bubbles: true }));
@@ -336,7 +344,7 @@ describe("investigation workspace", () => {
       awaitingSynthesis: [],
     };
     mount();
-    click("[data-add-instruction]");
+    click("[data-open-coordinator]");
     expect(document.querySelector(".coordinator-presence")!.textContent).toContain(
       "Research coordinator is working, last seen 4 minutes ago",
     );
@@ -349,7 +357,7 @@ describe("investigation workspace", () => {
     }).state;
     mount();
     click('[data-view="work"]');
-    click("[data-add-instruction]");
+    click("[data-open-coordinator]");
     click(".msg-links [data-reference]");
     expect(document.querySelector(".app-shell")!.getAttribute("data-workspace-view")).toBe("research");
     const back = document.querySelector<HTMLButtonElement>(".return-bar")!;
@@ -367,7 +375,7 @@ describe("investigation workspace", () => {
   it("sends a single annotation immediately and keeps the rest of the queue", async () => {
     state = transition(state, { type: "queue-annotation", question: "Still thinking", references: [] }).state;
     mount();
-    click("[data-add-instruction]");
+    click("[data-open-coordinator]");
     click('[data-tab="queue"]');
     typeNote("Urgent question");
     click('[data-submit="now"]');
@@ -513,7 +521,7 @@ describe("investigation workspace", () => {
   });
   it("keeps repeated feedback saves out of research and remembers the choice", async () => {
     const annotations = state.investigations[0]!.annotations.length;
-    click("[data-add-instruction]");
+    click("[data-open-coordinator]");
     click('[data-tab="queue"]');
     click("[data-feedback]");
     for (const text of ["Clarify the status", "Simplify the labels"]) {
@@ -526,7 +534,7 @@ describe("investigation workspace", () => {
     expect(state.investigations[0]!.annotations).toHaveLength(annotations);
     expect(document.querySelector('[data-count="feedback"]')!.textContent).toBe("2");
     mount();
-    click("[data-add-instruction]");
+    click("[data-open-coordinator]");
     click('[data-tab="queue"]');
     expect(document.querySelector<HTMLInputElement>("[data-feedback]")!.checked).toBe(true);
   });

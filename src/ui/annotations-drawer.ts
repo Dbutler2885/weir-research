@@ -157,8 +157,8 @@ export class AnnotationsDrawer {
     const queue = state.queue || [];
     this.markSeen();
     const unread = this.unread();
-    this.root.innerHTML = `<div class="drawer-head"><h2>Annotations</h2><button type="button" class="drawer-close" data-close aria-label="Close annotations">×</button></div>
-<nav class="drawer-tabs" aria-label="Annotations"><button type="button" data-tab="conversation" ${this.tab === "conversation" ? 'aria-current="page"' : ""}>Conversation${unread ? '<span class="unread-dot" aria-label="Unread messages"></span>' : ""}</button><button type="button" data-tab="queue" ${this.tab === "queue" ? 'aria-current="page"' : ""}>Queue${queue.length ? `<span class="tab-count">${queue.length}</span>` : ""}</button></nav>
+    this.root.innerHTML = `<div class="drawer-head"><h2>Coordinator</h2><button type="button" class="drawer-close" data-close aria-label="Close the coordinator panel">×</button></div>
+<nav class="drawer-tabs" aria-label="Coordinator"><button type="button" data-tab="conversation" ${this.tab === "conversation" ? 'aria-current="page"' : ""}>Conversation${unread ? '<span class="unread-dot" aria-label="Unread messages"></span>' : ""}</button><button type="button" data-tab="queue" ${this.tab === "queue" ? 'aria-current="page"' : ""}>Annotations${queue.length ? `<span class="tab-count">${queue.length}</span>` : ""}</button></nav>
 ${this.tab === "conversation" ? this.conversation(state) : this.queue(state)}`;
     const list = this.tab === "conversation" ? this.root.querySelector<HTMLElement>(".conversation") : null;
     const pinned = list && this.pinned ? this.messageElement(this.pinned) : undefined;

@@ -145,8 +145,13 @@ dialog button:hover,
   border-color: var(--sea);
   background: #edf1e9;
 }
-/* The Annotations button is a switch: while it is on, the page can be annotated. */
-[data-add-instruction] {
+/* The Coordinator button reads as pressed while its sidebar is open. */
+[data-open-coordinator][aria-expanded="true"] {
+  color: var(--sea-dark);
+  font-weight: 600;
+}
+/* The Annotate switch: while it is on, selecting in the page starts an annotation. */
+[data-annotate] {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -172,10 +177,10 @@ dialog button:hover,
   box-shadow: 0 1px 2px rgb(0 0 0 / 20%);
   transition: transform 0.15s;
 }
-[data-add-instruction][aria-checked="true"] .annotation-switch {
+[data-annotate][aria-checked="true"] .annotation-switch {
   background: var(--sea);
 }
-[data-add-instruction][aria-checked="true"] .annotation-switch::after {
+[data-annotate][aria-checked="true"] .annotation-switch::after {
   transform: translateX(11px);
 }
 .research-surface button:disabled {

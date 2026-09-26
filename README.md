@@ -30,11 +30,10 @@ That agent is for working on the app itself; it is not the coordinator.
 The local service stores accepted research, investigation history, and imported sources in `.research/`, including archived original datasets and trial notes.
 Keep a backup of that directory to preserve your work.
 
-Open Annotations to write an annotation, select references, or manage the queued list in one sidebar.
-Enable Select references inside the sidebar or use Command/Control + I to annotate the current surface.
-Select one or several elements or passages, or use Add question with no selection.
-The composer docks beside the surface, preserves drafts when closed, and supports editing queued annotations and amending sent instructions.
-Its New annotation and Queued tabs preserve the current draft and keep the research surface open; the Annotations button shows the number of unsent annotations.
+The Coordinator button opens the sidebar where you talk with the coordinator; it shows how many of its messages are unread.
+The Annotate switch, or Command/Control + I, lets you select elements or passages on any surface, and opens the sidebar's Annotations tab with the note you are writing.
+You can also write an annotation there with no selection.
+The sidebar docks beside the surface, preserves drafts when closed, and supports editing queued annotations before you send them together.
 Choose Interface feedback to record product observations separately from historical research.
 The destination stays selected between saves; the Feedback button and save confirmation open all saved interface notes.
 Investigations separates Findings, Your annotations, and Activity, with researcher preferences under Research settings.
