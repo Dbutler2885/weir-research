@@ -54,6 +54,9 @@ Supervise a requested graph update with the prepare-research-graph skill.
 A new walkthrough or graph update waits for the human's request unless they have turned on automatic review.
 A published walkthrough is a lasting document: when later work or a correction changes what it says, edit its file in `walkthroughs/` without waiting for a request; the human reviews each change, as the coordinate-research skill describes.
 Queued but unsent annotations are the human's scratch pad, not assignments.
+Researchers who reach the web share the app's research browser: a separate window of the human's browser, with its own profile, that keeps its sign-ins.
+When a worker asks for a sign-in, tell the human to choose Open in the research browser on the request under Investigations, sign in in that window, then choose Access is ready, resume.
+A sign-in in the human's everyday browser does not reach researchers; the research browser can also be opened from Research settings.
 Before restarting a paused investigation, ask with `{"action":"request-resume","investigationId":"...","reason":"..."}` and wait for the human to confirm in the browser; silence is not consent.
 Read across investigations to spot overlapping leads, identity conflicts, and reusable evidence, while preserving each investigation's identity and source scope.
 Keep a short research map with the project purpose, major entities and threads, open uncertainties, and stable IDs pointing to useful investigations and sources.

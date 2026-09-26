@@ -1131,6 +1131,13 @@ export function mountResearchWorkspace(
       showSource(undefined, undefined, button.dataset.openSource);
       return;
     }
+    if (button.hasAttribute("data-open-research-browser-page")) {
+      const url = button.dataset.openResearchBrowserPage || null;
+      void request("/api/research-browser", { url })
+        .then(() => message(`It opened in the research browser${state.researchBrowser?.name ? `, a separate ${state.researchBrowser.name} window` : ""}. Sign in there, then choose Access is ready, resume.`))
+        .catch((error) => message((error as Error).message));
+      return;
+    }
     if (button.hasAttribute("data-source-list")) {
       selectedSource = undefined;
       setView("sources");

@@ -333,7 +333,7 @@ const server = createServer(async (req, res) => {
         live: live.list(),
         catalog,
         usage: supervisor.usage,
-        researchBrowser: { available: researchBrowser.available },
+        researchBrowser: { available: researchBrowser.available, name: researchBrowser.browser.name },
       });
     if (req.method === "GET" && url.pathname === "/api/revision")
       return json(res, 200, {
@@ -417,7 +417,7 @@ const server = createServer(async (req, res) => {
       return json(res, 200, { started: coordinatorHost.startFresh() });
     // The human opens the research browser to sign in to archives once.
     if (req.method === "POST" && url.pathname === "/api/research-browser") {
-      await researchBrowser.show();
+      await researchBrowser.show((await body(req)).url ?? null);
       return json(res, 200, { open: true });
     }
     if (req.method === "POST" && url.pathname === "/api/dispatch")

@@ -234,7 +234,7 @@ export interface ResearchState {
   dispatch?: Dispatch;
   catalog?: Catalog;
   // Whether Google Chrome is installed for the research browser.
-  researchBrowser?: { available: boolean };
+  researchBrowser?: { available: boolean; name?: string | null };
   // The latest usage each agent CLI reported, where it reports any.
   usage?: Partial<Record<"claude" | "codex", Usage>>;
 }

@@ -100,7 +100,7 @@ function batchCard(
     .map((q) => question(state, b, q, expanded, answers))
     .join("");
   const other = b.proposals.filter((p) => !answers.get(p.id)?.length);
-  return `<article class="batch-card" id="batch-${html(b.id)}" data-investigation-id="${html(b.id)}"><div class="batch-label">Batch ${b.number} · ${label}</div><h2>${html(b.title)}</h2><p class="batch-meta">${meta.join(" · ")}</p>${requests(b)}${questions}${
+  return `<article class="batch-card" id="batch-${html(b.id)}" data-investigation-id="${html(b.id)}"><div class="batch-label">Batch ${b.number} · ${label}</div><h2>${html(b.title)}</h2><p class="batch-meta">${meta.join(" · ")}</p>${requests(state, b)}${questions}${
     other.length
       ? `<section class="batch-question"><h3>Other reports in this batch</h3>${other.map((p, n) => report(state, b, p, n === 0, expanded, [])).join("")}</section>`
       : ""
@@ -117,14 +117,25 @@ function graphStatus(b: Investigation): string {
   return "";
 }
 
-function requests(b: Investigation): string {
+// Researchers reach the web through the research browser, so a sign-in they need is
+// made there; one made in the human's everyday browser does not reach them.
+function accessActions(state: ResearchState, url?: string): string {
+  const page = url && /^https?:\/\//.test(url) ? url : "";
+  const browser = state.researchBrowser;
+  const resume = '<button type="button" data-command="resolve-access">Access is ready, resume</button>';
+  if (!browser?.available)
+    return `<div class="batch-request-actions">${page ? `<a href="${html(page)}" target="_blank" rel="noopener">Open source</a>` : ""}${resume}</div>`;
+  return `<p class="batch-request-note">Sign in in the research browser, the separate ${html(browser.name || "browser")} window researchers use. Sign-ins in your everyday browser do not reach them.</p><div class="batch-request-actions"><button type="button" class="primary" data-open-research-browser-page="${html(page)}">Open in the research browser</button>${resume}</div>`;
+}
+
+function requests(state: ResearchState, b: Investigation): string {
   const resume =
     b.status === "paused" && b.resumeRequest?.status === "pending"
       ? `<section class="batch-request"><strong>Resume this batch?</strong><p>${html(b.resumeRequest.reason)}</p><div class="batch-request-actions"><button type="button" class="primary" data-command="resume-decision" data-resume-request="${html(b.resumeRequest.id)}" data-resume-decision="approve">Resume research</button><button type="button" data-command="resume-decision" data-resume-request="${html(b.resumeRequest.id)}" data-resume-decision="decline">Keep paused</button></div></section>`
       : "";
   const access =
     b.accessRequest && !b.accessRequest.resolvedAt
-      ? `<section class="batch-request"><strong>Source access needs your help</strong><p>${html(b.accessRequest.instruction)}</p><div class="batch-request-actions">${b.accessRequest.url && /^https?:\/\//.test(b.accessRequest.url) ? `<a href="${html(b.accessRequest.url)}" target="_blank" rel="noopener">Open source</a>` : ""}<button type="button" data-command="resolve-access">Access is ready, resume</button></div></section>`
+      ? `<section class="batch-request"><strong>Source access needs your help</strong><p>${html(b.accessRequest.instruction)}</p>${accessActions(state, b.accessRequest.url)}</section>`
       : "";
   return resume + access;
 }

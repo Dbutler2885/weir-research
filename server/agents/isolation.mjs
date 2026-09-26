@@ -61,6 +61,10 @@ export function codexIsolationArgs(folder, { browser = null, compactAt = 0 } = {
         `mcp_servers.browser.args=${JSON.stringify(browser.args)}`,
         "-c",
         `mcp_servers.browser.env={${Object.entries(browser.env || {}).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(", ")}}`,
+        // Its tools run without asking: with approvals off, Codex would otherwise refuse
+        // every tool that is not read-only, such as opening a page.
+        "-c",
+        'mcp_servers.browser.default_tools_approval_mode="approve"',
       ]
     : [];
   return [

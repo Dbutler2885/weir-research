@@ -135,6 +135,11 @@ describe("isolation", () => {
     expect(args).toContain(`":minimal"="read"`);
     expect(args).toContain(`"${folder}"="write"`);
     expect(args).toContain("permissions.agent.network={enabled=true}");
+    // The research browser's tools run without asking; with approvals off, Codex would refuse them.
+    const browser = codexAdapter.args({ folder, browser: { command: "node", args: ["browser.mjs"], env: {} } }).join(" ");
+    expect(browser).toContain('mcp_servers.browser.command="node"');
+    expect(browser).toContain('mcp_servers.browser.default_tools_approval_mode="approve"');
+    expect(args).not.toContain("mcp_servers.browser");
     expect(codexAdapter.env({ PATH: "/bin", HOME: "/Users/someone" }, { homes: { codexHome: "/app/codex", home: "/app/home" } })).toEqual({
       PATH: "/bin",
       HOME: "/app/home",

@@ -79,9 +79,11 @@ export class ResearchBrowser {
     if (!this.engine) throw new Error('No browser researchers can drive, such as Chrome, Brave or Firefox, is installed.');
     return (await this.engine.running()) || this.engine.start();
   }
-  // Opens a tab for the human, to sign in to archives.
-  async show() {
-    await this.engine.show(await this.open());
+  // Opens a tab for the human, to sign in to archives: a blank one, or the page a
+  // worker asked for help with. Only web pages are opened.
+  async show(page = null) {
+    if (page !== null && !/^https?:\/\//.test(String(page))) throw new Error('Only a web page can be opened in the research browser.');
+    await this.engine.show(await this.open(), page);
   }
   // The MCP server a worker uses to reach the browser.
   mcpServer(url) {
@@ -137,8 +139,9 @@ class ChromiumEngine {
     }
     return url;
   }
-  async show(url) {
-    await fetch(`${url}/json/new?about:blank`, {method: 'PUT'}).catch(() => {});
+  async show(url, page) {
+    const tab = await fetch(`${url}/json/new?${page ? encodeURI(page) : 'about:blank'}`, {method: 'PUT'}).then((r) => r.json()).catch(() => null);
+    if (tab?.id) await fetch(`${url}/json/activate/${tab.id}`).catch(() => {});
   }
   mcpServer(url) {
     return {
@@ -198,9 +201,9 @@ class FirefoxEngine {
       return null;
     }
   }
-  async show() {
+  async show(_url, page) {
     const relay = this.relay();
-    await fetch(`${relay.url}/show`, {method: 'POST', headers: {authorization: `Bearer ${relay.token}`}}).catch(() => {});
+    await fetch(`${relay.url}/show`, {method: 'POST', headers: {authorization: `Bearer ${relay.token}`, 'content-type': 'application/json'}, body: JSON.stringify({page})}).catch(() => {});
   }
   mcpServer() {
     return {command: process.execPath, args: [join(this.root, 'server', 'firefox-mcp.mjs')], env: {RESEARCH_BROWSER_RELAY: this.relayFile}};

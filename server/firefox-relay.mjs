@@ -126,6 +126,7 @@ async function main() {
       // The human opens the research browser to sign in: a tab of their own, in front.
       if (req.url === '/show') {
         const page = await browser.newPage();
+        if (/^https?:\/\//.test(request.page || '')) await page.goto(request.page).catch(() => {});
         await page.bringToFront().catch(() => {});
         return reply(200, {ok: true});
       }
