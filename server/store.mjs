@@ -9,7 +9,7 @@ import {
   fsyncSync,
 } from "node:fs";
 import { join } from "node:path";
-import { initialState, transition } from "../src/domain/research.ts";
+import { IMPORTS_DESCRIPTION, initialState, transition } from "../src/domain/research.ts";
 import { needsGraphUpgrade, upgradeGraphState } from "../src/domain/graph-upgrade.ts";
 import { convertToAppWorkers } from "../src/domain/migration.ts";
 import { repairClosedBatches } from "../src/domain/conversation.ts";
@@ -36,6 +36,12 @@ export class WorkspaceStore {
     if (repairClosedBatches(this.state)) this.save(this.state);
     // A project from before the app ran every worker converts in place.
     if (convertToAppWorkers(this.state)) this.save(this.state);
+    // A project from before PDFs were read says so no longer.
+    const imports = this.state.collections?.find((c) => c.id === "imports");
+    if (imports && imports.description !== IMPORTS_DESCRIPTION && /PDFs retain their original pages/.test(imports.description)) {
+      imports.description = IMPORTS_DESCRIPTION;
+      this.save(this.state);
+    }
     this.marks = [];
     this.mark(this.state);
     this.listeners = new Set();

@@ -170,7 +170,20 @@ export interface ResearchDocument {
   size: number;
   sha256: string;
   importedAt: string;
+  // Searchable text; a PDF's is marked with "[Page n]" before each page.
   text?: string;
+  pages?: number;
+  // Where reading a PDF into text stands, and which reader did it.
+  reading?: {
+    state: "waiting" | "reading" | "done" | "failed";
+    engine?: "standard" | "docling";
+    page?: number;
+    total?: number;
+    ocrPages?: number;
+    error?: string;
+    at?: string;
+  };
+  // Text read by the earlier, manual Docling import.
   extraction?: {
     processor: string;
     status: string;
@@ -247,6 +260,11 @@ export interface ResearchState {
   developerMode?: boolean;
   // Whether the human has seen the introduction to annotating, in any project.
   annotationIntroSeen?: boolean;
+  // Which reader reads PDFs, for the whole app, and whether High accuracy is installed.
+  pdfReading?: {
+    reader: "standard" | "docling";
+    docling: { state: "absent" | "installing" | "ready" | "failed"; step?: string; downloaded?: number; error?: string };
+  };
   // Whether Google Chrome is installed for the research browser.
   researchBrowser?: { available: boolean; name?: string | null };
   // The latest usage each agent CLI reported, where it reports any.
@@ -296,10 +314,18 @@ export function initialState(source: FamilyDataset | LegacyDataset): ResearchSta
         name: "Imported documents",
         kind: "imports",
         description:
-          "Preserved local copies. Text and Markdown are readable; PDFs retain their original pages.",
+          IMPORTS_DESCRIPTION,
       },
     ],
   };
+}
+// A quotation is found when its words appear in order, however lines break between
+// them, as they do differently in a PDF's text and in a quotation.
+// What the imported documents collection holds.
+export const IMPORTS_DESCRIPTION = "Preserved local copies. Text and Markdown are searchable as they are; PDFs are read into searchable text.";
+export function quoteFound(text: string, quote: string): boolean {
+  const flat = (value: string) => value.replace(/\s+/g, " ").trim();
+  return flat(text).includes(flat(quote));
 }
 function requireThat(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -930,7 +956,7 @@ export function transition(
           );
           if (document.text !== undefined)
             requireThat(
-              document.text.includes(e.quote),
+              quoteFound(document.text, e.quote),
               "Quoted passage was not found in the preserved document.",
             );
         }

@@ -8,6 +8,7 @@ on:
       - "uv.lock"
       - "scripts/*docling*"
       - "scripts/convert_pdf.py"
+      - "server/pdf/docling.mjs"
       - "tests/python/**"
       - ".github/workflows/pdf.yml"
 
@@ -27,8 +28,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
+      # No Python beforehand: the install brings its own, as it does for people using the app.
+      - run: npm ci
       - run: npm run setup:pdf
       - run: npm run test:pdf

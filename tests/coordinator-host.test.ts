@@ -202,8 +202,10 @@ describe("the coordinator correcting a walkthrough", () => {
     // The file shows the suggestion in place until the human decides.
     await until(() => shown()?.closing === edited.closing);
     // A change the app cannot use is refused, and the file goes back as it was.
-    writeFileSync(stepsFile, JSON.stringify([{ tool: "Edit", input: { file_path: "walkthroughs/batch-1.json" }, writes: { "walkthroughs/batch-1.json": JSON.stringify(broken) } }]));
-    host.tell("Tidy the walkthrough.");
+    // The broken edit runs once, as this message's turn; the refusal that follows
+    // starts a turn of its own, which does nothing, so the file stays restored.
+    writeFileSync(stepsFile, "[]");
+    host.tell(`steps:${JSON.stringify([{ tool: "Edit", input: { file_path: "walkthroughs/batch-1.json" }, writes: { "walkthroughs/batch-1.json": JSON.stringify(broken) } }])}`);
     const received = () => (existsSync(join(host.folder!, "received.jsonl")) ? readFileSync(join(host.folder!, "received.jsonl"), "utf8") : "");
     await until(() => received().includes("was not used") && shown()?.steps.length === w.steps.length);
     expect(received()).toContain("Your change to walkthroughs/batch-1.json was not used: Keep the steps as they are");

@@ -75,6 +75,30 @@ function sandboxRow(d, installing) {
   return `<li class="row"><div class="row-text"><h3>Sandbox tools</h3><p class="status is-missing">Claude Code needs ${esc(d.packages.join(' and '))} to keep its work contained.</p><p class="detail">${d.canInstall ? 'Installing asks for your computer\'s password.' : `Install them with <code>${esc(d.command)}</code> in a terminal, then come back.`}</p></div><div class="row-action">${action}</div></li>`;
 }
 
+// How PDFs are read into searchable text, chosen for every project: Standard, or
+// High accuracy with Docling, which is a large download. Choosing it starts the install.
+function pdfSection(reading) {
+  if (!reading) return '';
+  const gb = (bytes) => `${(bytes / 1e9).toFixed(1)} GB`;
+  const d = reading.docling;
+  const status = d.state === 'installing'
+    ? `<p class="status is-waiting">Installing High accuracy: ${esc(d.step)}${d.downloaded ? `, ${gb(d.downloaded)} of about 2 GB` : ''}.</p><p class="detail">You can carry on; it finishes in the background, and PDFs wait for it.</p>`
+    : d.state === 'failed'
+      ? `<p class="status is-missing">Installing High accuracy didn't finish: ${esc(d.error)}</p><button type="button" data-pdf-reader="docling">Try again</button>`
+      : d.state === 'ready' ? '<p class="status is-ok">High accuracy is installed.</p>' : '';
+  const choice = (reader, title, detail) =>
+    `<label class="choice"><input type="radio" name="pdf-reader" value="${reader}" ${reading.reader === reader ? 'checked' : ''}><span><strong>${title}</strong><span class="detail">${detail}</span></span></label>`;
+  return `<section aria-labelledby="pdf-heading">
+<h2 id="pdf-heading">Reading PDFs</h2>
+<p class="detail">Every PDF you add is read into text, so researchers can search it and their quotations can be checked. You can change this later in Research settings.</p>
+<fieldset class="choices"><legend class="visually-hidden">PDF reader</legend>
+${choice('standard', 'Standard', 'Small and fast. Reads typed and printed PDFs well, including scans, but can run the columns of a newspaper or a complex layout together.')}
+${choice('docling', 'High accuracy', 'A one-time download of about 2 GB, and slower. Follows columns, tables and reading order, so newspapers and complex scans come out right.')}
+</fieldset>
+${status}
+</section>`;
+}
+
 // The look the setup and welcome screens share.
 const STYLE = `:root {
   --ink: #18333c; --ink-soft: #5d6d70; --paper: #f7f3e9; --paper-deep: #eee8da; --line: #c9c2b3;
@@ -120,6 +144,13 @@ button:disabled { opacity: 0.55; cursor: default; }
 .ready-note { margin: 0; color: var(--ink-soft); font-size: 14px; line-height: 1.55; max-width: 420px; }
 .continue .button { padding: 11px 26px; font-size: 16px; }
 .problem { color: var(--rust); font-size: 14px; margin: 12px 0 0; }
+.choices { display: grid; gap: 14px; margin: 16px 0; padding: 0; border: 0; }
+.choice { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: start; cursor: pointer; }
+.choice input { margin: 4px 0 0; accent-color: var(--sea-dark); }
+.choice strong { display: block; font-size: 16px; font-weight: 600; }
+section > .status { margin-bottom: 14px; }
+section > button { margin-bottom: 14px; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .recheck { margin-top: 28px; font-size: 13px; color: var(--ink-soft); }
 .recheck button { border: 0; background: none; padding: 0; color: var(--sea-dark); text-decoration: underline; text-underline-offset: 3px; font-size: 13px; }
 @media (max-width: 560px) {
@@ -133,7 +164,7 @@ button:disabled { opacity: 0.55; cursor: default; }
 
 // The whole page, drawn from a setup check. Next is where Continue leads: the
 // start screen on a first visit, or back to the project the human came from.
-export function setupPage({setup, signingIn = null, installing = null, installProblem = null, next = {label: 'Continue', href: '/welcome'}}) {
+export function setupPage({setup, signingIn = null, installing = null, installProblem = null, pdfReading = null, next = {label: 'Continue', href: '/welcome'}}) {
   const sandbox = setup.dependencies.find((d) => d.id === 'sandbox');
   const sandboxMissing = Boolean(sandbox && !sandbox.ok);
   const connected = setup.agents.filter((a) => a.installed && a.signedIn && !a.outdated);
@@ -166,6 +197,7 @@ ${topBar()}
 <h2 id="computer-heading">On this computer</h2>
 <ul class="rows">${others}</ul>
 </section>
+${pdfSection(pdfReading)}
 ${installProblem ? `<p class="problem">${esc(installProblem)}</p>` : ''}
 <p class="problem" data-problem hidden></p>
 <div class="continue">${ready}</div>
@@ -194,6 +226,10 @@ document.addEventListener('click', async (event) => {
     } else if (button.hasAttribute('data-cancel-sign-in')) {
       await post('/api/setup/cancel');
       location.reload();
+    } else if (button.dataset.pdfReader) {
+      button.disabled = true;
+      await post('/api/setup/pdf-reader', {reader: button.dataset.pdfReader});
+      location.reload();
     } else if (button.hasAttribute('data-check-again')) location.reload();
   } catch (error) {
     button.disabled = false;
@@ -201,9 +237,20 @@ document.addEventListener('click', async (event) => {
     problem.hidden = false;
   }
 });
+document.addEventListener('change', async (event) => {
+  if (event.target.name !== 'pdf-reader') return;
+  try {
+    await post('/api/setup/pdf-reader', {reader: event.target.value});
+    location.reload();
+  } catch (error) {
+    problem.textContent = error.message;
+    problem.hidden = false;
+  }
+});
 // Coming back from a browser sign-in or a terminal, the page checks again.
 document.addEventListener('visibilitychange', () => { if (!document.hidden) location.reload(); });
 ${signingIn || installing ? `setInterval(async () => { const s = await (await fetch('/api/setup')).json(); if (!s.signingIn && !s.installing) location.reload(); }, 2000);` : ''}
+${pdfReading?.docling.state === 'installing' ? `setInterval(async () => { const d = (await (await fetch('/api/setup')).json()).pdfReading.docling; if (d.state !== 'installing' || d.step !== ${JSON.stringify(pdfReading.docling.step).replace(/</g, '\\u003c')}) location.reload(); }, 3000);` : ''}
 </script>
 </body>
 </html>`;

@@ -2,7 +2,6 @@ import { createServer } from "node:http";
 import {
   readFileSync,
   writeFileSync,
-  linkSync,
   existsSync,
   mkdirSync,
   realpathSync,
@@ -36,6 +35,8 @@ import { LiveActivity } from "./live-activity.mjs";
 import { projectSkills } from "./skills.mjs";
 import { flowCommand } from "./review-flow.mjs";
 import { humanConversationCommands } from "../src/domain/conversation.ts";
+import { PdfReading, choosePdfReader, pdfReading } from "./pdf/reading.mjs";
+import { removeDocling } from "./pdf/docling.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const directory = resolve(
@@ -67,7 +68,7 @@ let closing = false;
 function close() {
   if (closing) return;
   closing = true;
-  for (const stop of [() => coordinatorHost.stop(), () => helpers.stop(), () => researchers.stop(), () => graphBuilders.stop(), () => writers.stop()])
+  for (const stop of [() => coordinatorHost.stop(), () => helpers.stop(), () => researchers.stop(), () => graphBuilders.stop(), () => writers.stop(), () => pdfs.stop()])
     try {
       stop();
     } catch {
@@ -106,7 +107,7 @@ const appSettings = () => {
     return {};
   }
 };
-const setupScreen = setupRoutes({ homes: agentHomes(appDirectory), next: { label: "Back to your project", href: "/" } });
+const setupScreen = setupRoutes({ home: appDirectory, homes: agentHomes(appDirectory), next: { label: "Back to your project", href: "/" } });
 const researchers = new ResearcherPool(store, directory, root, { coordinator, live, supervisor, browser: researchBrowser });
 coordinator.researchers = researchers;
 const graphBuilders = new GraphBuilders(store, directory, root, { live, supervisor });
@@ -156,6 +157,10 @@ const token = randomBytes(32).toString("hex");
 const coordinatorToken = randomBytes(32).toString("hex");
 const documentsDir = join(directory, "documents");
 mkdirSync(documentsDir, { recursive: true });
+// Every PDF is read into searchable text in the background.
+const pdfs = new PdfReading(store, { home: appDirectory, directory });
+process.on("exit", () => pdfs.stop());
+pdfs.pump();
 const workerCommands = new Set(["claim", "checkpoint", "propose"]);
 const userCommands = new Set([
   "finding-decision",
@@ -204,13 +209,7 @@ async function body(req) {
   }
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
 }
-function importDocument(
-  next,
-  name,
-  bytes,
-  collectionId,
-  { text, extraction, maxBytes = 10_000_000, sourcePath } = {},
-) {
+function importDocument(next, name, bytes, collectionId, { maxBytes = 10_000_000 } = {}) {
   const mime = types[extname(name).toLowerCase()];
   if (!mime) throw new Error("Supported formats: PDF, TXT, Markdown, CSV.");
   if (bytes.length > maxBytes)
@@ -219,14 +218,9 @@ function importDocument(
   const existing = next.documents.find(
     (d) => d.sha256 === sha256 && d.collectionId === collectionId,
   );
-  if (existing) {
-    if (typeof text === "string") existing.text = text;
-    if (extraction) existing.extraction = extraction;
-    return existing;
-  }
+  if (existing) return existing;
   const id = crypto.randomUUID();
-  if (sourcePath) linkSync(sourcePath, join(documentsDir, id));
-  else writeFileSync(join(documentsDir, id), bytes, { mode: 0o600 });
+  writeFileSync(join(documentsDir, id), bytes, { mode: 0o600 });
   const doc = {
     id,
     collectionId,
@@ -235,12 +229,8 @@ function importDocument(
     size: bytes.length,
     sha256,
     importedAt: new Date().toISOString(),
-    ...(typeof text === "string"
-      ? { text }
-      : mime === "text/plain"
-        ? { text: bytes.toString("utf8") }
-        : {}),
-    ...(extraction ? { extraction } : {}),
+    // Text documents are searchable as they are; PDFs wait to be read.
+    ...(mime === "text/plain" ? { text: bytes.toString("utf8") } : { reading: { state: "waiting" } }),
   };
   next.documents.push(doc);
   (next.dataset.sources ||= []).push({
@@ -348,6 +338,7 @@ const server = createServer(async (req, res) => {
         researchBrowser: { available: researchBrowser.available, name: researchBrowser.browser.name },
         developerMode: Boolean(appSettings().developerMode),
         annotationIntroSeen: Boolean(appSettings().annotationIntroSeen),
+        pdfReading: pdfReading(appDirectory),
       });
     if (req.method === "GET" && url.pathname === "/api/revision")
       return json(res, 200, {
@@ -356,6 +347,8 @@ const server = createServer(async (req, res) => {
         coordinator: coordinator.status(),
         live: live.list(),
         usage: supervisor.usage,
+        // Installing Docling changes nothing in the project, so its progress comes with every poll.
+        pdfReading: pdfReading(appDirectory),
       });
     if (req.method === "GET" && url.pathname.startsWith("/api/documents/")) {
       const doc = store.state.documents.find(
@@ -459,49 +452,17 @@ const server = createServer(async (req, res) => {
           "imports",
         ),
       );
+      pdfs.pump();
       return json(res, 200, { documentId: result.id });
     }
-    if (req.method === "POST" && url.pathname === "/api/import-processed-pdf") {
+    // Which reader reads PDFs, for every project; choosing High accuracy installs it.
+    if (req.method === "POST" && url.pathname === "/api/pdf-reading") {
       const data = await body(req);
-      if (
-        typeof data.path !== "string" ||
-        typeof data.text !== "string" ||
-        !data.path.trim()
-      )
-        throw new Error("PDF path and extracted text required.");
-      const path = realpathSync(data.path);
-      if (!statSync(path).isFile() || extname(path).toLowerCase() !== ".pdf")
-        throw new Error("Choose a local PDF file.");
-      const result = store.update((next) => {
-        const collectionPath = realpathSync(data.collectionPath || dirname(path));
-        if (!statSync(collectionPath).isDirectory())
-          throw new Error("Collection path must be a folder.");
-        let collection = next.collections.find((c) => c.path === collectionPath);
-        if (!collection) {
-          collection = {
-            id: crypto.randomUUID(),
-            name: basename(collectionPath),
-            kind: "folder",
-            path: collectionPath,
-            description:
-              "Preserved PDFs with local Docling text extraction and OCR.",
-          };
-          next.collections.push(collection);
-        }
-        return importDocument(
-          next,
-          path,
-          readFileSync(path),
-          collection.id,
-          {
-            text: data.text,
-            extraction: data.extraction,
-            maxBytes: 100_000_000,
-            sourcePath: path,
-          },
-        );
-      });
-      return json(res, 200, { documentId: result.id });
+      if (data.reader) choosePdfReader(appDirectory, data.reader);
+      if (data.remove) await removeDocling(appDirectory);
+      if (data.readAgain) pdfs.readAgain(data.readAgain, data.engine);
+      pdfs.pump();
+      return json(res, 200, pdfReading(appDirectory));
     }
     if (req.method === "POST" && url.pathname === "/api/folders") {
       const data = await body(req);
@@ -532,6 +493,7 @@ const server = createServer(async (req, res) => {
           skipped,
         };
       });
+      pdfs.pump();
       return json(res, 200, result);
     }
     if (

@@ -102,12 +102,19 @@ def convert(
 
         result.document.save_as_json(directory / "document.json", image_mode=ImageRefMode.REFERENCED)
         result.document.save_as_markdown(directory / "document.md", image_mode=ImageRefMode.REFERENCED)
+        # Each page's text on its own, so the app can search it and cite the page.
+        pages = [
+            {"number": number, "text": result.document.export_to_markdown(page_no=number, image_placeholder="").strip()}
+            for number in sorted(result.document.pages.keys())
+        ]
+        (directory / "pages.json").write_text(json.dumps(pages, ensure_ascii=False) + "\n", encoding="utf-8")
         manifest.update({
             "status": "done" if result.status == ConversionStatus.SUCCESS else "partial",
             "totalPages": result.input.page_count,
             "processedPages": sorted(result.document.pages.keys()),
             "structuredDocument": "document.json",
             "markdown": "document.md",
+            "pages": "pages.json",
             "completedAt": datetime.now(timezone.utc).isoformat(),
         })
         write_manifest(directory, manifest)

@@ -54,41 +54,29 @@ You may also add a named starting point, such as a place or organization, withou
 Use Organize to preview which nodes to keep, apply the change in place, or undo the latest organization.
 Organization preserves sources and research history, pauses active work, and prevents old results from being applied to the reorganized graph.
 
-## Local PDF processing
+## Reading PDFs
 
-Docling is a repository dependency managed by `pyproject.toml` and the committed `uv.lock`.
-Install it separately from the JavaScript dependencies:
+Every PDF you add is read into text in the background, so researchers can search it and the app can check their quotations against it.
+The original is always kept; its text is stored page by page, with `[Page n]` before each page, so quotations can be cited by page.
+Sources shows how far each document has come, and a PDF's own page shows how it was read, with a way to read it again.
 
-```sh
-npm run setup:pdf
-npm run pdf -- "/path/to/document.pdf"
-# Optionally process an inclusive range of PDF pages:
-npm run pdf -- "/path/to/document.pdf" --pages 1 10
-# Match Question Wheel's existing-text-only conversion:
-npm run pdf -- "/path/to/document.pdf" --ocr off
-```
+There are two readers, chosen during setup and changeable in Research settings; the choice applies to every project.
 
-Setup requires Python 3 (`python3` on macOS/Linux, or `py`/`python` on Windows) and downloads the locked packages into `.venv`, using a repository-local uv installation in `.python-tools`.
-It selects Python 3.12, downloading that runtime locally if necessary.
-The first conversion also downloads Docling's model weights into `.research/cache/huggingface`; subsequent conversions reuse them locally.
-Documents are processed on this computer without sending their contents to a parsing API.
-OCR defaults to RapidOCR with the CPU ONNX runtime on every platform because it reliably preserves mixed native-text and scanned pages.
-Use `--ocr-engine apple` to select Apple Vision explicitly on macOS.
-The initial OCR configuration is for English documents.
-Apple dependencies are conditional on macOS, and Linux/Windows install CPU PyTorch wheels without requiring CUDA or a GPU.
-The default `--ocr auto` lets Docling apply OCR to bitmap regions; `--ocr off` disables OCR entirely.
-Conversion uses automatic device selection with two processing threads; `--device cpu` can select CPU processing explicitly.
+- Standard reads each page's text layer, and reads pages that are only pictures, such as scans, with OCR.
+  It needs nothing but Node and is fast, but it can run the columns of a newspaper or a complex layout together.
+- High accuracy uses [Docling](https://github.com/docling-project/docling), which follows columns, tables and reading order.
+  It is a one-time download of about 2 GB, and slower.
 
-Each conversion creates a new directory under `.research/sources/`, preserving `original.pdf`, Docling's structured `document.json` with page provenance, readable `document.md`, extracted picture assets, and a `manifest.json` with the original hash, processor version, requested page range, coverage, and errors.
-Existing captures are never overwritten, and there is no fixed 50-page cap.
-Page ranges refer to physical PDF pages, not printed page labels.
-Failed conversions retain their original and failure record; partial conversions are labeled and return a nonzero exit code.
-These bundles are currently a local conversion facility; automatic import into the browser source library and researcher tool access are separate integration work.
+Choosing High accuracy installs it in the background, into `.research/tools/docling/`, and nothing is needed beforehand.
+The install downloads uv, a pinned release checked against its published checksum, which brings its own Python 3.12 and the packages locked in `uv.lock`.
+It then reads a small fictional PDF, which fetches Docling's models and proves the install works.
+PDFs chosen for High accuracy wait until it is ready.
+Removing it, from Research settings once Standard is chosen, deletes that folder.
+`npm run setup:pdf` runs the same install from a terminal.
 
-Run `npm run test:pdf` to exercise native-text extraction, OCR of a fictional scanned page, source preservation, location metadata, and explicit page coverage.
-This integration check downloads model weights on first use and is separate from the faster `npm run check` suite.
-It exercises the platform default and the portable RapidOCR backend.
-The PDF workflow is configured to run on macOS, Linux, and Windows in GitHub Actions; only macOS has been verified locally.
+Both readers work on this computer; no document is sent to a parsing service.
+Docling keeps its full conversion for each document under the project's `processed-pdfs/`, including its structured `document.json` with page positions.
+Run `npm run test:pdf` to check Docling itself on fictional documents; the PDF workflow in GitHub Actions installs and checks it on macOS, Linux and Windows.
 
 ## Research agents
 
@@ -144,8 +132,8 @@ That command leaves an isolated fixture under `.research/development/` and serve
 Sources shows research source records before graph acceptance, including access metadata, passages, related findings, and accepted graph connections.
 Import PDF, TXT, Markdown, or CSV files, or register a local folder from Sources.
 Imports preserve snapshots and SHA-256 fingerprints; rescanning adds changed files without replacing previously cited copies.
-Text evidence can link to an exact highlighted quotation, and the server verifies that quoted text occurs in its preserved document.
-PDF originals can be viewed, but automatic PDF extraction and page-region highlights are not implemented.
+Evidence can link to an exact highlighted quotation, and the server verifies that quoted text occurs in its preserved document, however lines break between its words.
+PDFs are checked against the text read from them; see [Reading PDFs](#reading-pdfs).
 Subscription services such as JSTOR do not have dedicated access adapters.
 Researchers may use available browser or computer tools; actual capabilities and signed-in sessions depend on the runtime.
 When access needs your help, Investigations displays the request and a resume action.

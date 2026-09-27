@@ -1,4 +1,5 @@
 import { menus, rowChoice } from "./ui/dispatch-settings";
+import { doclingStatus, readingLabel, readingNote } from "./ui/pdf-reading";
 import { closedNotice, quitDialog } from "./ui/quit-dialog";
 import { contextLevel, contextNotice } from "./ui/live-panel";
 import {
@@ -981,7 +982,7 @@ export function mountResearchWorkspace(
         "Sources & access",
         "Choose where researchers can look. Preserve the documents behind their conclusions.",
       ) +
-      `<section class="source-library"><div class="section-heading"><h2>Research source library</h2><span class="count-label">${library.length}</span></div>${library.length ? library.map((s) => `<button class="document-row" data-open-source="${escape(s.id)}"><span><strong>${escape(s.title)}</strong><small>${escape(s.repository || s.url || "Recorded source")}</small></span><span class="capability">${escape(s.access || "Access not recorded")}</span></button>`).join("") : '<p class="source-empty">Sources gathered by researchers will appear here before graph acceptance.</p>'}</section><div class="sources-layout"><section><div class="section-heading"><h2>Available collections</h2><span class="count-label">${state.collections.length}</span></div>${state.collections.map((c) => `<article class="collection-card"><div class="collection-icon" aria-hidden="true">${c.kind === "web" ? "◎" : "▤"}</div><div><h3>${escape(c.name)}</h3><p>${escape(c.description)}</p><span class="capability">${c.kind === "web" ? "Requires a researcher with web access" : `${state.documents.filter((d) => d.collectionId === c.id).length} preserved documents`}</span>${c.path ? `<p class="folder-path">${escape(c.path)}</p><button type="button" data-rescan="${escape(c.path)}">Re-scan folder</button>` : ""}</div></article>`).join("")}<div class="section-heading"><h2>Preserved documents</h2></div>${state.documents.length ? `<div class="document-list">${state.documents.map((d) => `<button class="document-row" type="button" data-document="${d.id}"><span><strong>${escape(d.name)}</strong><small>${escape(state.collections.find((c) => c.id === d.collectionId)?.name)} · ${Math.ceil(d.size / 1024)} KB</small></span><span class="capability">${d.text !== undefined ? "Readable text" : "Original PDF · extraction not enabled"}</span></button>`).join("")}</div>` : '<div class="source-empty">Add documents or a local folder to give your research a starting collection.</div>'}</section><aside class="source-controls"><section class="source-add-card"><span class="eyebrow">Add research materials</span><h2>Bring your own collection</h2><p>Import PDFs, text, Markdown, or CSV. Original copies are retained for evidence review.</p><label class="upload-label">Choose documents<input id="source-upload" type="file" accept=".pdf,.txt,.md,.csv" multiple></label><p class="muted">Up to 10 MB per document.</p><hr><form id="folder-form"><label for="folder-path">Local folder</label><input id="folder-path" placeholder="/Users/you/Documents/Research" required><button type="submit">Add folder</button></form><p class="muted">Scans up to 100 supported files, four folders deep. Changes to originals do not alter preserved copies.</p><p id="source-result" role="status"></p></section><section class="access-note"><h3>Subscription collections</h3><p>JSTOR and other subscription services need a supported access adapter. No account connection is enabled yet. You can import documents you already have.</p></section></aside></div>`;
+      `<section class="source-library"><div class="section-heading"><h2>Research source library</h2><span class="count-label">${library.length}</span></div>${library.length ? library.map((s) => `<button class="document-row" data-open-source="${escape(s.id)}"><span><strong>${escape(s.title)}</strong><small>${escape(s.repository || s.url || "Recorded source")}</small></span><span class="capability">${escape(s.access || "Access not recorded")}</span></button>`).join("") : '<p class="source-empty">Sources gathered by researchers will appear here before graph acceptance.</p>'}</section><div class="sources-layout"><section><div class="section-heading"><h2>Available collections</h2><span class="count-label">${state.collections.length}</span></div>${state.collections.map((c) => `<article class="collection-card"><div class="collection-icon" aria-hidden="true">${c.kind === "web" ? "◎" : "▤"}</div><div><h3>${escape(c.name)}</h3><p>${escape(c.description)}</p><span class="capability">${c.kind === "web" ? "Requires a researcher with web access" : `${state.documents.filter((d) => d.collectionId === c.id).length} preserved documents`}</span>${c.path ? `<p class="folder-path">${escape(c.path)}</p><button type="button" data-rescan="${escape(c.path)}">Re-scan folder</button>` : ""}</div></article>`).join("")}<div class="section-heading"><h2>Preserved documents</h2></div>${state.documents.length ? `<div class="document-list">${state.documents.map((d) => `<button class="document-row" type="button" data-document="${d.id}"><span><strong>${escape(d.name)}</strong><small>${escape(state.collections.find((c) => c.id === d.collectionId)?.name)} · ${Math.ceil(d.size / 1024)} KB</small></span><span class="capability" data-reading-label="${escape(d.id)}">${escape(readingLabel(d, state.pdfReading))}</span></button>`).join("")}</div>` : '<div class="source-empty">Add documents or a local folder to give your research a starting collection.</div>'}</section><aside class="source-controls"><section class="source-add-card"><span class="eyebrow">Add research materials</span><h2>Bring your own collection</h2><p>Import PDFs, text, Markdown, or CSV. Original copies are retained for evidence review, and PDFs are read into searchable text.</p><label class="upload-label">Choose documents<input id="source-upload" type="file" accept=".pdf,.txt,.md,.csv" multiple></label><p class="muted">Up to 10 MB per document.</p><hr><form id="folder-form"><label for="folder-path">Local folder</label><input id="folder-path" placeholder="/Users/you/Documents/Research" required><button type="submit">Add folder</button></form><p class="muted">Scans up to 100 supported files, four folders deep. Changes to originals do not alter preserved copies.</p><p id="source-result" role="status"></p></section><section class="access-note"><h3>Subscription collections</h3><p>JSTOR and other subscription services need a supported access adapter. No account connection is enabled yet. You can import documents you already have.</p></section></aside></div>`;
     surface
       .querySelector<HTMLInputElement>("#source-upload")!
       .addEventListener("change", async (event) => {
@@ -1090,10 +1091,12 @@ export function mountResearchWorkspace(
       )?.after;
     let body: string;
     if (doc?.text !== undefined) {
-      const index = quote ? doc.text.indexOf(quote) : -1;
-      body = `<pre class="original-text">${index >= 0 ? `${escape(doc.text.slice(0, index))}<mark>${escape(quote)}</mark>${escape(doc.text.slice(index + quote!.length))}` : escape(doc.text)}</pre>`;
+      // The quotation's words, however the document's lines break between them.
+      const words = quote?.trim().split(/\s+/).map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+      const found = words?.length ? new RegExp(words.join("\\s+")).exec(doc.text) : null;
+      body = `<pre class="original-text">${found ? `${escape(doc.text.slice(0, found.index))}<mark>${escape(found[0])}</mark>${escape(doc.text.slice(found.index + found[0].length))}` : escape(doc.text)}</pre>`;
     } else if (doc)
-      body = `<p class="muted">Original PDF. Use the cited page or locator to inspect the passage; automatic PDF highlighting is not enabled.</p><iframe title="Original PDF" src="/api/documents/${doc.id}"></iframe>`;
+      body = `<iframe title="Original PDF" src="/api/documents/${doc.id}"></iframe>`;
     else
       body = `<p>The original document has not been preserved in this workspace.</p>${source && safeUrl(String(source.url || "")) ? `<a class="primary source-external" href="${safeUrl(String(source.url))}" target="_blank" rel="noopener noreferrer">Open original source ↗</a>` : '<p class="muted">No accessible source URL is recorded. Import the original or annotate the evidence to request a precise source.</p>'}`;
     selectedSource = sourceId;
@@ -1134,7 +1137,7 @@ export function mountResearchWorkspace(
       ...(state.dataset.contextEntities || []),
       ...connectionsFromClaims(state.dataset),
     ].filter((r) => r.sourceIds?.includes(sourceId || ""));
-    surface.innerHTML = `<button data-source-list>Back to source library</button>${currentInvestigation()?.reviewFlow?.walkthroughs.length ? '<button data-open-review>Return to your walkthrough</button>' : ""}<article class="source-inspector" ${targetAttribute({ table: "sources", recordId: sourceId || documentId, label: String(source?.title || doc?.name || "Source") })}><span class="eyebrow">Source record</span><h1>${escape(source?.title || doc?.name || "Source")}</h1><p>${[source?.repository, source?.access || "Access not recorded"].filter(Boolean).map(escape).join(" · ")}</p><p class="preserve-lines">${escape(source?.note)}</p>${doc ? `<p>Preserved ${date(doc.importedAt)}</p><a href="/api/documents/${doc.id}" target="_blank" rel="noopener">Open preserved original</a>` : ""}<section class="source-content">${body}</section><h2>Findings from this source</h2>${related.map(({ i, p, f }) => `<section class="source-finding" data-investigation-id="${i.id}" ${targetAttribute({ label: f.statement, proposalId: p.id, findingId: f.id })}><span class="status-badge">${escape(f.status)} · ${escape(f.qualification)}</span><h3>${escape(f.statement)}</h3><p class="preserve-lines">${escape(f.explanation)}</p><button data-source-review="${i.id}" data-source-proposal="${p.id}">Open finding review</button></section>`).join("") || '<p class="muted">No structured findings recorded yet.</p>'}<h2>Accepted graph connections</h2>${subjects.map((r) => `<p ${targetAttribute({ label: "name" in r ? r.name : r.label || r.id, recordId: r.id })}>${escape("name" in r ? r.name : r.label || r.id)}</p>`).join("") || '<p class="muted">No accepted graph records cite this source yet.</p>'}<details><summary>Recorded passages and review history (${passages.length})</summary>${passages.map(({ i, p, e }) => `<section data-investigation-id="${i.id}"><p class="muted">Revision ${p.revision} · ${escape(p.status)}</p>${evidenceCard(state, p, e)}</section>`).join("")}</details></article>`;
+    surface.innerHTML = `<button data-source-list>Back to source library</button>${currentInvestigation()?.reviewFlow?.walkthroughs.length ? '<button data-open-review>Return to your walkthrough</button>' : ""}<article class="source-inspector" ${targetAttribute({ table: "sources", recordId: sourceId || documentId, label: String(source?.title || doc?.name || "Source") })}><span class="eyebrow">Source record</span><h1>${escape(source?.title || doc?.name || "Source")}</h1><p>${[source?.repository, source?.access || "Access not recorded"].filter(Boolean).map(escape).join(" · ")}</p><p class="preserve-lines">${escape(source?.note)}</p>${doc ? `<p>Preserved ${date(doc.importedAt)}</p><a href="/api/documents/${doc.id}" target="_blank" rel="noopener">Open preserved original</a><div data-reading-note="${escape(doc.id)}" data-state="${escape(doc.reading?.state || "")}">${readingNote(doc, state.pdfReading)}</div>` : ""}<section class="source-content">${body}</section><h2>Findings from this source</h2>${related.map(({ i, p, f }) => `<section class="source-finding" data-investigation-id="${i.id}" ${targetAttribute({ label: f.statement, proposalId: p.id, findingId: f.id })}><span class="status-badge">${escape(f.status)} · ${escape(f.qualification)}</span><h3>${escape(f.statement)}</h3><p class="preserve-lines">${escape(f.explanation)}</p><button data-source-review="${i.id}" data-source-proposal="${p.id}">Open finding review</button></section>`).join("") || '<p class="muted">No structured findings recorded yet.</p>'}<h2>Accepted graph connections</h2>${subjects.map((r) => `<p ${targetAttribute({ label: "name" in r ? r.name : r.label || r.id, recordId: r.id })}>${escape("name" in r ? r.name : r.label || r.id)}</p>`).join("") || '<p class="muted">No accepted graph records cite this source yet.</p>'}<details><summary>Recorded passages and review history (${passages.length})</summary>${passages.map(({ i, p, e }) => `<section data-investigation-id="${i.id}"><p class="muted">Revision ${p.revision} · ${escape(p.status)}</p>${evidenceCard(state, p, e)}</section>`).join("")}</details></article>`;
     surface.querySelectorAll("[data-evidence]").forEach((b) => b.remove());
     surface.querySelector("mark")?.scrollIntoView({ block: "center" });
   }
@@ -1234,10 +1237,44 @@ export function mountResearchWorkspace(
         .catch((error) => message(error.message));
     else if (button.dataset.rescan) void scanFolder(button.dataset.rescan);
     else if (button.dataset.document) showSource(button.dataset.document);
+    else if (button.dataset.pdfReader) void readPdfs({ reader: button.dataset.pdfReader }, "Installing High accuracy again.");
+    else if (button.hasAttribute("data-remove-docling")) void readPdfs({ remove: true }, "High accuracy is removed.");
+    else if (button.hasAttribute("data-read-all-again")) void readPdfs({ readAgain: "all" }, "Every PDF in this project will be read again.");
+    else if (button.dataset.readAgain) {
+      const id = button.dataset.readAgain;
+      void readPdfs({ readAgain: [id], ...(button.dataset.engine ? { engine: button.dataset.engine } : {}) }, "This PDF will be read again.").then(() => showSource(id));
+    }
   };
+  // How far each PDF's reading has come, updated in place as polls bring news.
+  function showReading() {
+    for (const d of state.documents) {
+      const label = surface.querySelector(`[data-reading-label="${CSS.escape(d.id)}"]`);
+      if (label) label.textContent = readingLabel(d, state.pdfReading);
+      const note = surface.querySelector<HTMLElement>(`[data-reading-note="${CSS.escape(d.id)}"]`);
+      if (!note) continue;
+      // Its source page, open as the text arrives, shows the text.
+      if (d.reading?.state === "done" && note.dataset.state !== "done") return showSource(d.id);
+      const html = readingNote(d, state.pdfReading);
+      if (note.innerHTML !== html) note.innerHTML = html;
+    }
+  }
+  // Choices about reading PDFs, from Research settings or a source's page.
+  async function readPdfs(change: Record<string, unknown>, done: string) {
+    try {
+      await request("/api/pdf-reading", change);
+      await refresh();
+      message(done);
+    } catch (error) {
+      message((error as Error).message);
+    }
+  }
   surface.addEventListener("click", handleContentClick);
   surface.addEventListener("change", (event) => {
     const e = event.target as HTMLInputElement;
+    if (e.name === "pdf-reader") {
+      void readPdfs({ reader: e.value }, e.value === "docling" ? "High accuracy is installing. PDFs are read with it once it is ready." : "PDFs you add are read with Standard.");
+      return;
+    }
     if (e.dataset.auto) {
       const read = (key: string) =>
         surface.querySelector<HTMLInputElement>(`[data-auto="${key}"]`)!.checked;
@@ -1260,6 +1297,13 @@ export function mountResearchWorkspace(
       // Live activity changes between revisions; take it from every poll.
       state.live = revision.live;
       state.usage = revision.usage;
+      // High accuracy installs outside the project, so its progress shows in place.
+      if (JSON.stringify(revision.pdfReading) !== JSON.stringify(state.pdfReading)) {
+        state.pdfReading = revision.pdfReading;
+        const status = surface.querySelector("[data-pdf-status]");
+        if (status && state.pdfReading) status.innerHTML = doclingStatus(state.pdfReading);
+        showReading();
+      }
       if (revision.coordinator) {
         // Attaching or dropping does not change the revision, so refresh the drawer here.
         const wasConnected = state.coordinator?.connected;
@@ -1277,6 +1321,7 @@ export function mountResearchWorkspace(
       if (revision.revision !== state.revision) {
         const previous = state;
         await refresh(false);
+        showReading();
         // Rules the coordinator changed show at once; a half-written rule is kept.
         if (view === "settings" && JSON.stringify(state.dispatch) !== JSON.stringify(previous.dispatch)) {
           const draft = surface.querySelector<HTMLFormElement>("#add-rule-form");
