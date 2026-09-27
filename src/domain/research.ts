@@ -40,6 +40,14 @@ export interface AnnotationTarget {
   proposalId?: string;
   findingId?: string;
   groupId?: string;
+  // A batch, or one of its questions, as a whole.
+  investigationId?: string;
+  questionId?: string;
+  // The screen it was picked from; see describeScreen.
+  screen?: { view: string; investigationId?: string; sourceId?: string; focusId?: string };
+  // In developer mode, where on the page it was, for feedback about Weir itself:
+  // the element, the headings above it, and the window's size. The coordinator never sees it.
+  page?: { element: string; headings: string[]; viewport: string };
 }
 // What a reference is on, as the human and the coordinator read it: its name, and
 // the words the human selected there when a selection is what they pointed at.
@@ -235,6 +243,10 @@ export interface ResearchState {
   // Which agent, model and effort does each job, and what the installed CLIs offer.
   dispatch?: Dispatch;
   catalog?: Catalog;
+  // Whether the app shows the tools for feedback about Weir itself; set for the whole app.
+  developerMode?: boolean;
+  // Whether the human has seen the introduction to annotating, in any project.
+  annotationIntroSeen?: boolean;
   // Whether Google Chrome is installed for the research browser.
   researchBrowser?: { available: boolean; name?: string | null };
   // The latest usage each agent CLI reported, where it reports any.

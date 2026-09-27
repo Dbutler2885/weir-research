@@ -35,6 +35,8 @@ import {
 } from "./vendor/lavish/artifact-sdk.js";
 import "./workspace.css";
 import "./investigation.css";
+import "./annotation-intro.css";
+import { annotationIntro } from "./ui/annotation-intro";
 
 const escape = (value: unknown): string =>
   String(value ?? "").replace(
@@ -306,6 +308,12 @@ export function mountResearchWorkspace(
       openActivity(batch);
     }
   });
+  // Developer mode shows the tools for feedback about Weir itself; otherwise the
+  // Feedback page and its button are gone, and annotating is only about the research.
+  function applyDeveloperMode() {
+    nav.querySelector<HTMLElement>(".feedback-destination")!.hidden = !state.developerMode;
+    if (!state.developerMode && view === "feedback") setView("research");
+  }
   function updateCounts() {
     // Unread coordinator messages stay visible until the conversation is read.
     const unread = dialog.open && drawer?.currentTab === "conversation" ? 0 : drawer?.unread() || 0;
@@ -337,6 +345,7 @@ export function mountResearchWorkspace(
     const fresh: ResearchState = await request("/api/state");
     const changed = state.datasetRevision !== fresh.datasetRevision;
     state = fresh;
+    applyDeveloperMode();
     if (dialog.open) drawer?.render();
     updateCounts();
     if (render && !noticeMessage) hideNotice();
@@ -379,6 +388,19 @@ export function mountResearchWorkspace(
     );
     if (dialog.open && drawer?.currentTab === "queue") drawer.render();
   }
+  // What can be annotated: anything the app marks as a research object, and the graph's nodes and edges.
+  const researchObjects = "[data-research-target], [data-person-id], [data-context-entity-id], [data-union-id], [data-connection-id]";
+  function pageContext(element: Element) {
+    const name = element.tagName.toLowerCase() + [...element.classList].slice(0, 3).map((c) => `.${c}`).join("");
+    // The headings above it, nearest last, as a reader of the page would see them.
+    const headings: string[] = [];
+    for (let node: Element | null = element; node && headings.length < 4; node = node.parentElement) {
+      const heading = node.matches("h1, h2, h3") ? node : node.querySelector(":scope > h1, :scope > h2, :scope > h3, :scope > header h1, :scope > header h2");
+      const text = heading?.textContent?.replace(/\s+/g, " ").trim();
+      if (text && !headings.includes(text)) headings.unshift(text.slice(0, 80));
+    }
+    return { element: name, headings, viewport: `${window.innerWidth}x${window.innerHeight}` };
+  }
   function resolveTarget(context: any): {
     target: AnnotationTarget;
     investigationId?: string;
@@ -418,12 +440,24 @@ export function mountResearchWorkspace(
     if (proposal) target.proposalId = proposal;
     const graphReviewId = element?.closest<HTMLElement>("[data-graph-review-id]")?.dataset.graphReviewId;
     if (graphReviewId) target.graphReviewId = graphReviewId;
+    // The screen it was picked from, so the coordinator knows where the human was.
+    const hash = new URLSearchParams(location.hash.slice(1));
+    const screen = {
+      view,
+      ...(view === "review" && reviewTarget ? { investigationId: reviewTarget.batchId } : view === "work" && selectedInvestigation ? { investigationId: selectedInvestigation } : {}),
+      ...(view === "sources" && selectedSource ? { sourceId: selectedSource } : {}),
+      ...(view === "research" && (hash.get("person") || hash.get("node")) ? { focusId: (hash.get("person") || hash.get("node"))! } : {}),
+    };
+    // For feedback about Weir itself, where on the page it was.
+    const page = state.developerMode && element ? pageContext(element) : undefined;
     return {
       target: {
         ...target,
         selector: context.selector,
         text: context.text,
         anchor: context.target,
+        screen,
+        ...(page ? { page } : {}),
       },
       investigationId: element?.closest<HTMLElement>("[data-investigation-id]")
         ?.dataset.investigationId,
@@ -558,6 +592,10 @@ export function mountResearchWorkspace(
     if ((event.target as Element).closest("[data-close]")) closeDrawer();
   });
   (window as any).lavishUnifiedFeedback = {
+    // Only research objects can be annotated, never the app around them, so every
+    // note reaches the coordinator as something it can look up.
+    // In developer mode anything can be annotated, as feedback about Weir itself.
+    canAnnotate: (element: Element) => Boolean(state.developerMode || element.closest(researchObjects)),
     selectReference: (context: any) => {
       openDrawer("queue", resolveTarget(context).target);
     },
@@ -580,6 +618,41 @@ export function mountResearchWorkspace(
     },
     true,
   );
+  // The first time the human opens any project, a card beside the Annotate switch
+  // shows what annotating does. Seen once, it does not come back in any project.
+  const intro = document.createElement("div");
+  intro.className = "annotate-intro";
+  intro.setAttribute("role", "dialog");
+  intro.setAttribute("aria-labelledby", "annotate-intro-title");
+  intro.hidden = true;
+  intro.innerHTML = annotationIntro();
+  document.body.append(intro);
+  function placeIntro() {
+    if (intro.hidden) return;
+    const button = nav.querySelector("[data-annotate]")!.getBoundingClientRect();
+    const width = intro.offsetWidth;
+    const left = Math.min(Math.max(16, button.left + button.width / 2 - width + 40), window.innerWidth - width - 16);
+    intro.style.top = `${button.bottom + 12}px`;
+    intro.style.left = `${left}px`;
+    intro.style.setProperty("--intro-point", `${Math.max(16, Math.min(width - 28, left + width - (button.left + button.width / 2) - 6))}px`);
+  }
+  function closeIntro() {
+    intro.hidden = true;
+    state.annotationIntroSeen = true;
+    void request("/api/app-settings", { annotationIntroSeen: true }).catch(() => undefined);
+  }
+  intro.addEventListener("click", (event) => {
+    const button = (event.target as Element).closest("button");
+    if (!button) return;
+    closeIntro();
+    if (button.hasAttribute("data-intro-try") && !annotate) toggleAnnotating();
+  });
+  window.addEventListener("resize", placeIntro);
+  if (!state.annotationIntroSeen)
+    window.setTimeout(() => {
+      intro.hidden = false;
+      placeIntro();
+    }, 600);
   // Closing the project asks whether running workers carry on without it.
   const quit = document.createElement("dialog");
   quit.className = "quit-dialog";
@@ -760,7 +833,7 @@ export function mountResearchWorkspace(
       renderSources();
       return;
     }
-    if (view === "feedback") {
+    if (view === "feedback" && state.developerMode) {
       surface.innerHTML = feedbackView(state);
       return;
     }
@@ -835,6 +908,16 @@ export function mountResearchWorkspace(
         await request("/api/coordinator/fresh", {});
         message("A fresh coordinator is starting from the project's saved state.");
         await refresh();
+      } catch (error) {
+        message((error as Error).message);
+      }
+    });
+    surface.querySelector<HTMLInputElement>("#developer-mode")?.addEventListener("change", async (event) => {
+      const developerMode = (event.target as HTMLInputElement).checked;
+      try {
+        await request("/api/app-settings", { developerMode });
+        await refresh();
+        message(developerMode ? "Developer mode is on: the Feedback page and interface feedback are available." : "Developer mode is off.");
       } catch (error) {
         message((error as Error).message);
       }
@@ -1259,5 +1342,6 @@ export function mountResearchWorkspace(
     .querySelector("[data-open-sources]")
     ?.addEventListener("click", () => setView("sources"));
   updateCounts();
+  applyDeveloperMode();
   if (view !== "research") setView(view);
 }

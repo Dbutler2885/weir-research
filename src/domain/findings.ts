@@ -290,6 +290,11 @@ export function validateReferences(
         assert(!r.claimId || [...(g.draft.claims || []), ...(g.baseDataset.claims || [])].some(c => c.id === r.claimId), "Edge does not exist in this graph draft.");
       }
     }
+    if (r.investigationId) {
+      const batch = state.investigations.find((i) => i.id === r.investigationId);
+      assert(batch, "Referenced batch no longer exists.");
+      assert(!r.questionId || batch.questions?.some((q) => q.id === r.questionId), "Referenced question does not exist in its batch.");
+    }
     if (r.proposalId) {
       const p = state.investigations
         .flatMap((i) => i.proposals)

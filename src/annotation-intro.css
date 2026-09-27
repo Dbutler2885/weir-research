@@ -1,0 +1,182 @@
+/* The introduction to annotating, under the Annotate switch. */
+.annotate-intro {
+  position: fixed;
+  z-index: 60;
+  width: min(360px, calc(100vw - 32px));
+  padding: 18px 18px 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper);
+  box-shadow: var(--shadow);
+  animation: intro-in 220ms ease-out;
+}
+.annotate-intro[hidden] {
+  display: none;
+}
+/* A small point toward the switch it explains. */
+.annotate-intro::before {
+  position: absolute;
+  top: -7px;
+  right: var(--intro-point, 40px);
+  width: 12px;
+  height: 12px;
+  border-top: 1px solid var(--line);
+  border-left: 1px solid var(--line);
+  background: var(--paper);
+  transform: rotate(45deg);
+  content: "";
+}
+.annotate-intro h2 {
+  margin: 14px 0 6px;
+  color: var(--ink);
+  font-family: "Iowan Old Style", "Palatino Linotype", Palatino, serif;
+  font-size: 19px;
+  font-weight: 650;
+}
+.annotate-intro > p {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+.intro-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+}
+@keyframes intro-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+/* The demo: a finding, the cursor that picks it, the note, and the answer. */
+.intro-demo {
+  position: relative;
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border-radius: 8px;
+  background: #ebe6da;
+  font-size: 12px;
+  line-height: 1.45;
+  overflow: hidden;
+}
+.intro-demo p {
+  margin: 2px 0 0;
+}
+.demo-finding {
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: #fffdf8;
+  color: var(--ink);
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  animation: demo-picked 8s infinite;
+}
+.demo-kicker,
+.demo-ref,
+.demo-reply span {
+  color: var(--ink-soft);
+  font-size: 10.5px;
+}
+.demo-kicker {
+  color: var(--sea-dark);
+}
+.demo-cursor {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 13px;
+  height: 17px;
+  fill: var(--ink);
+  stroke: #fff;
+  stroke-width: 1.2;
+  animation: demo-cursor 8s infinite;
+}
+.demo-note,
+.demo-reply {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #fffdf8;
+  color: var(--ink);
+  opacity: 0;
+}
+.demo-note {
+  margin-left: 28px;
+  border: 1px solid var(--line);
+  animation: demo-note 8s infinite;
+}
+.demo-reply {
+  margin-right: 28px;
+  border-left: 3px solid var(--sea);
+  animation: demo-reply 8s infinite;
+}
+@keyframes demo-cursor {
+  0% { opacity: 0; transform: translate(250px, 150px); }
+  6% { opacity: 1; }
+  20%, 30% { opacity: 1; transform: translate(150px, 30px); }
+  24% { transform: translate(150px, 30px) scale(0.85); }
+  40%, 100% { opacity: 0; transform: translate(150px, 30px); }
+}
+@keyframes demo-picked {
+  0%, 23% { outline-color: transparent; }
+  25%, 88% { outline-color: #f4c95d; }
+  95%, 100% { outline-color: transparent; }
+}
+@keyframes demo-note {
+  0%, 30% { opacity: 0; transform: translateY(6px); }
+  36%, 88% { opacity: 1; transform: none; }
+  95%, 100% { opacity: 0; }
+}
+@keyframes demo-reply {
+  0%, 52% { opacity: 0; transform: translateY(6px); }
+  58%, 88% { opacity: 1; transform: none; }
+  95%, 100% { opacity: 0; }
+}
+/* Without motion, the demo shows its last frame: picked, asked and answered. */
+@media (prefers-reduced-motion: reduce) {
+  .demo-finding,
+  .demo-note,
+  .demo-reply,
+  .demo-cursor {
+    animation: none;
+  }
+  .demo-finding {
+    outline-color: #f4c95d;
+  }
+  .demo-note,
+  .demo-reply {
+    opacity: 1;
+  }
+  .demo-cursor {
+    display: none;
+  }
+}
+/* The card sits outside the app's own container, so it styles its buttons as the app does. */
+.annotate-intro button {
+  padding: 8px 16px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fffdf8;
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+.annotate-intro button:hover {
+  border-color: var(--sea);
+}
+.annotate-intro button.primary {
+  border-color: var(--sea-dark);
+  background: var(--sea-dark);
+  color: #fff;
+}
+.annotate-intro button.primary:hover {
+  background: var(--sea);
+}
+.annotate-intro button:focus-visible {
+  outline: 2px solid var(--sea);
+  outline-offset: 2px;
+}

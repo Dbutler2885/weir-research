@@ -95,6 +95,17 @@ const supervisor = new AgentSupervisor({
 });
 // One research browser for the app, with its own profile, shared by every project.
 const researchBrowser = new ResearchBrowser(appDirectory, { root });
+// Settings for the whole app rather than one project: developer mode, which shows
+// the tools for recording feedback about Weir itself, and whether the human has
+// seen the introduction to annotating.
+const appSettingsFile = join(appDirectory, "app-settings.json");
+const appSettings = () => {
+  try {
+    return JSON.parse(readFileSync(appSettingsFile, "utf8"));
+  } catch {
+    return {};
+  }
+};
 const setupScreen = setupRoutes({ homes: agentHomes(appDirectory), next: { label: "Back to your project", href: "/" } });
 const researchers = new ResearcherPool(store, directory, root, { coordinator, live, supervisor, browser: researchBrowser });
 coordinator.researchers = researchers;
@@ -335,6 +346,8 @@ const server = createServer(async (req, res) => {
         catalog,
         usage: supervisor.usage,
         researchBrowser: { available: researchBrowser.available, name: researchBrowser.browser.name },
+        developerMode: Boolean(appSettings().developerMode),
+        annotationIntroSeen: Boolean(appSettings().annotationIntroSeen),
       });
     if (req.method === "GET" && url.pathname === "/api/revision")
       return json(res, 200, {
@@ -396,6 +409,15 @@ const server = createServer(async (req, res) => {
         next.reviewSettings = { autoWalkthrough: data.autoWalkthrough, autoGraph: data.autoGraph };
       });
       return json(res, 200, store.state.reviewSettings);
+    }
+    if (req.method === "POST" && url.pathname === "/api/app-settings") {
+      const changes = Object.fromEntries(Object.entries(await body(req)).filter(([key]) => ["developerMode", "annotationIntroSeen"].includes(key)));
+      if (!Object.keys(changes).length || Object.values(changes).some((v) => typeof v !== "boolean"))
+        return json(res, 400, { error: "Say which app setting is on or off." });
+      mkdirSync(appDirectory, { recursive: true });
+      const next = { ...appSettings(), ...changes };
+      writeFileSync(appSettingsFile, JSON.stringify(next, null, 2), { mode: 0o600 });
+      return json(res, 200, next);
     }
     if (req.method === "POST" && url.pathname === "/api/research-settings") {
       return json(res, 200, researchers.configure(await body(req)));

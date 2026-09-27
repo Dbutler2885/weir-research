@@ -41,7 +41,7 @@ describe("notes on a text selection", () => {
     const selection = { label: "What remains open", text: "indexed excerpts, not page images", anchor: { type: "text-range", text: "indexed excerpts, not page images" } };
     p.run({ type: "send", annotation: { question: "What do you mean, and why?", references: [selection] } });
     const context = buildCoordinatorContext(p.state);
-    const said = "on “indexed excerpts, not page images” in What remains open";
+    const said = "on the words “indexed excerpts, not page images” in “What remains open”";
     expect(layer(context, "attention")).toContain(said);
     expect(layer(context, "conversation")).toContain(said);
     // A section clicked as a whole is named, without all of its text.

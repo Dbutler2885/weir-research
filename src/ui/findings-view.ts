@@ -100,7 +100,7 @@ function batchCard(
     .map((q) => question(state, b, q, expanded, answers))
     .join("");
   const other = b.proposals.filter((p) => !answers.get(p.id)?.length);
-  return `<article class="batch-card" id="batch-${html(b.id)}" data-investigation-id="${html(b.id)}"><div class="batch-label">Batch ${b.number} · ${label}</div><h2>${html(b.title)}</h2><p class="batch-meta">${meta.join(" · ")}</p>${requests(state, b)}${questions}${
+  return `<article class="batch-card" id="batch-${html(b.id)}" data-investigation-id="${html(b.id)}" ${target({ label: b.title, investigationId: b.id })}><div class="batch-label">Batch ${b.number} · ${label}</div><h2>${html(b.title)}</h2><p class="batch-meta">${meta.join(" · ")}</p>${requests(state, b)}${questions}${
     other.length
       ? `<section class="batch-question"><h3>Other reports in this batch</h3>${other.map((p, n) => report(state, b, p, n === 0, expanded, [])).join("")}</section>`
       : ""
@@ -177,7 +177,7 @@ function question(
   const pending = ["queued", "running"].includes(b.status)
     ? "A researcher is working on this now."
     : "No report yet.";
-  return `<section class="batch-question" id="question-${html(q.id)}"><h3>${html(q.title)}</h3>${asked(state, b, q, notes)}${
+  return `<section class="batch-question" id="question-${html(q.id)}" ${target({ label: q.title, investigationId: b.id, questionId: q.id })}><h3>${html(q.title)}</h3>${asked(state, b, q, notes)}${
     reports.length
       ? reports.map((p, n) => report(state, b, p, n === 0, expanded, others(p))).join("")
       : `<p class="report-pending">${pending}</p>`
@@ -230,7 +230,7 @@ function report(
   const also = alsoAnswers.length
     ? ` Also answers ${alsoAnswers.map((q) => `<a href="#question-${html(q.id)}" data-toc="question-${html(q.id)}">${html(q.title)}</a>`).join(", ")}.`
     : "";
-  return `<details class="report" data-proposal-id="${html(p.id)}" ${open ? "open" : ""}><summary>${html(p.title)}</summary><p class="report-by">Returned by ${html(by)}, ${html(when(p.createdAt))}.${also}</p><p class="report-summary">${html(p.summary)}</p>${
+  return `<details class="report" data-proposal-id="${html(p.id)}" ${target({ label: p.title, proposalId: p.id })} ${open ? "open" : ""}><summary>${html(p.title)}</summary><p class="report-by">Returned by ${html(by)}, ${html(when(p.createdAt))}.${also}</p><p class="report-summary">${html(p.summary)}</p>${
     shown.length
       ? `<div class="finding-list">${shown
           .map(
