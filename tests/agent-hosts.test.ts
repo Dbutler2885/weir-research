@@ -6,15 +6,12 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { AgentSupervisor } from "../server/agents/supervisor.mjs";
 import { LiveActivity, fileDescriber, researcherFiles } from "../server/live-activity.mjs";
+import { until } from "./fixtures/until";
 
 const cleanups: (() => unknown)[] = [];
 afterEach(async () => {
   for (const clean of cleanups.splice(0).reverse()) await clean();
 });
-const until = async (check: () => unknown, tries = 500) => {
-  for (let n = 0; n < tries && !check(); n++) await new Promise((done) => setTimeout(done, 20));
-  expect(check()).toBeTruthy();
-};
 // Stops an agent and waits for its host to report the exit.
 const stopped = (agent: any) =>
   new Promise<void>((done) => {
@@ -81,7 +78,7 @@ describe("agents under their own host process", () => {
     agent.finish();
     expect(await exit).toMatchObject({ code: 0 });
     expect(live.list()).toEqual([]);
-  }, 20_000);
+  });
 
   it("stay paused, not busy, when a message arrives while the usage limit holds them", async () => {
     const p = place();
@@ -93,7 +90,7 @@ describe("agents under their own host process", () => {
     agent.send("hello?");
     expect(agent.busy).toBe(false);
     expect(agent.paused).toMatchObject({ resetsAt: expect.any(Number) });
-  }, 20_000);
+  });
 
   it("stop their agent when the app's heartbeat stops", async () => {
     const p = place();
@@ -107,7 +104,7 @@ describe("agents under their own host process", () => {
     agent.socket.destroy();
     agent.ended = true;
     await until(() => !p.alive(pid));
-  }, 20_000);
+  });
 
   it("keep their agent through the computer sleeping", async () => {
     const p = place();
@@ -124,7 +121,7 @@ describe("agents under their own host process", () => {
     await new Promise((done) => setTimeout(done, 2000));
     expect(p.alive(pid)).toBe(true);
     expect(agent.ended).toBe(false);
-  }, 20_000);
+  });
 
   it("keep running when kept, and are taken back by the app when it opens again", async () => {
     const p = place();
@@ -157,7 +154,7 @@ describe("agents under their own host process", () => {
     await exit;
     second.supervisor.forget(record);
     expect(existsSync(join(p.hosts.registry, `${record.id}.json`))).toBe(false);
-  }, 20_000);
+  });
 });
 
 describe("a worker kept running while the app is closed", () => {
@@ -182,7 +179,7 @@ describe("a worker kept running while the app is closed", () => {
     expect(seen).toEqual(["paused", "resumed", "turn"]);
     back.finish();
     await new Promise((done) => back.once("exit", done));
-  }, 20_000);
+  });
 });
 
 describe("a researcher pool opening again", () => {
@@ -219,5 +216,5 @@ describe("a researcher pool opening again", () => {
     reopened.steer(id, steps([{ tool: "Write", input: { file_path: "result.json" }, writes: { "result.json": result } }]));
     await until(() => store.state.investigations[0].status === "review");
     expect(store.state.investigations[0].proposals[0].title).toBe("Unresolved");
-  }, 30_000);
+  });
 });

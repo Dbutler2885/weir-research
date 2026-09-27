@@ -13,14 +13,11 @@ import { AgentSupervisor } from "../server/agents/supervisor.mjs";
 import { LiveActivity } from "../server/live-activity.mjs";
 import { buildSample } from "../server/sample-project.mjs";
 import { walkthroughText } from "../src/domain/walkthrough-edits";
+import { until } from "./fixtures/until";
 
 const exec = promisify(execFile);
 const cleanups: (() => void)[] = [];
 afterEach(() => cleanups.splice(0).reverse().forEach((clean) => clean()));
-const until = async (check: () => unknown, tries = 1000) => {
-  for (let n = 0; n < tries && !check(); n++) await new Promise((done) => setTimeout(done, 10));
-  expect(check()).toBeTruthy();
-};
 
 function fixture(steps: object[] = []) {
   const directory = mkdtempSync(join(tmpdir(), "coordinator-host-"));
@@ -128,7 +125,7 @@ describe("the app's coordinator", () => {
     expect(f.received(host)).toHaveLength(1);
     expect(f.commands.every((c) => c.session === host.secret)).toBe(true);
     // Several real processes run here, which is slow when the whole suite runs at once.
-  }, 20_000);
+  });
 
   it("says when its coordinator stopped, and starts a fresh one on request", async () => {
     const f = fixture();
@@ -142,7 +139,7 @@ describe("the app's coordinator", () => {
     expect(host.startFresh()).toBe(true);
     expect(host.agent).not.toBe(first);
     expect(f.coordinator.status()).toMatchObject({ connected: true, problem: null });
-  }, 20_000);
+  });
 
   it("says when no agent CLI is installed to run it", () => {
     const f = fixture();
@@ -211,7 +208,7 @@ describe("the coordinator correcting a walkthrough", () => {
     await until(() => received().includes("was not used") && shown()?.steps.length === w.steps.length);
     expect(received()).toContain("Your change to walkthroughs/batch-1.json was not used: Keep the steps as they are");
     expect(store.state.investigations[0].reviewFlow.edits.edits).toHaveLength(1);
-  }, 20_000);
+  });
 });
 
 describe("the coordinator in the live panel", () => {

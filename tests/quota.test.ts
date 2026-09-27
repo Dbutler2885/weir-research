@@ -8,6 +8,7 @@ import { codexAdapter } from "../server/agents/codex.mjs";
 import { AgentSupervisor } from "../server/agents/supervisor.mjs";
 import { LiveActivity, fileDescriber, researcherFiles } from "../server/live-activity.mjs";
 import { usageLines } from "../src/ui/live-panel";
+import { until } from "./fixtures/until";
 
 const cleanups: (() => void)[] = [];
 afterEach(() => cleanups.splice(0).reverse().forEach((clean) => clean()));
@@ -81,10 +82,6 @@ describe("an agent that reaches its usage limit", () => {
       existsSync(join(folder, "received.jsonl")) ? readFileSync(join(folder, "received.jsonl"), "utf8").split("\n").slice(0, -1).map((l) => JSON.parse(l).text) : [];
     return { agent, live, supervisor, events, received };
   }
-  const until = async (check: () => unknown) => {
-    for (let n = 0; n < 400 && !check(); n++) await new Promise((done) => setTimeout(done, 10));
-    expect(check()).toBeTruthy();
-  };
 
   it("pauses with the reason and reset time, holds new messages, and carries on at the reset", async () => {
     const a = start();
@@ -101,7 +98,7 @@ describe("an agent that reaches its usage limit", () => {
     // It was told to carry on, with what was sent while it waited.
     expect(a.received()[1]).toContain("The usage limit has reset. Carry on with your assignment");
     expect(a.received()[1]).toContain('steps:[{"tool":"Read"');
-  }, 10_000);
+  });
 });
 
 describe("showing remaining usage", () => {

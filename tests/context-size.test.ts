@@ -12,13 +12,10 @@ import { WorkspaceStore } from "../server/store.mjs";
 import { Coordinator } from "../server/coordinator.mjs";
 import { CoordinatorHost } from "../server/coordinator-host.mjs";
 import { contextLevel, contextNotice, liveRows } from "../src/ui/live-panel";
+import { until } from "./fixtures/until";
 
 const cleanups: (() => void)[] = [];
 afterEach(() => cleanups.splice(0).reverse().forEach((clean) => clean()));
-const until = async (check: () => unknown) => {
-  for (let n = 0; n < 400 && !check(); n++) await new Promise((done) => setTimeout(done, 10));
-  expect(check()).toBeTruthy();
-};
 const folder = () => {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), "context-")));
   cleanups.push(() => rmSync(dir, { recursive: true, force: true }));

@@ -13,6 +13,7 @@ import { Helpers } from "../server/helpers.mjs";
 import { AgentSupervisor } from "../server/agents/supervisor.mjs";
 import { LiveActivity } from "../server/live-activity.mjs";
 import { liveRows } from "../src/ui/live-panel";
+import { until } from "./fixtures/until";
 
 const cleanups: (() => void)[] = [];
 afterEach(() => cleanups.splice(0).reverse().forEach((clean) => clean()));
@@ -138,9 +139,9 @@ describe("helpers", () => {
     expect(() => helpers.ask({ task: " " })).toThrow("Describe the helper's task");
     helpers.ask({ task: 'steps:[{"tool":"Read","input":{"file_path":"AGENTS.md"},"delay":200}]' });
     const row = () => liveRows({ investigations: [], conversation: [], live: live.list() } as any)[0];
-    for (let i = 0; i < 300 && row()?.latest !== "Reading its instructions"; i++) await new Promise((done) => setTimeout(done, 10));
+    await until(() => row()?.latest === "Reading its instructions");
     expect(row()).toMatchObject({ who: "Claude helper", latest: "Reading its instructions" });
-    for (let i = 0; i < 300 && !answers.length; i++) await new Promise((done) => setTimeout(done, 10));
+    await until(() => answers.length);
     expect(answers[0]).toContain("Your helper finished");
     expect(answers[0]).toContain("Done.");
   });

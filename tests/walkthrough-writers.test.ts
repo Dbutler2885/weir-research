@@ -9,13 +9,10 @@ import { WalkthroughWriters } from "../server/walkthrough-writers.mjs";
 import { LiveActivity } from "../server/live-activity.mjs";
 import { liveRows } from "../src/ui/live-panel";
 import { emptyGraph, prepareResearch } from "./fixtures/guided-flow";
+import { until } from "./fixtures/until";
 
 const cleanups: (() => void)[] = [];
 afterEach(() => cleanups.splice(0).reverse().forEach((clean) => clean()));
-const until = async (check: () => unknown) => {
-  for (let n = 0; n < 1000 && !check(); n++) await new Promise((done) => setTimeout(done, 10));
-  expect(check()).toBeTruthy();
-};
 
 // The fake Claude CLI writes what a writer would, one step per message.
 const write = (text: string) =>
@@ -49,7 +46,7 @@ function fixture(slow = false) {
   return { store, research, writers, live, command, writer, events };
 }
 
-describe("walkthrough writers", { timeout: 20_000 }, () => {
+describe("walkthrough writers", () => {
   it("are assigned by the coordinator only after the human asks, with a brief", () => {
     const f = fixture();
     expect(() => f.command("assign-walkthrough", { engine: "claude", brief: "Explain the location." })).toThrow("not asked for a walkthrough");
@@ -73,7 +70,8 @@ describe("walkthrough writers", { timeout: 20_000 }, () => {
     });
     expect(existsSync(join(folder, ".claude", "skills", "present-research", "references", "runtime.md"))).toBe(true);
     await until(() => f.live.list()[0]?.latest?.text === "Reading the findings for this batch");
-    const row = () => liveRows({ ...f.store.state, live: f.live.list() } as any).find((r) => r.batch && r.who.includes("walkthrough"));
+    // While the writer runs the row names it; once it exits, the same row reads "Walkthrough".
+    const row = () => liveRows({ ...f.store.state, live: f.live.list() } as any).find((r) => r.batch && /walkthrough/i.test(r.who));
     expect(row()).toMatchObject({ who: "Claude walkthrough writer", stage: "A walkthrough writer is working on it.", latest: "Reading the findings for this batch" });
     // A redirection reaches it mid-run; the broken draft it writes goes back to it.
     f.writers.steer(f.research.investigationId, write(JSON.stringify({ ...f.research.walkthrough, steps: [] })));

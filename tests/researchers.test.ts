@@ -10,6 +10,7 @@ import dataset from "./fixtures/workshop.json";
 import { WorkspaceStore } from "../server/store.mjs";
 import { ResearcherPool } from "../server/researchers.mjs";
 import { liveRows } from "../src/ui/live-panel";
+import { until } from "./fixtures/until";
 
 const cleanups: (() => void)[] = [];
 afterEach(() => {
@@ -355,10 +356,6 @@ describe("steerable researchers", () => {
 
 describe.each(["claude", "codex"] as const)("a %s researcher under the coordinator", (engine) => {
   const executables = { claude: resolve("tests/fixtures/fake-claude.mjs"), codex: resolve("tests/fixtures/fake-codex.mjs") };
-  const until = async (check: () => unknown) => {
-    for (let n = 0; n < 500 && !check(); n++) await new Promise((done) => setTimeout(done, 10));
-    expect(check()).toBeTruthy();
-  };
   async function running() {
     const { Coordinator } = await import("../server/coordinator.mjs");
     const directory = mkdtempSync(join(tmpdir(), "pike-steer-"));
