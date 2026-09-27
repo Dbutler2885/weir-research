@@ -67,8 +67,8 @@ beforeEach(() => {
     "fetch",
     vi.fn(async (path, options) => {
       if (path === "/api/app-settings") {
-        state.developerMode = JSON.parse(options.body).developerMode;
-        return { ok: true, json: async () => ({ developerMode: state.developerMode }) };
+        Object.assign(state, JSON.parse(options.body));
+        return { ok: true, json: async () => ({ developerMode: state.developerMode, annotationIntroSeen: state.annotationIntroSeen }) };
       }
       if (path === "/api/research-settings") {
         state.researchSettings = JSON.parse(options.body);
@@ -541,6 +541,20 @@ describe("investigation workspace", () => {
     await vi.waitFor(() => expect(feedbackButton.hidden).toBe(false));
     expect(state.developerMode).toBe(true);
     expect(canAnnotate(document.querySelector(".app-header h1")!)).toBe(true);
+  });
+  it("introduces annotating once, beside the Annotate switch, and Try it turns it on", async () => {
+    mount();
+    const intro = document.querySelector<HTMLElement>(".annotate-intro")!;
+    await vi.waitFor(() => expect(intro.hidden).toBe(false));
+    expect(intro.textContent).toContain("Point at anything and ask about it");
+    click("[data-intro-try]");
+    expect(intro.hidden).toBe(true);
+    expect(document.querySelector("[data-annotate]")!.getAttribute("aria-checked")).toBe("true");
+    await vi.waitFor(() => expect(state.annotationIntroSeen).toBe(true));
+    // Seen once, it stays away, in this project or any other.
+    mount();
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    expect(document.querySelector<HTMLElement>(".annotate-intro")!.hidden).toBe(true);
   });
   it("keeps repeated feedback saves out of research and remembers the choice", async () => {
     state.developerMode = true;

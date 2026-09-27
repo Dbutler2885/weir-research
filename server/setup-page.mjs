@@ -260,7 +260,9 @@ ${STYLE}
 .start:disabled { opacity: 0.4; cursor: default; }
 .start:focus-visible { outline: 2px solid var(--sea); outline-offset: 2px; }
 .new-heading { margin-bottom: 14px; }
-.sample { margin: 0; padding-top: 22px; border-top: 1px solid var(--line); font-size: 15px; line-height: 1.6; color: var(--ink-soft); }
+.tip { margin: 0 0 10px; padding-top: 22px; border-top: 1px solid var(--line); font-size: 15px; line-height: 1.6; color: var(--ink-soft); }
+.tip strong { color: var(--ink); font-weight: 600; }
+.sample { margin: 0; font-size: 15px; line-height: 1.6; color: var(--ink-soft); }
 .sample button { border: 0; background: none; padding: 0; font-size: 15px; color: var(--sea-dark); text-decoration: underline; text-underline-offset: 3px; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .opening { position: fixed; inset: 0; z-index: 10; display: grid; place-items: center; background: radial-gradient(circle at 50% 45%, #f9f6ed 0, #ebe6da 60%, #e3ddd0 100%); animation: opening-in 180ms ease-out; }
@@ -283,6 +285,7 @@ ${topic}` : `<p class="eyebrow">Welcome</p>
 <h1>What would you like to research?</h1>
 <p class="lede">Name a person, a family or a question. Your coordinator plans the research with you from there.</p>
 ${topic}`}
+<p class="tip">In any project, turn on <strong>Annotate</strong> to point at a finding, a source or someone on the graph, and ask your coordinator about exactly that.</p>
 <p class="sample">New here? <button type="button" data-sample>Open the sample project</button>: finished research on an invented family, with sources, findings and a draft graph to review. It uses nothing from your account until you write to it.</p>
 <p class="problem" data-problem hidden></p>
 </main>

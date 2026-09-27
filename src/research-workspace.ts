@@ -35,6 +35,8 @@ import {
 } from "./vendor/lavish/artifact-sdk.js";
 import "./workspace.css";
 import "./investigation.css";
+import "./annotation-intro.css";
+import { annotationIntro } from "./ui/annotation-intro";
 
 const escape = (value: unknown): string =>
   String(value ?? "").replace(
@@ -616,6 +618,41 @@ export function mountResearchWorkspace(
     },
     true,
   );
+  // The first time the human opens any project, a card beside the Annotate switch
+  // shows what annotating does. Seen once, it does not come back in any project.
+  const intro = document.createElement("div");
+  intro.className = "annotate-intro";
+  intro.setAttribute("role", "dialog");
+  intro.setAttribute("aria-labelledby", "annotate-intro-title");
+  intro.hidden = true;
+  intro.innerHTML = annotationIntro();
+  document.body.append(intro);
+  function placeIntro() {
+    if (intro.hidden) return;
+    const button = nav.querySelector("[data-annotate]")!.getBoundingClientRect();
+    const width = intro.offsetWidth;
+    const left = Math.min(Math.max(16, button.left + button.width / 2 - width + 40), window.innerWidth - width - 16);
+    intro.style.top = `${button.bottom + 12}px`;
+    intro.style.left = `${left}px`;
+    intro.style.setProperty("--intro-point", `${Math.max(16, Math.min(width - 28, left + width - (button.left + button.width / 2) - 6))}px`);
+  }
+  function closeIntro() {
+    intro.hidden = true;
+    state.annotationIntroSeen = true;
+    void request("/api/app-settings", { annotationIntroSeen: true }).catch(() => undefined);
+  }
+  intro.addEventListener("click", (event) => {
+    const button = (event.target as Element).closest("button");
+    if (!button) return;
+    closeIntro();
+    if (button.hasAttribute("data-intro-try") && !annotate) toggleAnnotating();
+  });
+  window.addEventListener("resize", placeIntro);
+  if (!state.annotationIntroSeen)
+    window.setTimeout(() => {
+      intro.hidden = false;
+      placeIntro();
+    }, 600);
   // Closing the project asks whether running workers carry on without it.
   const quit = document.createElement("dialog");
   quit.className = "quit-dialog";

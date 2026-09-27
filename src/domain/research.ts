@@ -245,6 +245,8 @@ export interface ResearchState {
   catalog?: Catalog;
   // Whether the app shows the tools for feedback about Weir itself; set for the whole app.
   developerMode?: boolean;
+  // Whether the human has seen the introduction to annotating, in any project.
+  annotationIntroSeen?: boolean;
   // Whether Google Chrome is installed for the research browser.
   researchBrowser?: { available: boolean; name?: string | null };
   // The latest usage each agent CLI reported, where it reports any.
