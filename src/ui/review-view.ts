@@ -2,7 +2,7 @@ import type { Investigation, ResearchState } from "../domain/research";
 import { batchStatus } from "../domain/conversation";
 import { graphBlocker, graphWorkFinished } from "../domain/review-flow";
 import { batches } from "./findings-view";
-import { html } from "./finding-review";
+import { html, target } from "./finding-review";
 
 const day = (iso: string) =>
   new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
@@ -41,7 +41,7 @@ function row(state: ResearchState, b: Investigation): string {
     `${b.questions?.length || 0} question${b.questions?.length === 1 ? "" : "s"}`,
     findings ? `${findings} findings` : "",
   ].filter(Boolean);
-  return `<article class="review-row${status === "closed" ? " is-closed" : ""}" data-investigation-id="${html(b.id)}"><div>${pill}<h2>Batch ${b.number} · ${html(b.title)}</h2><p class="review-meta">${meta.join(" · ")}</p></div><div><div class="review-cell-label">Walkthrough</div>${walkthroughCell(b, status)}</div><div><div class="review-cell-label">Graph</div>${graphCell(state, b, status)}</div></article>`;
+  return `<article class="review-row${status === "closed" ? " is-closed" : ""}" data-investigation-id="${html(b.id)}" ${target({ label: b.title, investigationId: b.id })}><div>${pill}<h2>Batch ${b.number} · ${html(b.title)}</h2><p class="review-meta">${meta.join(" · ")}</p></div><div><div class="review-cell-label">Walkthrough</div>${walkthroughCell(b, status)}</div><div><div class="review-cell-label">Graph</div>${graphCell(state, b, status)}</div></article>`;
 }
 
 function walkthroughCell(b: Investigation, status: string): string {

@@ -5,6 +5,7 @@ import type {
   ResearchState,
 } from "../domain/research";
 import { referenceText } from "../domain/research";
+import { describeReference } from "../domain/references";
 import type { Message } from "../domain/conversation";
 import { html } from "./finding-review";
 import { clock, running } from "./live-panel";
@@ -297,16 +298,17 @@ ${this.tab === "conversation" ? this.conversation(state) : this.queue(state)}`;
   private about(state: ResearchState, a: Annotation): string {
     const ref = a.references?.[0];
     if (!ref || ref.label === state.dataset.title) return "";
-    return `<span class="msg-about">on ${html(referenceText(ref))}</span>`;
+    return `<span class="msg-about">on ${html(describeReference(state, ref).about)}</span>`;
   }
 
   private queue(state: ResearchState): string {
     const queue = state.queue || [];
     const d = this.draft;
+    // Each reference says what kind of research object it is, as the coordinator will read it.
     const refs = d.references
       .map(
         (r, n) =>
-          `<li><span>${html(referenceText(r))}</span><button type="button" data-remove-reference="${n}" aria-label="Remove reference">✕</button></li>`,
+          `<li><span class="reference-text"><span class="reference-kind">${html(describeReference(state, r).kind)}</span><span class="reference-label">${html(referenceText(r))}</span></span><button type="button" data-remove-reference="${n}" aria-label="Remove reference">✕</button></li>`,
       )
       .join("");
     const items = queue

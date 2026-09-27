@@ -485,6 +485,13 @@ export function createArtifactSdk(
     return !!(el && el.closest && el.closest("[data-lavish-action]"));
   }
 
+  // Research workspace addition: the host may limit annotation to the elements it
+  // can describe, through lavishUnifiedFeedback.canAnnotate(element).
+  function isHostExcluded(el) {
+    const unified = /** @type {any} */ (window).lavishUnifiedFeedback;
+    return !!(unified && typeof unified.canAnnotate === "function" && el instanceof Element && !unified.canAnnotate(el));
+  }
+
   // Native interactive controls (radios, checkboxes, inputs, selects, buttons,
   // labels, disclosure summaries, editable regions) should toggle/focus/type
   // natively instead of triggering annotation, just like elements marked with
@@ -1122,7 +1129,8 @@ export function createArtifactSdk(
         !annotationMode ||
         isLavishUi(event.target) ||
         isLavishAction(event.target) ||
-        isInteractiveControl(event.target)
+        isInteractiveControl(event.target) ||
+        isHostExcluded(event.target)
       )
         return;
       const target = annotationTargetEl(event.target);
@@ -1152,12 +1160,13 @@ export function createArtifactSdk(
         !annotationMode ||
         isLavishUi(event.target) ||
         isLavishAction(event.target) ||
-        isInteractiveControl(event.target)
+        isInteractiveControl(event.target) ||
+        isHostExcluded(event.target)
       )
         return;
 
       const c = textSelectionContext(document.getSelection());
-      if (!c) return;
+      if (!c || isHostExcluded(c.element)) return;
 
       ignoreNextClick = true;
       if (tryUnifiedFeedback(c.element, { context: c, range: c.range })) return;
@@ -1173,7 +1182,8 @@ export function createArtifactSdk(
         !annotationMode ||
         isLavishUi(event.target) ||
         isLavishAction(event.target) ||
-        isInteractiveControl(event.target)
+        isInteractiveControl(event.target) ||
+        isHostExcluded(event.target)
       )
         return;
       event.preventDefault();

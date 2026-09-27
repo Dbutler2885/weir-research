@@ -248,6 +248,11 @@ async function startApplication() {
     const person =
       model.peopleById.get(personId) ?? model.getContextEntity(personId);
     focusName.textContent = person.name;
+    // The focus's name can be annotated as the record it names.
+    focusName.setAttribute(
+      "data-research-target",
+      JSON.stringify({ table: model.peopleById.has(personId) ? "people" : "contextEntities", recordId: personId, label: person.name }),
+    );
     focusStatus.textContent = "Recomputing relationships";
     document.title = `${person.name} · ${dataset.title} · Weir`;
 
@@ -532,6 +537,7 @@ async function startApplication() {
       closeDetails();
       currentFocusId = "";
       focusName.textContent = model.dataset.title;
+      focusName.removeAttribute("data-research-target");
       focusStatus.textContent = "No findings yet";
       document.title = `${model.dataset.title} · Weir`;
       const url = new URL(location.href);

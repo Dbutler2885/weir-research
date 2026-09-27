@@ -379,6 +379,8 @@ export function mountResearchWorkspace(
     );
     if (dialog.open && drawer?.currentTab === "queue") drawer.render();
   }
+  // What can be annotated: anything the app marks as a research object, and the graph's nodes and edges.
+  const researchObjects = "[data-research-target], [data-person-id], [data-context-entity-id], [data-union-id], [data-connection-id]";
   function resolveTarget(context: any): {
     target: AnnotationTarget;
     investigationId?: string;
@@ -418,12 +420,21 @@ export function mountResearchWorkspace(
     if (proposal) target.proposalId = proposal;
     const graphReviewId = element?.closest<HTMLElement>("[data-graph-review-id]")?.dataset.graphReviewId;
     if (graphReviewId) target.graphReviewId = graphReviewId;
+    // The screen it was picked from, so the coordinator knows where the human was.
+    const hash = new URLSearchParams(location.hash.slice(1));
+    const screen = {
+      view,
+      ...(view === "review" && reviewTarget ? { investigationId: reviewTarget.batchId } : view === "work" && selectedInvestigation ? { investigationId: selectedInvestigation } : {}),
+      ...(view === "sources" && selectedSource ? { sourceId: selectedSource } : {}),
+      ...(view === "research" && (hash.get("person") || hash.get("node")) ? { focusId: (hash.get("person") || hash.get("node"))! } : {}),
+    };
     return {
       target: {
         ...target,
         selector: context.selector,
         text: context.text,
         anchor: context.target,
+        screen,
       },
       investigationId: element?.closest<HTMLElement>("[data-investigation-id]")
         ?.dataset.investigationId,
@@ -558,6 +569,9 @@ export function mountResearchWorkspace(
     if ((event.target as Element).closest("[data-close]")) closeDrawer();
   });
   (window as any).lavishUnifiedFeedback = {
+    // Only research objects can be annotated, never the app around them, so every
+    // note reaches the coordinator as something it can look up.
+    canAnnotate: (element: Element) => Boolean(element.closest(researchObjects)),
     selectReference: (context: any) => {
       openDrawer("queue", resolveTarget(context).target);
     },

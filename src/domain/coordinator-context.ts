@@ -1,5 +1,5 @@
 import type { Investigation, LiveWorker, ResearchState } from "./research.ts";
-import { referenceText } from "./research.ts";
+import { referenceLine } from "./references.ts";
 import type { Message } from "./conversation.ts";
 import { unassignedAnnotations } from "./conversation.ts";
 import { nextAction, currentCandidates } from "./next-action.ts";
@@ -72,7 +72,7 @@ function isOpen(b: Investigation) {
 function attention(state: ResearchState): ContextLayer {
   const blocks: string[] = [];
   for (const a of unassignedAnnotations(state)) {
-    const refs = (a.references || []).map(referenceText).filter(Boolean);
+    const refs = (a.references || []).map((r) => referenceLine(state, r));
     blocks.push(
       `- Sent note not yet in a batch (${a.id}): "${clip(a.question, 300)}"${refs.length ? ` on ${refs.map((r) => clip(r, 400)).join(", ")}` : ""}. Answer it, then place it in a batch with open-batch or add-to-batch.`,
     );
@@ -222,12 +222,12 @@ function orientation(state: ResearchState): ContextLayer {
   return layer("orientation", "Orientation", blocks, () => "…more orientation is available with inspect map.");
 }
 
-function messageBlock(m: Message) {
+function messageBlock(state: ResearchState, m: Message) {
   const who = m.author === "human" ? "Human" : "You";
   const lines = [`- ${who}, ${m.at.slice(0, 16).replace("T", " ")} (${m.id})`];
   if (m.text) lines.push(`  ${clip(m.text, 500)}`);
   for (const a of m.annotations || []) {
-    const refs = (a.references || []).map(referenceText).filter(Boolean);
+    const refs = (a.references || []).map((r) => referenceLine(state, r));
     lines.push(`  Note ${a.id}: "${clip(a.question, 200)}"${refs.length ? ` on ${refs.map((r) => clip(r, 400)).join(", ")}` : ""}`);
   }
   if (m.decision) lines.push(`  Request "${clip(m.decision.title, 160)}": ${m.decision.status}`);
@@ -238,7 +238,7 @@ function messageBlock(m: Message) {
 function conversation(state: ResearchState): ContextLayer {
   const messages = (state.conversation || []).slice(-8);
   // Newest first when trimming, but read in order.
-  const blocks = messages.map(messageBlock);
+  const blocks = messages.map((m) => messageBlock(state, m));
   const budget = layerBudgets.conversation;
   let used = 0;
   let start = blocks.length;

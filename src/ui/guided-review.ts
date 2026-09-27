@@ -202,9 +202,9 @@ export class GuidedReview {
     } else {
       body = `<span class="eyebrow">Bringing it together</span><section ${target(this.reference('Research conclusion', 'closing'))}><h1>What we can build on</h1>${this.passage('closing', paragraphs(w.closing))}</section><nav class="guided-navigation"><button data-guided-back>Back</button><div data-guided-ending-destination></div></nav>`;
     }
-    this.host.querySelector('[data-guided-body]')!.innerHTML = `<article class="guided-reading">${body}<details class="guided-originals"><summary>Research reports and walkthrough history</summary><p>The researchers’ original findings and evidence remain here alongside the coordinator’s explanation.</p>${w.proposalIds.map(id => {
+    this.host.querySelector('[data-guided-body]')!.innerHTML = `<article class="guided-reading" ${target(this.reference(w.title))}>${body}<details class="guided-originals"><summary>Research reports and walkthrough history</summary><p>The researchers’ original findings and evidence remain here alongside the coordinator’s explanation.</p>${w.proposalIds.map(id => {
       const p = this.investigation.proposals.find(p => p.id === id)!;
-      return `<details><summary>${html(p.title)}</summary>${paragraphs(p.summary)}${(p.findings || []).map(f => `<section ${target({label: f.statement, proposalId: p.id, findingId: f.id})}><h3>${html(f.statement)}</h3><p class="muted">${html(f.qualification)}</p>${paragraphs(f.explanation)}${f.evidenceIds.map(e => this.evidence(`${p.id}/${e}`)).join('')}</section>`).join('')}</details>`;
+      return `<details ${target({label: p.title, proposalId: p.id})}><summary>${html(p.title)}</summary>${paragraphs(p.summary)}${(p.findings || []).map(f => `<section ${target({label: f.statement, proposalId: p.id, findingId: f.id})}><h3>${html(f.statement)}</h3><p class="muted">${html(f.qualification)}</p>${paragraphs(f.explanation)}${f.evidenceIds.map(e => this.evidence(`${p.id}/${e}`)).join('')}</section>`).join('')}</details>`;
     }).join('')}<label>Walkthrough revision <select data-guided-revision>${this.investigation.reviewFlow!.walkthroughs.map(v => `<option value="${html(v.id)}" ${v.id === w.id ? 'selected' : ''}>${v.revision}: ${html(v.title)}</option>`).join('')}</select></label></details></article>`;
     this.renderStatus();
   }

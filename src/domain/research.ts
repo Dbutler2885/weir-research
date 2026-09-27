@@ -40,6 +40,11 @@ export interface AnnotationTarget {
   proposalId?: string;
   findingId?: string;
   groupId?: string;
+  // A batch, or one of its questions, as a whole.
+  investigationId?: string;
+  questionId?: string;
+  // The screen it was picked from; see describeScreen.
+  screen?: { view: string; investigationId?: string; sourceId?: string; focusId?: string };
 }
 // What a reference is on, as the human and the coordinator read it: its name, and
 // the words the human selected there when a selection is what they pointed at.
