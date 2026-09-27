@@ -1143,35 +1143,3 @@ input:focus-visible,
     transition-duration: 0.01ms !important;
   }
 }
-
-/* While agents work, a few herring leap from the tide, pass through the weir's
-   stakes, and dive back in on the far side, one after another. Each leap is one
-   arc: the fish crosses at a steady pace while it rises slowing and falls quickening. */
-.weir-mark {
-  overflow: visible;
-}
-.weir-swim {
-  opacity: 0;
-}
-.brand-name[data-working] .weir-swim {
-  animation: weir-swim 3.6s linear var(--leap-delay, 0s) infinite;
-}
-.brand-name[data-working] .weir-fish {
-  animation: weir-leap 3.6s var(--leap-delay, 0s) infinite;
-}
-@keyframes weir-swim {
-  0% { opacity: 0; transform: translateX(0px); }
-  6%, 46% { opacity: 1; }
-  52%, 100% { opacity: 0; transform: translateX(24px); }
-}
-@keyframes weir-leap {
-  0% { transform: translateY(19px) rotate(-30deg); animation-timing-function: cubic-bezier(0.33, 0.66, 0.66, 1); }
-  26% { transform: translateY(13.5px) rotate(0deg); animation-timing-function: cubic-bezier(0.33, 0, 0.66, 0.33); }
-  52%, 100% { transform: translateY(19px) rotate(30deg); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .brand-name[data-working] .weir-swim,
-  .brand-name[data-working] .weir-fish {
-    animation: none;
-  }
-}

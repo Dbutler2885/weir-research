@@ -1,4 +1,5 @@
 import "./styles.css";
+import "./ui/weir-mark.css";
 import familyData from "./data/empty.json";
 import { GenealogyModel } from "./domain/model";
 import { projectAround } from "./domain/projection";

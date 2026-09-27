@@ -2,7 +2,11 @@
 // the app works with, through the Claude Code and Codex apps on this computer,
 // installs what is missing where it can, and asks nothing about models.
 
+import { readFileSync } from 'node:fs';
 import { weirIcon, weirMark } from '../src/ui/logo.ts';
+
+// The mark's motion, shared with the app.
+const markStyle = readFileSync(new URL('../src/ui/weir-mark.css', import.meta.url), 'utf8');
 
 // The bar across the top of the setup and welcome screens, as in the app's header,
 // with one link on the right.
@@ -216,12 +220,12 @@ export function welcomePage({projects = []}) {
     const sameYear = date.getFullYear() === new Date().getFullYear();
     return `Last worked on ${date.toLocaleDateString('en-US', {month: 'long', day: 'numeric', ...(sameYear ? {} : {year: 'numeric'})})}`;
   };
-  const rows = projects.map((p) => `<li><button type="button" class="project" data-open="${esc(p.id)}"><span class="project-name">${esc(p.name)}</span><span class="project-when">${esc(when(p.updated))}</span><span class="project-open" aria-hidden="true" data-label>Open</span></button></li>`).join('');
+  const rows = projects.map((p) => `<li><button type="button" class="project" data-open="${esc(p.id)}"><span class="project-name">${esc(p.name)}</span><span class="project-when">${esc(when(p.updated))}</span><span class="project-open" aria-hidden="true">Open</span></button></li>`).join('');
   // One box, as the coordinator's message box is: it grows with the topic, and its button sits inside.
   const topic = `<form class="topic" data-start>
 <label class="visually-hidden" for="topic">Your research topic</label>
 <textarea id="topic" name="topic" rows="2" maxlength="300" required placeholder="For example, where my great-grandparents came from"></textarea>
-<div class="topic-foot"><span class="topic-hint">Enter to start, Shift+Enter for a new line</span><button class="start" disabled><span data-label>Start researching</span><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg></button></div>
+<div class="topic-foot"><span class="topic-hint">Enter to start, Shift+Enter for a new line</span><button class="start" disabled><span>Start researching</span><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg></button></div>
 </form>`;
   return `<!doctype html>
 <html lang="en">
@@ -259,6 +263,13 @@ ${STYLE}
 .sample { margin: 0; padding-top: 22px; border-top: 1px solid var(--line); font-size: 15px; line-height: 1.6; color: var(--ink-soft); }
 .sample button { border: 0; background: none; padding: 0; font-size: 15px; color: var(--sea-dark); text-decoration: underline; text-underline-offset: 3px; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.opening { position: fixed; inset: 0; z-index: 10; display: grid; place-items: center; background: radial-gradient(circle at 50% 45%, #f9f6ed 0, #ebe6da 60%, #e3ddd0 100%); animation: opening-in 180ms ease-out; }
+.opening[hidden] { display: none; }
+.opening-card { display: grid; justify-items: center; gap: 22px; padding: 24px; text-align: center; }
+.opening .weir-mark { width: 132px; height: 132px; }
+.opening p { max-width: 420px; margin: 0; font-family: "Iowan Old Style", "Palatino Linotype", Palatino, serif; font-size: 21px; color: var(--ink); overflow-wrap: anywhere; }
+@keyframes opening-in { from { opacity: 0; } }
+${markStyle}
 @media (max-width: 560px) { .top-bar { padding: 12px 16px; } h1 { font-size: 34px; } .project { padding: 16px; } .topic-hint { display: none; } .topic-foot { justify-content: flex-end; } }
 </style>
 </head>
@@ -275,8 +286,10 @@ ${topic}`}
 <p class="sample">New here? <button type="button" data-sample>Open the sample project</button>: finished research on an invented family, with sources, findings and a draft graph to review. It uses nothing from your account until you write to it.</p>
 <p class="problem" data-problem hidden></p>
 </main>
+<div class="opening" data-opening hidden role="status" aria-live="polite"><div class="opening-card" data-working>${weirMark}<p data-opening-text></p></div></div>
 <script>
 const problem = document.querySelector('[data-problem]');
+const opening = document.querySelector('[data-opening]');
 const post = async (path, body) => {
   const response = await fetch(path, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body || {})});
   const result = await response.json();
@@ -284,18 +297,18 @@ const post = async (path, body) => {
   return result;
 };
 // Opening a project starts its own service, which takes a moment.
-// A project's row keeps its name and says it is opening where it said Open.
+// A project's service takes a moment to start; the fish swim through the weir
+// until its page takes over. A problem brings the welcome page back to say why.
 const go = async (control, path, body, busy) => {
-  const text = control.querySelector('[data-label]') || control;
-  const label = text.textContent;
   control.disabled = true;
-  text.textContent = busy;
   problem.hidden = true;
+  opening.querySelector('[data-opening-text]').textContent = busy;
+  opening.hidden = false;
   try {
     location.href = (await post(path, body)).url;
   } catch (error) {
+    opening.hidden = true;
     control.disabled = false;
-    text.textContent = label;
     problem.textContent = error.message;
     problem.hidden = false;
   }
@@ -319,12 +332,18 @@ field.addEventListener('keydown', (event) => {
 fit();
 form.addEventListener('submit', (event) => {
   event.preventDefault();
-  go(start, '/api/setup/start', {topic: field.value}, 'Starting…');
+  go(start, '/api/setup/start', {topic: field.value}, 'Starting your project…');
+});
+// Coming back to this page, the project that was opening has opened.
+window.addEventListener('pageshow', () => {
+  opening.hidden = true;
+  for (const button of document.querySelectorAll('[data-open], [data-sample]')) button.disabled = false;
+  fit();
 });
 document.addEventListener('click', (event) => {
   const button = event.target.closest('button');
-  if (button?.dataset.open) go(button, '/api/setup/open', {id: button.dataset.open}, 'Opening…');
-  else if (button?.hasAttribute('data-sample')) go(button, '/api/setup/sample', {}, 'Opening…');
+  if (button?.dataset.open) go(button, '/api/setup/open', {id: button.dataset.open}, 'Opening ' + button.querySelector('.project-name').textContent + '…');
+  else if (button?.hasAttribute('data-sample')) go(button, '/api/setup/sample', {}, 'Opening the sample project…');
 });
 </script>
 </body>
