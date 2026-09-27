@@ -4,7 +4,6 @@
   box-shadow: none;
   gap: 24px;
 }
-.research-app .archive-label,
 .research-app .brand-block p {
   display: none;
 }
@@ -13,13 +12,11 @@
   flex: 1;
   overflow: hidden;
 }
+/* The name, then a hairline, then the project. */
 .research-app .brand-block > div {
   min-width: 0;
-}
-.research-app .brand-block::before {
-  content: "Project";
-  color: var(--ink-soft);
-  font-size: 12px;
+  padding-left: 12px;
+  border-left: 1px solid var(--line);
 }
 .research-app .brand-block h1 {
   font: 600 15px/1.4 var(--font-sans, system-ui, sans-serif);

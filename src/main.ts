@@ -12,6 +12,7 @@ import { GraphRenderer } from "./ui/graph-renderer";
 
 import { mountResearchWorkspace } from "./research-workspace";
 import type { ResearchState } from "./domain/research";
+import { weirMark } from "./ui/logo";
 
 const escapeHtml = (value: string) =>
   value.replace(
@@ -44,7 +45,7 @@ async function startApplication() {
   <div class="app-shell">
     <header class="app-header">
       <div class="brand-block">
-        <span class="archive-label">Weir</span>
+        <span class="brand-name">${weirMark}<span>Weir</span></span>
         <div>
           <h1>${escapeHtml(dataset.title)}</h1>
           <p>Follow the evidence. Change the center of the story.</p>
@@ -243,7 +244,7 @@ async function startApplication() {
       model.peopleById.get(personId) ?? model.getContextEntity(personId);
     focusName.textContent = person.name;
     focusStatus.textContent = "Recomputing relationships";
-    document.title = `${person.name} · ${dataset.title}`;
+    document.title = `${person.name} · ${dataset.title} · Weir`;
 
     if (historyMode !== "none") {
       updateHash(personId, historyMode);
@@ -527,7 +528,7 @@ async function startApplication() {
       currentFocusId = "";
       focusName.textContent = model.dataset.title;
       focusStatus.textContent = "No findings yet";
-      document.title = model.dataset.title;
+      document.title = `${model.dataset.title} · Weir`;
       const url = new URL(location.href);
       url.hash = "";
       history.replaceState({}, "", url);
