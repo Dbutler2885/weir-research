@@ -2,6 +2,16 @@
 // the app works with, through the Claude Code and Codex apps on this computer,
 // installs what is missing where it can, and asks nothing about models.
 
+import { readFileSync } from 'node:fs';
+import { weirIcon, weirMark } from '../src/ui/logo.ts';
+
+// The mark's motion, shared with the app.
+const markStyle = readFileSync(new URL('../src/ui/weir-mark.css', import.meta.url), 'utf8');
+
+// The bar across the top of the setup and welcome screens, as in the app's header,
+// with one link on the right.
+const topBar = (link = '') => `<header class="top-bar"><span class="brand">${weirMark}<span>Weir</span></span>${link}</header>`;
+
 const esc = (value) =>
   String(value ?? '').replace(/[&<>"']/g, (c) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'})[c]);
 
@@ -75,8 +85,13 @@ const STYLE = `:root {
   background: #e8e3d8;
 }
 * { box-sizing: border-box; }
-body { margin: 0; min-height: 100vh; background: radial-gradient(ellipse at 50% -10%, #fbf8f1 0%, #efe9dd 45%, #e8e3d8 80%); }
+body { margin: 0; min-height: 100vh; background-color: #e9e5d9; background-image: linear-gradient(rgb(89 101 95 / 5%) 1px, transparent 1px), linear-gradient(90deg, rgb(89 101 95 / 5%) 1px, transparent 1px), radial-gradient(circle at 50% 30%, #f9f6ed 0, #ebe6da 58%, #ded9cb 100%); background-size: 28px 28px, 28px 28px, auto; background-attachment: fixed; }
 .setup { max-width: 640px; margin: 0 auto; padding: 72px 24px 80px; }
+.top-bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 28px; border-bottom: 1px solid var(--line); background: linear-gradient(90deg, rgb(255 255 255 / 58%), transparent 42%), var(--paper); box-shadow: 0 3px 14px rgb(40 49 46 / 6%); }
+.top-bar a { font-size: 14px; color: var(--ink-soft); text-decoration: none; }
+.top-bar a:hover { color: var(--sea-dark); }
+.brand { display: flex; align-items: center; gap: 8px; font-family: "Iowan Old Style", "Palatino Linotype", Palatino, serif; font-size: 20px; font-weight: 650; letter-spacing: -0.01em; }
+.weir-mark { width: 24px; height: 24px; }
 .eyebrow { margin: 0 0 12px; color: var(--rust); font-size: 12px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; }
 h1 { font-family: Georgia, serif; font-weight: 500; font-size: 42px; letter-spacing: -0.8px; margin: 0 0 16px; line-height: 1.12; }
 .lede { font-size: 18px; line-height: 1.6; color: var(--ink-soft); margin: 0 0 40px; }
@@ -132,11 +147,13 @@ export function setupPage({setup, signingIn = null, installing = null, installPr
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Welcome to the research workspace</title>
+<title>Set up Weir</title>
+<link rel="icon" href="${weirIcon}">
 <style>
 ${STYLE}</style>
 </head>
 <body>
+${topBar()}
 <main class="setup">
 <p class="eyebrow">Welcome</p>
 <h1>Connect the AI you already use</h1>
@@ -192,46 +209,87 @@ ${signingIn || installing ? `setInterval(async () => { const s = await (await fe
 </html>`;
 }
 
-// Where Continue leads on a first visit: start a project, open one already made,
-// or look around the fictional sample first.
-/** @param {{projects?: {id: string, name: string}[]}} options */
+// The welcome page: where Continue leads on a first visit, and where closing a
+// project lands. It leads with the projects already made, then starting a new one,
+// and offers the fictional sample last.
+/** @param {{projects?: {id: string, name: string, updated?: string}[]}} options */
 export function welcomePage({projects = []}) {
-  const rows = projects.map((p) => `<li class="row"><div class="row-text"><h3>${esc(p.name)}</h3></div><div class="row-action"><button type="button" data-open="${esc(p.id)}">Open</button></div></li>`).join('');
+  const when = (iso) => {
+    if (!iso) return '';
+    const date = new Date(iso);
+    const sameYear = date.getFullYear() === new Date().getFullYear();
+    return `Last worked on ${date.toLocaleDateString('en-US', {month: 'long', day: 'numeric', ...(sameYear ? {} : {year: 'numeric'})})}`;
+  };
+  const rows = projects.map((p) => `<li><button type="button" class="project" data-open="${esc(p.id)}"><span class="project-name">${esc(p.name)}</span><span class="project-when">${esc(when(p.updated))}</span><span class="project-open" aria-hidden="true">Open</span></button></li>`).join('');
+  // One box, as the coordinator's message box is: it grows with the topic, and its button sits inside.
+  const topic = `<form class="topic" data-start>
+<label class="visually-hidden" for="topic">Your research topic</label>
+<textarea id="topic" name="topic" rows="2" maxlength="300" required placeholder="For example, where my great-grandparents came from"></textarea>
+<div class="topic-foot"><span class="topic-hint">Enter to start, Shift+Enter for a new line</span><button class="start" disabled><span>Start researching</span><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg></button></div>
+</form>`;
   return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Start researching</title>
+<title>Weir</title>
+<link rel="icon" href="${weirIcon}">
 <style>
 ${STYLE}
-.topic { display: grid; gap: 14px; margin: 0 0 44px; }
-.topic textarea { font: inherit; font-size: 17px; line-height: 1.5; color: var(--ink); background: #fffdf8; border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; resize: vertical; min-height: 84px; }
-.topic textarea:focus { outline: 2px solid var(--sea); outline-offset: 1px; border-color: var(--sea); }
-.topic .button { justify-self: end; padding: 11px 26px; font-size: 16px; }
+.projects { list-style: none; margin: 0 0 56px; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: rgb(251 249 243 / 88%); overflow: hidden; }
+.projects li + li { border-top: 1px solid var(--paper-deep); }
+.project { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 20px; align-items: center; width: 100%; padding: 18px 22px; border: 0; border-radius: 0; background: transparent; text-align: left; white-space: normal; }
+.project:hover, .project:focus-visible { background: #fffdf8; }
+.project:focus-visible { outline: 2px solid var(--sea); outline-offset: -2px; }
+.project-name { grid-column: 1; font-family: "Iowan Old Style", "Palatino Linotype", Palatino, serif; font-size: 19px; font-weight: 600; color: var(--ink); overflow-wrap: anywhere; }
+.project-when { grid-column: 1; margin-top: 4px; font-size: 14px; color: var(--ink-soft); }
+.project-when:empty { display: none; }
+.project-open { grid-column: 2; grid-row: 1 / span 2; font-size: 14px; color: var(--sea-dark); }
+.project:hover .project-open { text-decoration: underline; text-underline-offset: 3px; }
+.project:disabled { opacity: 0.6; }
+.topic { display: grid; gap: 10px; margin: 0 0 40px; padding: 14px 14px 12px 18px; border: 1px solid var(--line); border-radius: 12px; background: #fffdf8; box-shadow: 0 1px 2px rgb(40 49 46 / 5%); }
+.topic:focus-within { border-color: var(--sea); box-shadow: 0 0 0 3px rgb(39 113 119 / 14%); }
+.topic textarea { display: block; width: 100%; max-height: 216px; padding: 0; border: 0; outline: 0; resize: none; overflow-y: auto; background: transparent; font: inherit; font-size: 17px; line-height: 1.5; color: var(--ink); }
+.topic textarea::placeholder { color: #8a9496; }
+.topic-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.topic-hint { font-size: 13px; color: var(--ink-soft); }
+.start { display: inline-flex; align-items: center; gap: 8px; padding: 9px 14px 9px 18px; border: 0; border-radius: 8px; background: var(--sea-dark); color: #fff; font-size: 15px; font-weight: 600; transition: background 120ms, opacity 120ms; }
+.start svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; transition: transform 120ms; }
+.start:hover:not(:disabled) { background: var(--sea); }
+.start:hover:not(:disabled) svg { transform: translateX(2px); }
+.start:disabled { opacity: 0.4; cursor: default; }
+.start:focus-visible { outline: 2px solid var(--sea); outline-offset: 2px; }
+.new-heading { margin-bottom: 14px; }
+.sample { margin: 0; padding-top: 22px; border-top: 1px solid var(--line); font-size: 15px; line-height: 1.6; color: var(--ink-soft); }
+.sample button { border: 0; background: none; padding: 0; font-size: 15px; color: var(--sea-dark); text-decoration: underline; text-underline-offset: 3px; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.opening { position: fixed; inset: 0; z-index: 10; display: grid; place-items: center; background: radial-gradient(circle at 50% 45%, #f9f6ed 0, #ebe6da 60%, #e3ddd0 100%); animation: opening-in 180ms ease-out; }
+.opening[hidden] { display: none; }
+.opening-card { display: grid; justify-items: center; gap: 22px; padding: 24px; text-align: center; }
+.opening .weir-mark { width: 132px; height: 132px; }
+.opening p { max-width: 420px; margin: 0; font-family: "Iowan Old Style", "Palatino Linotype", Palatino, serif; font-size: 21px; color: var(--ink); overflow-wrap: anywhere; }
+@keyframes opening-in { from { opacity: 0; } }
+${markStyle}
+@media (max-width: 560px) { .top-bar { padding: 12px 16px; } h1 { font-size: 34px; } .project { padding: 16px; } .topic-hint { display: none; } .topic-foot { justify-content: flex-end; } }
 </style>
 </head>
 <body>
+${topBar('<a href="/setup">Accounts</a>')}
 <main class="setup">
-<p class="eyebrow">Welcome</p>
+${rows ? `<h1>Your projects</h1>
+<ul class="projects">${rows}</ul>
+<h2 class="new-heading">Start a new project</h2>
+${topic}` : `<p class="eyebrow">Welcome</p>
 <h1>What would you like to research?</h1>
 <p class="lede">Name a person, a family or a question. Your coordinator plans the research with you from there.</p>
-<form class="topic" data-start>
-<label class="visually-hidden" for="topic">Your research topic</label>
-<textarea id="topic" name="topic" maxlength="300" required placeholder="For example, where my great-grandparents came from"></textarea>
-<button class="button primary">Start researching</button>
-</form>
-${rows ? `<section aria-labelledby="projects-heading"><h2 id="projects-heading">Your projects</h2><ul class="rows">${rows}</ul></section>` : ''}
-<section aria-labelledby="sample-heading">
-<h2 id="sample-heading">Or look around first</h2>
-<ul class="rows"><li class="row"><div class="row-text"><h3>Sample project</h3><p class="detail">Finished research on an invented family, with its sources, findings and a draft family graph to review. It uses nothing from your account until you write to it.</p></div><div class="row-action"><button type="button" data-sample>Open the sample</button></div></li></ul>
-</section>
+${topic}`}
+<p class="sample">New here? <button type="button" data-sample>Open the sample project</button>: finished research on an invented family, with sources, findings and a draft graph to review. It uses nothing from your account until you write to it.</p>
 <p class="problem" data-problem hidden></p>
-<p class="recheck"><a href="/setup">Back to setup</a></p>
 </main>
+<div class="opening" data-opening hidden role="status" aria-live="polite"><div class="opening-card" data-working>${weirMark}<p data-opening-text></p></div></div>
 <script>
 const problem = document.querySelector('[data-problem]');
+const opening = document.querySelector('[data-opening]');
 const post = async (path, body) => {
   const response = await fetch(path, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body || {})});
   const result = await response.json();
@@ -239,28 +297,53 @@ const post = async (path, body) => {
   return result;
 };
 // Opening a project starts its own service, which takes a moment.
+// A project's service takes a moment to start; the fish swim through the weir
+// until its page takes over. A problem brings the welcome page back to say why.
 const go = async (control, path, body, busy) => {
-  const label = control.textContent;
   control.disabled = true;
-  control.textContent = busy;
   problem.hidden = true;
+  opening.querySelector('[data-opening-text]').textContent = busy;
+  opening.hidden = false;
   try {
     location.href = (await post(path, body)).url;
   } catch (error) {
+    opening.hidden = true;
     control.disabled = false;
-    control.textContent = label;
     problem.textContent = error.message;
     problem.hidden = false;
   }
 };
-document.querySelector('[data-start]').addEventListener('submit', (event) => {
+const form = document.querySelector('[data-start]');
+const field = form.topic;
+const start = form.querySelector('.start');
+// The box grows with the topic up to its limit, then scrolls; Start waits for a topic.
+const fit = () => {
+  field.style.height = 'auto';
+  field.style.height = field.scrollHeight + 'px';
+  start.disabled = !field.value.trim();
+};
+field.addEventListener('input', fit);
+field.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+    event.preventDefault();
+    if (!start.disabled) form.requestSubmit();
+  }
+});
+fit();
+form.addEventListener('submit', (event) => {
   event.preventDefault();
-  go(event.target.querySelector('button'), '/api/setup/start', {topic: event.target.topic.value}, 'Starting…');
+  go(start, '/api/setup/start', {topic: field.value}, 'Starting your project…');
+});
+// Coming back to this page, the project that was opening has opened.
+window.addEventListener('pageshow', () => {
+  opening.hidden = true;
+  for (const button of document.querySelectorAll('[data-open], [data-sample]')) button.disabled = false;
+  fit();
 });
 document.addEventListener('click', (event) => {
   const button = event.target.closest('button');
-  if (button?.dataset.open) go(button, '/api/setup/open', {id: button.dataset.open}, 'Opening…');
-  else if (button?.hasAttribute('data-sample')) go(button, '/api/setup/sample', {}, 'Opening…');
+  if (button?.dataset.open) go(button, '/api/setup/open', {id: button.dataset.open}, 'Opening ' + button.querySelector('.project-name').textContent + '…');
+  else if (button?.hasAttribute('data-sample')) go(button, '/api/setup/sample', {}, 'Opening the sample project…');
 });
 </script>
 </body>

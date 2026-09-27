@@ -93,7 +93,7 @@ export function mountResearchWorkspace(
     )
     .join(
       "",
-    )}</div><div class="workspace-actions"><button type="button" data-view="feedback" class="feedback-destination">Feedback <span data-count="feedback"></span></button><button type="button" class="running-indicator" data-running popovertarget="live-panel" hidden></button><span class="local-indicator" title="Saved on this computer">Saved</span><button type="button" data-organize-project>Organize</button><button type="button" data-open-coordinator aria-expanded="false" aria-controls="notes-sidebar">Coordinator <span data-count="unread" title="Unread messages"></span></button><button type="button" data-annotate role="switch" aria-checked="false"><span class="annotation-switch" aria-hidden="true"></span>Annotate</button><button type="button" data-view="settings" class="settings-destination" aria-label="Research settings" title="Research settings"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button><button type="button" data-quit-app>Quit</button></div>`;
+    )}</div><div class="workspace-actions"><button type="button" data-view="feedback" class="feedback-destination">Feedback <span data-count="feedback"></span></button><button type="button" class="running-indicator" data-running popovertarget="live-panel" hidden></button><span class="local-indicator" title="Saved on this computer">Saved</span><button type="button" data-organize-project>Organize</button><button type="button" data-open-coordinator aria-expanded="false" aria-controls="notes-sidebar">Coordinator <span data-count="unread" title="Unread messages"></span></button><button type="button" data-annotate role="switch" aria-checked="false"><span class="annotation-switch" aria-hidden="true"></span>Annotate</button><button type="button" data-view="settings" class="settings-destination" aria-label="Research settings" title="Research settings"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button><button type="button" data-quit-app>Close project</button></div>`;
   shell.insertBefore(nav, graph);
   const surface = document.createElement("section");
   surface.className = "research-surface";
@@ -264,6 +264,8 @@ export function mountResearchWorkspace(
     if (shown !== ticker) indicator.innerHTML = ticker = shown;
     indicator.title = entry ? `${entry.who}: ${entry.what}` : "";
     indicator.hidden = !shown;
+    // While anyone is at work, a fish passes through the weir in the header's mark.
+    document.querySelector(".brand-name")?.toggleAttribute("data-working", entries.length > 0);
     updateContextNotice();
     if (liveOpen) live.innerHTML = livePanel(state);
     if (dialog.open) drawer?.updateActivity();
@@ -578,7 +580,7 @@ export function mountResearchWorkspace(
     },
     true,
   );
-  // Quitting asks whether running workers carry on without the app.
+  // Closing the project asks whether running workers carry on without it.
   const quit = document.createElement("dialog");
   quit.className = "quit-dialog";
   document.body.append(quit);
@@ -591,9 +593,10 @@ export function mountResearchWorkspace(
     if (!choice) return;
     if (choice === "cancel") return quit.close();
     try {
-      const { kept } = await request("/api/quit", { keep: choice === "keep" });
+      const { kept, next } = await request("/api/quit", { keep: choice === "keep", welcome: true });
       quit.close();
-      document.body.innerHTML = closedNotice(kept);
+      if (next) location.href = next;
+      else document.body.innerHTML = closedNotice(kept);
     } catch (error) {
       quit.close();
       message((error as Error).message);

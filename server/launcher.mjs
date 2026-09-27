@@ -1,11 +1,13 @@
-// The first-run launcher: a small service that shows the setup screen before any
-// project exists. Starting or opening a project hands over to that project's own
-// service; the launcher closes once it has been idle for a while.
+// The launcher: a small service that shows the setup screen before any project
+// exists, and the welcome page once a project is closed. Starting or opening a
+// project hands over to that project's own service; the launcher closes once it
+// has been idle for a while.
 //
 // node server/launcher.mjs <url-file>
 import { createServer } from 'node:http';
-import { writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { launcherFile } from './start-launcher.mjs';
 import { agentHomes } from './agents/isolation.mjs';
 import { setupRoutes } from './setup-routes.mjs';
 import { home } from '../scripts/workspace-lib.mjs';
@@ -50,7 +52,10 @@ const server = createServer(async (req, res) => {
   }
 });
 server.listen(0, '127.0.0.1', () => {
-  writeFileSync(process.argv[2], `http://127.0.0.1:${server.address().port}/setup`);
+  const url = `http://127.0.0.1:${server.address().port}`;
+  mkdirSync(dirname(launcherFile), {recursive: true});
+  writeFileSync(launcherFile, url);
+  writeFileSync(process.argv[2], url);
 });
 // Idle for half an hour, the launcher has done its job.
 setInterval(() => {

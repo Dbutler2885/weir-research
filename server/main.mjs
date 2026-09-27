@@ -30,6 +30,7 @@ import { DispatchRules } from "./dispatch.mjs";
 import { Helpers } from "./helpers.mjs";
 import { ResearchBrowser } from "./research-browser.mjs";
 import { setupRoutes } from "./setup-routes.mjs";
+import { startLauncher } from "./start-launcher.mjs";
 import { validateChoice } from "../src/domain/dispatch.ts";
 import { LiveActivity } from "./live-activity.mjs";
 import { projectSkills } from "./skills.mjs";
@@ -399,12 +400,14 @@ const server = createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/api/research-settings") {
       return json(res, 200, researchers.configure(await body(req)));
     }
-    // Quitting from the app: workers are kept running or stopped, as the human chose.
+    // Closing the project: workers are kept running or stopped, as the human chose.
+    // Closed from the browser, the launcher takes over with the welcome page.
     if (req.method === "POST" && url.pathname === "/api/quit") {
-      const { keep } = await body(req);
+      const { keep, welcome } = await body(req);
       const kept = keep ? supervisor.hosted((r) => r.meta?.project === directory && ["researcher", "builder", "writer"].includes(r.meta?.role) && !r.ended).length : 0;
       if (keep) supervisor.keep((r) => r.meta?.project === directory && ["researcher", "builder", "writer"].includes(r.meta?.role));
-      json(res, 200, { closing: true, kept });
+      const next = welcome ? await startLauncher().then((address) => `${address}/welcome`, () => null) : null;
+      json(res, 200, { closing: true, kept, next });
       setTimeout(close, 100);
       return;
     }

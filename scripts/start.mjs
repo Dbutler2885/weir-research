@@ -5,10 +5,10 @@
 // own after this command, or the agent that ran it, exits.
 // It uses only Node's own modules, so it runs before anything is installed.
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, statSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { startLauncher } from "../server/start-launcher.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
@@ -35,14 +35,10 @@ const workspace = (...args) =>
 let topic = process.argv.slice(2).join(" ").trim();
 // With no project yet, the setup screen checks the agents and starts the first one.
 if (!topic && !JSON.parse(workspace("projects").stdout || "[]").length) {
-  const file = join(mkdtempSync(join(tmpdir(), "research-launcher-")), "url");
-  spawn(process.execPath, ["--no-warnings", join(root, "server/launcher.mjs"), file], { cwd: root, detached: true, stdio: "ignore" }).unref();
-  let url = null;
-  for (let n = 0; n < 100 && !url; n++) {
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    if (existsSync(file)) url = readFileSync(file, "utf8");
-  }
-  if (!url) {
+  let url;
+  try {
+    url = `${await startLauncher()}/setup`;
+  } catch {
     console.error("The setup screen did not start.");
     process.exit(1);
   }
