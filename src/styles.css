@@ -1145,32 +1145,32 @@ input:focus-visible,
 }
 
 /* While agents work, a few herring leap from the tide, pass through the weir's
-   stakes, and dive back in on the far side, one after another. */
+   stakes, and dive back in on the far side, one after another. Each leap is one
+   arc: the fish crosses at a steady pace while it rises slowing and falls quickening. */
 .weir-mark {
   overflow: visible;
 }
-.weir-fish {
+.weir-swim {
   opacity: 0;
 }
+.brand-name[data-working] .weir-swim {
+  animation: weir-swim 3.6s linear var(--leap-delay, 0s) infinite;
+}
 .brand-name[data-working] .weir-fish {
-  animation: weir-fish 3.6s ease-in-out infinite;
+  animation: weir-leap 3.6s var(--leap-delay, 0s) infinite;
 }
-.brand-name[data-working] g:nth-of-type(2) .weir-fish {
-  animation-delay: 0.5s;
+@keyframes weir-swim {
+  0% { opacity: 0; transform: translateX(0px); }
+  6%, 46% { opacity: 1; }
+  52%, 100% { opacity: 0; transform: translateX(24px); }
 }
-.brand-name[data-working] g:nth-of-type(3) .weir-fish {
-  animation-delay: 1.1s;
-}
-@keyframes weir-fish {
-  0% { opacity: 0; transform: translate(0px, 19px) rotate(-38deg); }
-  7% { opacity: 1; transform: translate(3px, 14.5px) rotate(-26deg); }
-  15% { transform: translate(7px, 12px) rotate(-6deg); }
-  26% { transform: translate(12px, 11.2px) rotate(0deg); }
-  37% { transform: translate(17px, 12px) rotate(6deg); }
-  45% { opacity: 1; transform: translate(21px, 14.5px) rotate(26deg); }
-  52%, 100% { opacity: 0; transform: translate(24px, 19px) rotate(38deg); }
+@keyframes weir-leap {
+  0% { transform: translateY(19px) rotate(-30deg); animation-timing-function: cubic-bezier(0.33, 0.66, 0.66, 1); }
+  26% { transform: translateY(13.5px) rotate(0deg); animation-timing-function: cubic-bezier(0.33, 0, 0.66, 0.33); }
+  52%, 100% { transform: translateY(19px) rotate(30deg); }
 }
 @media (prefers-reduced-motion: reduce) {
+  .brand-name[data-working] .weir-swim,
   .brand-name[data-working] .weir-fish {
     animation: none;
   }
