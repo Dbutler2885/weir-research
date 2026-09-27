@@ -216,11 +216,12 @@ export function welcomePage({projects = []}) {
     const sameYear = date.getFullYear() === new Date().getFullYear();
     return `Last worked on ${date.toLocaleDateString('en-US', {month: 'long', day: 'numeric', ...(sameYear ? {} : {year: 'numeric'})})}`;
   };
-  const rows = projects.map((p) => `<li><button type="button" class="project" data-open="${esc(p.id)}"><span class="project-name">${esc(p.name)}</span><span class="project-when">${esc(when(p.updated))}</span><span class="project-open" aria-hidden="true">Open</span></button></li>`).join('');
-  const topic = (label) => `<form class="topic" data-start>
+  const rows = projects.map((p) => `<li><button type="button" class="project" data-open="${esc(p.id)}"><span class="project-name">${esc(p.name)}</span><span class="project-when">${esc(when(p.updated))}</span><span class="project-open" aria-hidden="true" data-label>Open</span></button></li>`).join('');
+  // One box, as the coordinator's message box is: it grows with the topic, and its button sits inside.
+  const topic = `<form class="topic" data-start>
 <label class="visually-hidden" for="topic">Your research topic</label>
-<textarea id="topic" name="topic" maxlength="300" required placeholder="For example, where my great-grandparents came from"></textarea>
-<button class="button primary">${label}</button>
+<textarea id="topic" name="topic" rows="2" maxlength="300" required placeholder="For example, where my great-grandparents came from"></textarea>
+<div class="topic-foot"><span class="topic-hint">Enter to start, Shift+Enter for a new line</span><button class="start" disabled><span data-label>Start researching</span><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg></button></div>
 </form>`;
   return `<!doctype html>
 <html lang="en">
@@ -242,15 +243,23 @@ ${STYLE}
 .project-open { grid-column: 2; grid-row: 1 / span 2; font-size: 14px; color: var(--sea-dark); }
 .project:hover .project-open { text-decoration: underline; text-underline-offset: 3px; }
 .project:disabled { opacity: 0.6; }
-.topic { display: grid; gap: 14px; margin: 0 0 40px; }
-.topic textarea { font: inherit; font-size: 17px; line-height: 1.5; color: var(--ink); background: #fffdf8; border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; resize: vertical; min-height: 84px; }
-.topic textarea:focus { outline: 2px solid var(--sea); outline-offset: 1px; border-color: var(--sea); }
-.topic .button { justify-self: end; padding: 11px 26px; font-size: 16px; }
+.topic { display: grid; gap: 10px; margin: 0 0 40px; padding: 14px 14px 12px 18px; border: 1px solid var(--line); border-radius: 12px; background: #fffdf8; box-shadow: 0 1px 2px rgb(40 49 46 / 5%); }
+.topic:focus-within { border-color: var(--sea); box-shadow: 0 0 0 3px rgb(39 113 119 / 14%); }
+.topic textarea { display: block; width: 100%; max-height: 216px; padding: 0; border: 0; outline: 0; resize: none; overflow-y: auto; background: transparent; font: inherit; font-size: 17px; line-height: 1.5; color: var(--ink); }
+.topic textarea::placeholder { color: #8a9496; }
+.topic-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.topic-hint { font-size: 13px; color: var(--ink-soft); }
+.start { display: inline-flex; align-items: center; gap: 8px; padding: 9px 14px 9px 18px; border: 0; border-radius: 8px; background: var(--sea-dark); color: #fff; font-size: 15px; font-weight: 600; transition: background 120ms, opacity 120ms; }
+.start svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; transition: transform 120ms; }
+.start:hover:not(:disabled) { background: var(--sea); }
+.start:hover:not(:disabled) svg { transform: translateX(2px); }
+.start:disabled { opacity: 0.4; cursor: default; }
+.start:focus-visible { outline: 2px solid var(--sea); outline-offset: 2px; }
 .new-heading { margin-bottom: 14px; }
 .sample { margin: 0; padding-top: 22px; border-top: 1px solid var(--line); font-size: 15px; line-height: 1.6; color: var(--ink-soft); }
 .sample button { border: 0; background: none; padding: 0; font-size: 15px; color: var(--sea-dark); text-decoration: underline; text-underline-offset: 3px; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-@media (max-width: 560px) { .top-bar { padding: 12px 16px; } h1 { font-size: 34px; } .project { padding: 16px; } }
+@media (max-width: 560px) { .top-bar { padding: 12px 16px; } h1 { font-size: 34px; } .project { padding: 16px; } .topic-hint { display: none; } .topic-foot { justify-content: flex-end; } }
 </style>
 </head>
 <body>
@@ -259,10 +268,10 @@ ${topBar('<a href="/setup">Accounts</a>')}
 ${rows ? `<h1>Your projects</h1>
 <ul class="projects">${rows}</ul>
 <h2 class="new-heading">Start a new project</h2>
-${topic('Start researching')}` : `<p class="eyebrow">Welcome</p>
+${topic}` : `<p class="eyebrow">Welcome</p>
 <h1>What would you like to research?</h1>
 <p class="lede">Name a person, a family or a question. Your coordinator plans the research with you from there.</p>
-${topic('Start researching')}`}
+${topic}`}
 <p class="sample">New here? <button type="button" data-sample>Open the sample project</button>: finished research on an invented family, with sources, findings and a draft graph to review. It uses nothing from your account until you write to it.</p>
 <p class="problem" data-problem hidden></p>
 </main>
@@ -277,7 +286,7 @@ const post = async (path, body) => {
 // Opening a project starts its own service, which takes a moment.
 // A project's row keeps its name and says it is opening where it said Open.
 const go = async (control, path, body, busy) => {
-  const text = control.querySelector('.project-open') || control;
+  const text = control.querySelector('[data-label]') || control;
   const label = text.textContent;
   control.disabled = true;
   text.textContent = busy;
@@ -291,9 +300,26 @@ const go = async (control, path, body, busy) => {
     problem.hidden = false;
   }
 };
-document.querySelector('[data-start]').addEventListener('submit', (event) => {
+const form = document.querySelector('[data-start]');
+const field = form.topic;
+const start = form.querySelector('.start');
+// The box grows with the topic up to its limit, then scrolls; Start waits for a topic.
+const fit = () => {
+  field.style.height = 'auto';
+  field.style.height = field.scrollHeight + 'px';
+  start.disabled = !field.value.trim();
+};
+field.addEventListener('input', fit);
+field.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+    event.preventDefault();
+    if (!start.disabled) form.requestSubmit();
+  }
+});
+fit();
+form.addEventListener('submit', (event) => {
   event.preventDefault();
-  go(event.target.querySelector('button'), '/api/setup/start', {topic: event.target.topic.value}, 'Starting…');
+  go(start, '/api/setup/start', {topic: field.value}, 'Starting…');
 });
 document.addEventListener('click', (event) => {
   const button = event.target.closest('button');
