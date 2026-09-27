@@ -264,6 +264,8 @@ export function mountResearchWorkspace(
     if (shown !== ticker) indicator.innerHTML = ticker = shown;
     indicator.title = entry ? `${entry.who}: ${entry.what}` : "";
     indicator.hidden = !shown;
+    // While anyone is at work, a fish passes through the weir in the header's mark.
+    document.querySelector(".brand-name")?.toggleAttribute("data-working", entries.length > 0);
     updateContextNotice();
     if (liveOpen) live.innerHTML = livePanel(state);
     if (dialog.open) drawer?.updateActivity();

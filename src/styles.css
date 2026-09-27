@@ -1143,3 +1143,35 @@ input:focus-visible,
     transition-duration: 0.01ms !important;
   }
 }
+
+/* While agents work, a few herring leap from the tide, pass through the weir's
+   stakes, and dive back in on the far side, one after another. */
+.weir-mark {
+  overflow: visible;
+}
+.weir-fish {
+  opacity: 0;
+}
+.brand-name[data-working] .weir-fish {
+  animation: weir-fish 3.6s ease-in-out infinite;
+}
+.brand-name[data-working] g:nth-of-type(2) .weir-fish {
+  animation-delay: 0.5s;
+}
+.brand-name[data-working] g:nth-of-type(3) .weir-fish {
+  animation-delay: 1.1s;
+}
+@keyframes weir-fish {
+  0% { opacity: 0; transform: translate(0px, 19px) rotate(-38deg); }
+  7% { opacity: 1; transform: translate(3px, 14.5px) rotate(-26deg); }
+  15% { transform: translate(7px, 12px) rotate(-6deg); }
+  26% { transform: translate(12px, 11.2px) rotate(0deg); }
+  37% { transform: translate(17px, 12px) rotate(6deg); }
+  45% { opacity: 1; transform: translate(21px, 14.5px) rotate(26deg); }
+  52%, 100% { opacity: 0; transform: translate(24px, 19px) rotate(38deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .brand-name[data-working] .weir-fish {
+    animation: none;
+  }
+}
