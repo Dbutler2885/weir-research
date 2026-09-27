@@ -12,7 +12,8 @@ import { join, resolve } from "node:path";
 mkdirSync(".research/development", { recursive: true });
 const directory = mkdtempSync(resolve(".research/development/review-"));
 const child = spawn(process.execPath, ["server/main.mjs"], {
-  env: { ...process.env, RESEARCH_STATE_DIR: directory, RESEARCH_PORT: "0" },
+  // The test drives the worker API itself, so the app starts no coordinator agent.
+  env: { ...process.env, RESEARCH_STATE_DIR: directory, RESEARCH_PORT: "0", RESEARCH_COORDINATOR_AGENT: "0" },
   stdio: "pipe",
 });
 let logs = "";
@@ -178,16 +179,18 @@ try {
             evidenceIds: ["entry"],
           },
           {
-            table: "contextConnections",
+            table: "claims",
             recordId: "employment",
             before: null,
             after: {
               id: "employment",
-              fromId: "alex",
-              toId: "workshop",
-              type: "employment",
-              label: "Reported employment",
-              confidence: "unknown",
+              subjectId: "alex",
+              predicate: "reported_employment",
+              object: { entityId: "workshop" },
+              qualification: "reported",
+              time: null,
+              reasoning: "Attributed by one register entry.",
+              evidence: [],
               sourceIds: ["fictional-register"],
             },
             reason: "Preserve the attribution as a qualified relationship.",
@@ -236,14 +239,14 @@ try {
       proposalId: graphId,
       groupIds: ["entities"],
     });
-    assert.equal((await state()).dataset.contextConnections.length, 0);
+    assert.equal((await state()).dataset.claims.length, 0);
     await post({
       type: "apply-groups",
       investigationId,
       proposalId: graphId,
       groupIds: ["relationship"],
     });
-    assert.equal((await state()).dataset.contextConnections.length, 1);
+    assert.equal((await state()).dataset.claims.length, 1);
     const before = (await state()).investigations[0].annotations.length;
     await post({
       type: "interface-feedback",

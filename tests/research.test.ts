@@ -294,7 +294,7 @@ describe("research lifecycle", () => {
 
 describe("durable state", () => {
   it("recovers investigations, checkpoints and the lease after a restart without exposing worker tokens to the UI", () => {
-    const dir = mkdtempSync(join(tmpdir(), "pike-store-"));
+    const dir = mkdtempSync(join(tmpdir(), "weir-store-"));
     try {
       const first = new WorkspaceStore(dir, dataset);
       const result = first.command({
@@ -330,7 +330,7 @@ describe("durable state", () => {
     }
   });
   it("preserves a corrupt state file instead of resetting research", () => {
-    const dir = mkdtempSync(join(tmpdir(), "pike-corrupt-"));
+    const dir = mkdtempSync(join(tmpdir(), "weir-corrupt-"));
     try {
       writeFileSync(join(dir, "workspace.json"), "broken state");
       expect(() => new WorkspaceStore(dir, dataset)).toThrow();

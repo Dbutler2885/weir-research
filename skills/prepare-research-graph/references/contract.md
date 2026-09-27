@@ -1,92 +1,104 @@
-# Experimental graph-builder contract, version 1
+# Graph builder contract, version 2
 
-This is a proposed research representation for an isolated experiment.
-It is not compatible with the live application's graph-publication API yet.
+The graph is nodes and edges.
+You receive it as two tables, edit them in place, and hand them back.
+The application reads your tables back, checks that they hold together, and works out what you changed by comparing them with the graph you started from.
+You never describe your changes; the comparison does.
 
-## Input
+## Your working directory
 
-The packet supplies a question, walkthrough, research revision, base graph revision, existing nodes and claims, exact finding and evidence registries, source records, coordinator notes, and sequenced updates.
-Registry keys are opaque stable strings; copy them exactly.
-Evidence records retain source IDs, quotes, locators, access notes, and the researcher's interpretation.
-The available retrieval capabilities and whether the graph snapshot is complete are explicit.
+- `nodes.csv` and `edges.csv`: the graph. Edit these.
+- `questions.csv` and `notes.csv`: your commentary beside the graph. Write these.
+- `start/nodes.csv` and `start/edges.csv`: an untouched copy of the graph as it was when the job began. Read only.
+- `packet.json`: the research to represent: the question, the walkthrough when there is one, the findings, the evidence registry, the source library, and coordinator updates.
+- `graph-research.json`: the evidence and sources the graph already cites. Read only.
+- `updates.json`: sequenced coordinator updates, which can arrive while you work.
+- `checkpoint.md` and `notes.md`: your working state, for recovery.
 
-## Deliverable: CSV files
-
-Create and edit these files in the supplied working directory using the available file tools.
-Save coherent pieces as you work; choose your own order and how much to complete per tool call.
-The files are the deliverable, and the final conversational response can simply point to them.
-The runner reads the CSVs directly; it generates any internal JSON representation itself.
+## The tables
 
 Use UTF-8 CSV with the exact headers below, comma delimiters, and standard CSV quoting.
-Quote cells containing commas, quotes, or newlines; escape a quote by doubling it.
-Keep an empty cell for absent optional values.
-Fields listing IDs use `|` between IDs, with an empty cell for no IDs; use IDs without `|` or whitespace.
-The `alternatives` cell contains one alternative per line inside a quoted cell.
-Include the header even when a table has no rows.
+Quote any cell containing a comma, a quotation mark, or a line break, and escape a quotation mark by doubling it.
+Leave a cell empty for an absent value.
+Separate several identifiers in one cell with semicolons.
+Put one item per line in a cell that holds several lines of text.
 
 | File | Header |
 | --- | --- |
-| proposal.csv | schemaVersion,baseGraphRevision,researchRevision,consumedUpdateSequence,title,summary |
-| nodes.csv | id,kind,label,existingId |
-| node-evidence.csv | nodeId,evidenceRef |
-| claims.csv | id,subjectId,predicate,objectType,objectValue,qualification,time,reasoning |
-| claim-evidence.csv | claimId,evidenceRef,role |
-| groups.csv | id,title,nodeIds,claimIds,dependsOn |
-| identities.csv | nodeIds,decision,reason,evidenceRefs |
-| coverage.csv | findingRef,nodeIds,claimIds,omissionReason |
-| issues.csv | id,kind,question,nodeIds,claimIds,evidenceRefs,provisionalTreatment,requestedResearch,blocksGroupIds |
-| representation-notes.csv | id,nodeIds,claimIds,issueIds,decision,alternatives,reason |
+| nodes.csv | id,kind,name,descriptor,biography,dates,born,died,alternateNames,notes,sources |
+| edges.csv | id,from,name,targetType,target,qualification,time,reasoning,supports,challenges,context,sources |
+| questions.csv | id,question,nodeIds,edgeIds,provisionalTreatment,requestedResearch |
+| notes.csv | id,nodeIds,edgeIds,decision,alternatives,reason |
 
-`proposal.csv` has one metadata row.
-In `claims.csv`, `objectType` is `entity`, `text`, or `number`; `objectValue` contains the target node ID or literal value.
-`node-evidence.csv` and `claim-evidence.csv` have one row per evidence link.
-Keep longer working explanations in `notes.md` and recovery state in `checkpoint.md`.
-You can update `status.txt` with a short meaningful progress message.
-When every file is ready for inspection, write exactly `done` to `submission.txt` and finish the turn.
-The runner validates and freezes the files after the worker exits; it reports incomplete or invalid submissions to the coordinator for recovery or correction.
-If asked to revise a submission, clear `submission.txt` first and write `done` again when the revision is ready.
+### Nodes
 
-## Record meanings
+`kind` is `person`, `organization`, `facility`, `place`, `event`, `family`, `vessel`, or `observation`.
+`dates` is a person's lifespan or an entity's active dates.
+`born`, `died`, `alternateNames`, and `notes` (research notes) apply only to people.
+`sources` lists source ids the node cites.
+Keep historical assertions in edges rather than in a node's descriptor.
 
-The following describes the records assembled by software from those CSV tables.
-Array-valued record fields correspond to the ID lists or evidence-link rows above.
+### Edges
 
-- `schemaVersion`: `1`.
-- `baseGraphRevision` and `researchRevision`: copy the input revision values.
-- `consumedUpdateSequence`: the last update sequence incorporated, or `0`.
-- `title` and `summary`: a short account of the proposed graph.
-- `nodes`: records with `id`, `kind`, `label`, `existingId` (null for new nodes), and `evidenceRefs` (registry keys).
-  Kinds are `person`, `organization`, `facility`, `place`, `event`, or `observation`.
-  Keep historical details in claims rather than unqualified descriptions on the node.
-- `claims`: records with `id`, `subjectId`, `predicate`, `object`, `qualification`, `time`, `reasoning`, and `evidence`.
-  `object` is exactly one of `{"entityId":"node-id"}` or `{"value":"literal statement, date, or quantity"}`.
-  `qualification` is `supported`, `reported`, `inferred`, `disputed`, or `unresolved`.
-  `time` is null or a human-readable temporal scope such as an exact date, interval, or approximate period.
-  `evidence` is a list of `{"ref":"evidence-registry-key","role":"supports|challenges|context"}`.
-  A literal can be a number as well as a string.
-  An unresolved claim can have no evidence only with substantive reasoning identifying the open question.
-  Entity-valued claims form visible graph connections; literal-valued claims form inspectable properties or observations.
-- `groups`: records with `id`, `title`, `nodeIds`, `claimIds`, and `dependsOn` (group IDs).
-  Each proposed node and claim belongs to exactly one group.
-  Cross-group references to new nodes require explicit dependencies.
-- `identityDecisions`: records with `nodeIds`, `decision`, `reason`, and `evidenceRefs`.
-  `decision` is `reuse`, `distinct`, or `possible-match`.
-- `coverage`: one record for every supplied finding key, with `findingRef`, `nodeIds`, `claimIds`, and `omissionReason`.
-  Use a substantive omission reason when no node or claim represents the finding.
-  Background can remain in the research without becoming graph clutter.
-- `issues`: records with `id`, `kind`, `question`, `nodeIds`, `claimIds`, `evidenceRefs`, `provisionalTreatment`, `requestedResearch`, and `blocksGroupIds`.
-  `kind` is `research`, `context`, or `representation`.
-  `requestedResearch` can be null when uncertainty can simply remain.
-- `representationNotes`: records with `id`, `nodeIds`, `claimIds`, `issueIds`, `decision`, `alternatives`, and `reason`.
-  These explain representation choices to the coordinator, who writes the user-facing graphical walkthrough separately.
-  `alternatives` is a list of strings describing plausible alternatives considered.
+An edge runs from the node in `from` to a target.
+`name` is free text naming the relationship or property, such as `located_in`, `operated`, `married_to`, or `parent_of`.
+There is no list of allowed names; choose the one that matches the evidence.
+Operating a factory, owning it, founding a business, and occupying a site are different assertions.
 
-## Boundary and validation
+`targetType` is `node`, `text`, or `number`.
+For `node`, `target` is a node id; for `text` and `number`, it is the value.
+A number written as text stays text, so declare quantities as `number`.
+An edge cannot point at its own starting node.
 
-All references must resolve in the proposal or supplied existing graph.
-The validator checks structure, reference integrity, coverage, group dependencies, and input revisions.
-When a supplied source registry omits records referenced by used evidence, the validator reports warnings for coordinator resolution while preserving the structurally valid draft.
-Structural validity alone does not authorize publication or establish source completeness.
-Semantic review checks whether the evidence supports the predicates and qualifications, whether useful relationships are missing, and whether representation notes expose consequential choices for the coordinator.
-For this initial experiment, nodes and claims are proposed additions; removals, merging existing records, and changing existing assertions require a future explicit before/after change contract.
-Report a representation issue rather than silently replacing an existing identity.
+`qualification` is `supported`, `reported`, `inferred`, `disputed`, or `unresolved`.
+`time` is empty or a readable temporal scope such as an exact date, an interval, or an approximate period.
+`reasoning` explains the assertion in a sentence or two.
+
+`supports`, `challenges`, and `context` list the evidence the edge cites, by the role each passage plays for this edge.
+`sources` lists source ids cited without a specific passage.
+An unresolved edge can cite nothing only when its reasoning names the open question.
+
+Family edges are ordinary edges.
+The layout draws couples from `married_to` and `spouse_of`, and parents above children from `parent_of`, including qualified forms such as `adoptive_parent_of`.
+
+## Citing research
+
+Cite evidence and sources by id; never copy, rewrite, or invent a research record.
+You can cite evidence the graph already holds (`graph-research.json`) and evidence in the registry (`packet.json`, keyed by finding report and evidence id, such as `report/evidence`).
+You can cite sources the graph already holds and sources in the library.
+When the draft is accepted, the application copies cited registry evidence into the graph.
+If nothing supports an edge, leave it out and say what is missing in `questions.csv`.
+
+## Editing
+
+Every change is an ordinary edit.
+
+- Add a node or an edge by adding a row.
+- Remove one by deleting its row.
+- Rename, requalify, or reword by editing a cell.
+- Merge nodes by deleting the rows of the nodes that go and changing `from` or `target` on every edge that named them to the node that stays.
+  Keep each edge's id when you move it, so the change reads as a move rather than a removal and an addition.
+  Delete any edge that would then point at its own starting node.
+
+Removing or merging existing records is allowed when the research warrants it.
+Explain consequential choices in `notes.csv`.
+
+## Commentary
+
+`questions.csv` holds your open questions: what is uncertain, the affected nodes and edges, the provisional treatment you chose, and what research would settle it.
+Make a decision provisionally and keep working rather than stopping on a question.
+
+`notes.csv` holds representation notes for the coordinator: the affected nodes and edges, the decision, the alternatives you considered (one per line), and why it matters.
+Commentary can name records the draft removes.
+
+## Finishing
+
+When the draft is ready, write `done` followed by the last update sequence you incorporated to `submission.txt`, such as `done 0` or `done 2`, and end your turn.
+If an update arrives after you finish, you will be asked to continue from your own draft.
+
+The application then reads the tables.
+A draft that does not hold together comes back to you with every problem listed in `validation.txt`: unknown ids, wrong column counts from unquoted text, unknown kinds or qualifications, edges that point nowhere, and citations of records that do not exist.
+Correct those problems in place and write `submission.txt` again.
+
+A draft that holds together goes to the coordinator, who checks it against the human's instructions and either sends it back with what is missing or passes it to the human.
+The human accepts or sets aside the whole draft.

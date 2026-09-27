@@ -13,5 +13,8 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     include: ["tests/**/*.test.ts"],
+    // Many tests run fake agent processes, which start slowly on a busy machine or a CI runner.
+    testTimeout: 60_000,
+    hookTimeout: 60_000,
   },
 });

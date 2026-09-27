@@ -1,58 +1,41 @@
-// The graph as editable tables.
+// The graph as two editable tables: nodes and edges.
 //
-// A builder receives a copy of these files, edits them freely, and the accepted copy
-// replaces the graph. Adding a record is a new row, merging two records is two rows
-// becoming one, and removing a record is a row that is not there. Nothing needs a
-// vocabulary for deletion because nothing is expressed as a difference.
+// A builder receives a copy of these files, edits them freely, and hands them back.
+// Adding a record is a new row, merging two nodes is deleting one row and repointing
+// the edges that named it, and removing a record is a row that is not there. Nothing
+// needs a vocabulary for deletion because nothing is expressed as a difference.
 //
-// Relationship rows are not stored: every relationship is a claim whose object is
-// another node, so they are rebuilt on read and cannot drift from the claims.
-import type {
-  FamilyDataset,
-  ResearchClaim,
-  ResearchEvidence,
-  SourceRecord,
-  ContextEntityRecord,
-  PersonRecord,
-} from "./types";
+// Evidence and sources are not in the tables. A builder cites them by identifier,
+// and the reader checks every citation against the records it is allowed to cite.
+import type { ContextEntityKind, ContextEntityRecord, FamilyDataset, PersonRecord, ResearchClaim } from "./types";
 
-export const graphTables = [
-  "graph.csv",
-  "nodes.csv",
-  "node-sources.csv",
-  "unions.csv",
-  "union-notes.csv",
-  "parentage.csv",
-  "claims.csv",
-  "claim-evidence.csv",
-  "evidence.csv",
-  "sources.csv",
-] as const;
-export type GraphTable = (typeof graphTables)[number];
-export type GraphFiles = Record<GraphTable, string>;
+export const draftTables = ["nodes.csv", "edges.csv"] as const;
+export type DraftTable = (typeof draftTables)[number];
+export type DraftFiles = Record<DraftTable, string>;
 
 const headers = {
-  "graph.csv": ["version", "title", "initialFocusId"],
-  "nodes.csv": ["id", "kind", "name"],
-  "node-sources.csv": ["nodeId", "sourceId"],
-  "unions.csv": ["id", "type", "label", "date", "place", "confidence", "partnerIds", "childIds", "sourceIds"],
-  "union-notes.csv": ["unionId", "note"],
-  "parentage.csv": ["id", "parentId", "childId", "type", "confidence", "label", "sourceIds"],
-  "claims.csv": ["id", "subjectId", "predicate", "objectType", "objectValue", "qualification", "time", "reasoning"],
-  "claim-evidence.csv": ["claimId", "evidenceRef", "role"],
-  "evidence.csv": ["id", "sourceId", "locator", "quote", "context", "interpretation", "stance"],
-  "sources.csv": ["id", "title", "author", "repository", "date", "url", "access", "accessedAt", "note", "originalSourceId"],
-} as const satisfies Record<GraphTable, readonly string[]>;
+  "nodes.csv": ["id", "kind", "name", "descriptor", "biography", "dates", "born", "died", "alternateNames", "notes", "sources"],
+  "edges.csv": ["id", "from", "name", "targetType", "target", "qualification", "time", "reasoning", "supports", "challenges", "context", "sources"],
+} as const satisfies Record<DraftTable, readonly string[]>;
 
-// Rows carry exactly the columns their header names, so a field read is a string.
-type RowOf<N extends GraphTable> = { [K in (typeof headers)[N][number]]: string };
+type RowOf<N extends DraftTable> = { [K in (typeof headers)[N][number]]: string };
+
+const entityKinds: ContextEntityKind[] = ["facility", "observation", "organization", "family", "place", "vessel", "event"];
+const qualifications: ResearchClaim["qualification"][] = ["supported", "reported", "inferred", "disputed", "unresolved"];
+const roles = ["supports", "challenges", "context"] as const;
 
 const cell = (value: unknown): string => {
   const text = value === null || value === undefined ? "" : String(value);
   return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
 };
-
 const row = (values: unknown[]): string => values.map(cell).join(",");
+const file = (name: DraftTable, rows: unknown[][]) => [row([...headers[name]]), ...rows.map(row)].join("\n") + "\n";
+
+// Identifiers are joined with semicolons; text lists put one item per line.
+const joinIds = (ids: readonly string[] | undefined) => (ids || []).join("; ");
+const splitIds = (value: string) => value.split(";").map((id) => id.trim()).filter(Boolean);
+const joinLines = (items: readonly string[] | undefined) => (items || []).join("\n");
+const splitLines = (value: string) => value.split("\n").map((item) => item.trim()).filter(Boolean);
 
 // A reader that understands quoted fields, embedded commas, newlines and doubled quotes.
 export function parseCsv(text: string): string[][] {
@@ -75,258 +58,166 @@ export function parseCsv(text: string): string[][] {
     if (character === "\n") { record.push(field); rows.push(record); record = []; field = ""; continue; }
     field += character;
   }
-  if (quoted) throw new Error("Unterminated quoted field.");
+  if (quoted) throw new DraftError(["A quoted cell is never closed; check for an unbalanced quotation mark."]);
   if (field.length || record.length) { record.push(field); rows.push(record); }
   return rows;
 }
 
-function table<N extends GraphTable>(name: N, files: Partial<GraphFiles>): RowOf<N>[] {
+// Every problem in a draft, so a builder can fix them all in one pass.
+export class DraftError extends Error {
+  readonly problems: string[];
+  constructor(problems: string[]) {
+    super(problems.join("\n"));
+    this.problems = problems;
+  }
+}
+
+function table<N extends DraftTable>(name: N, files: Partial<DraftFiles>, problems: string[]): (RowOf<N> & { line: number })[] {
   const text = files[name];
-  if (text === undefined) throw new Error(`Missing ${name}`);
+  if (text === undefined) { problems.push(`${name} is missing.`); return []; }
   const rows = parseCsv(text);
   const header = rows.shift();
   const expected: readonly string[] = headers[name];
-  if (!header || header.length !== expected.length || header.some((h, i) => h !== expected[i]))
-    throw new Error(`${name}: expected header ${expected.join(",")}`);
-  return rows
-    .filter((r) => r.some((value) => value.length))
-    .map((r) => {
-      if (r.length !== expected.length) throw new Error(`${name}: row has the wrong number of columns`);
-      return Object.fromEntries(expected.map((key, i) => [key, r[i] ?? ""])) as RowOf<N>;
-    });
+  if (!header || header.length !== expected.length || header.some((h, i) => h.trim() !== expected[i])) {
+    problems.push(`${name}: the first row must be exactly ${expected.join(",")}`);
+    return [];
+  }
+  const result: (RowOf<N> & { line: number })[] = [];
+  rows.forEach((r, index) => {
+    const line = index + 2;
+    if (!r.some((value) => value.trim().length)) return;
+    if (r.length !== expected.length) {
+      problems.push(`${name} row ${line} has ${r.length} columns, not ${expected.length}; a comma or quotation mark in free text is probably unquoted.`);
+      return;
+    }
+    // Identifiers and keywords tolerate stray spaces; prose is kept exactly as written.
+    const values = Object.fromEntries(expected.map((key, i) => [key, prose.has(key) ? r[i]! : r[i]!.trim()]));
+    result.push({ ...(values as RowOf<N>), line });
+  });
+  return result;
 }
 
-const blank = (value: string) => (value.length ? value : undefined);
-// ID lists travel in one cell; an ID cannot contain the separator.
-const joinIds = (ids: readonly string[] | undefined) => (ids || []).join("|");
-const splitIds = (value: string) => (value.length ? value.split("|") : []);
+const prose = new Set(["name", "descriptor", "biography", "dates", "born", "died", "alternateNames", "notes", "time", "reasoning", "target"]);
 
-export function graphToCsv(dataset: FamilyDataset): GraphFiles {
-  const nodes = [
-    ...dataset.people.map((p) => ({ id: p.id, kind: "person", name: p.name, sourceIds: p.sourceIds })),
-    ...(dataset.contextEntities || []).map((e) => ({ id: e.id, kind: e.kind, name: e.name, sourceIds: e.sourceIds })),
-  ];
-  const claims = dataset.claims || [];
-  return {
-    "graph.csv": [row([...headers["graph.csv"]]), row([dataset.version, dataset.title, dataset.initialFocusId])].join("\n") + "\n",
-    "nodes.csv": [row([...headers["nodes.csv"]]), ...nodes.map((n) => row([n.id, n.kind, n.name]))].join("\n") + "\n",
-    "node-sources.csv":
-      [row([...headers["node-sources.csv"]]), ...nodes.flatMap((n) => (n.sourceIds || []).map((s) => row([n.id, s])))].join("\n") + "\n",
-    "unions.csv":
-      [
-        row([...headers["unions.csv"]]),
-        ...(dataset.unions || []).map((u) =>
-          row([u.id, u.type, u.label, u.date, u.place, u.confidence, joinIds(u.partnerIds), joinIds(u.childIds), joinIds(u.sourceIds)]),
-        ),
-      ].join("\n") + "\n",
-    "union-notes.csv":
-      [
-        row([...headers["union-notes.csv"]]),
-        ...(dataset.unions || []).flatMap((u) => (u.notes || []).map((note) => row([u.id, note]))),
-      ].join("\n") + "\n",
-    "parentage.csv":
-      [
-        row([...headers["parentage.csv"]]),
-        ...(dataset.directParentage || []).map((p) =>
-          row([p.id, p.parentId, p.childId, p.type, p.confidence, p.label, joinIds(p.sourceIds)]),
-        ),
-      ].join("\n") + "\n",
-    "claims.csv":
-      [
-        row([...headers["claims.csv"]]),
-        ...claims.map((c) =>
-          row([
-            c.id,
-            c.subjectId,
-            c.predicate,
-            "entityId" in c.object ? "entity" : typeof c.object.value === "number" ? "number" : "text",
-            "entityId" in c.object ? c.object.entityId : c.object.value,
-            c.qualification,
-            c.time,
-            c.reasoning,
-          ]),
-        ),
-      ].join("\n") + "\n",
-    "claim-evidence.csv":
-      [
-        row([...headers["claim-evidence.csv"]]),
-        ...claims.flatMap((c) => (c.evidence || []).map((e) => row([c.id, e.ref, e.role]))),
-      ].join("\n") + "\n",
-    "evidence.csv":
-      [
-        row([...headers["evidence.csv"]]),
-        ...(dataset.evidence || []).map((e) =>
-          row([e.id, e.sourceId, e.locator, e.quote, e.context, e.interpretation, (e as { stance?: string }).stance]),
-        ),
-      ].join("\n") + "\n",
-    "sources.csv":
-      [
-        row([...headers["sources.csv"]]),
-        ...(dataset.sources || []).map((s) =>
-          row([s.id, s.title, (s as { author?: string }).author, s.repository, s.date, s.url, s.access, s.accessedAt, s.note, s.originalSourceId]),
-        ),
-      ].join("\n") + "\n",
+const optional = <K extends string, V>(key: K, value: V | undefined, keep: boolean) =>
+  (keep ? { [key]: value } : {}) as Partial<Record<K, V>>;
+
+export function graphToTables(dataset: FamilyDataset): DraftFiles {
+  const people = dataset.people.map((p) => [
+    p.id, "person", p.name, p.descriptor, p.biography, p.lifespan, p.born, p.died, joinLines(p.alternateNames), joinLines(p.researchNotes), joinIds(p.sourceIds),
+  ]);
+  const entities = (dataset.contextEntities || []).map((e) => [
+    e.id, e.kind, e.name, e.descriptor, e.biography, e.activeDates, "", "", "", "", joinIds(e.sourceIds),
+  ]);
+  const edges = (dataset.claims || []).map((c) => {
+    const target = "entityId" in c.object ? c.object.entityId : c.object.value;
+    const type = "entityId" in c.object ? "node" : typeof c.object.value === "number" ? "number" : "text";
+    const cited = (role: (typeof roles)[number]) => joinIds(c.evidence.filter((e) => e.role === role).map((e) => e.ref));
+    return [c.id, c.subjectId, c.predicate, type, target, c.qualification, c.time, c.reasoning, cited("supports"), cited("challenges"), cited("context"), joinIds(c.sourceIds)];
+  });
+  return { "nodes.csv": file("nodes.csv", [...people, ...entities]), "edges.csv": file("edges.csv", edges) };
+}
+
+// Records a draft may cite beyond those the graph already holds: the evidence
+// registry and source library of the research it represents.
+export interface Citable {
+  evidenceIds?: Iterable<string>;
+  sourceIds?: Iterable<string>;
+}
+
+// Read a builder's tables back into a graph. The accepted graph supplies what the
+// builder does not edit: the title, the starting focus, evidence and sources.
+export function graphFromTables(files: Partial<DraftFiles>, base: FamilyDataset, citable: Citable = {}): FamilyDataset {
+  const problems: string[] = [];
+  const evidenceIds = new Set([...(base.evidence || []).map((e) => e.id), ...(citable.evidenceIds || [])]);
+  const sourceIds = new Set([...(base.sources || []).map((s) => s.id), ...(citable.sourceIds || [])]);
+  const cite = (ids: string[], known: Set<string>, what: string, where: string) => {
+    for (const id of ids) if (!known.has(id)) problems.push(`${where} cites ${what} that does not exist: ${id}`);
+    return ids;
   };
-}
-
-const connectionTypes: Record<string, string> = {
-  located_in: "location",
-  built_at: "location",
-  established: "founding",
-  built: "founding",
-  operated: "management",
-  partner_in: "partnership",
-};
-const confidenceFor: Record<string, string> = {
-  supported: "established",
-  reported: "unknown",
-  inferred: "probable",
-  disputed: "disputed",
-  unresolved: "unknown",
-};
-
-export function graphFromCsv(files: Partial<GraphFiles>): FamilyDataset {
-  const [meta] = table("graph.csv", files);
-  if (!meta || table("graph.csv", files).length !== 1) throw new Error("graph.csv must have exactly one row");
-  const nodeSources = new Map<string, string[]>();
-  for (const link of table("node-sources.csv", files))
-    nodeSources.set(link.nodeId, [...(nodeSources.get(link.nodeId) || []), link.sourceId]);
 
   const people: PersonRecord[] = [];
   const contextEntities: ContextEntityRecord[] = [];
-  const seen = new Set<string>();
-  for (const node of table("nodes.csv", files)) {
-    if (seen.has(node.id)) throw new Error(`Duplicate node: ${node.id}`);
-    seen.add(node.id);
-    const record = { id: node.id, name: node.name, sourceIds: nodeSources.get(node.id) || [] };
-    if (node.kind === "person") people.push(record as PersonRecord);
-    else contextEntities.push({ ...record, kind: node.kind } as ContextEntityRecord);
+  const nodeIds = new Set<string>();
+  for (const node of table("nodes.csv", files, problems)) {
+    const where = `nodes.csv row ${node.line} (${node.id || "no id"})`;
+    if (!node.id) { problems.push(`${where} has no id.`); continue; }
+    if (nodeIds.has(node.id)) problems.push(`${where} repeats the node id ${node.id}.`);
+    nodeIds.add(node.id);
+    if (!node.name.trim()) problems.push(`${where} has no name.`);
+    const sources = cite(splitIds(node.sources), sourceIds, "a source", where);
+    const shared = {
+      id: node.id,
+      name: node.name,
+      ...optional("descriptor", node.descriptor, Boolean(node.descriptor)),
+      ...optional("biography", node.biography, Boolean(node.biography)),
+      ...optional("sourceIds", sources, sources.length > 0),
+    };
+    if (node.kind === "person") {
+      const names = splitLines(node.alternateNames);
+      const notes = splitLines(node.notes);
+      people.push({
+        ...shared,
+        ...optional("lifespan", node.dates, Boolean(node.dates)),
+        ...optional("born", node.born, Boolean(node.born)),
+        ...optional("died", node.died, Boolean(node.died)),
+        ...optional("alternateNames", names, names.length > 0),
+        ...optional("researchNotes", notes, notes.length > 0),
+      });
+    } else if ((entityKinds as string[]).includes(node.kind)) {
+      for (const column of ["born", "died", "alternateNames", "notes"] as const)
+        if (node[column]) problems.push(`${where} fills ${column}, which only applies to a person.`);
+      contextEntities.push({ ...shared, kind: node.kind as ContextEntityKind, ...optional("activeDates", node.dates, Boolean(node.dates)) });
+    } else problems.push(`${where} has kind "${node.kind}"; use person or one of ${entityKinds.join(", ")}.`);
   }
-  for (const id of nodeSources.keys()) if (!seen.has(id)) throw new Error(`node-sources.csv names a node that is not there: ${id}`);
-
-  const unionNotes = new Map<string, string[]>();
-  for (const note of table("union-notes.csv", files))
-    unionNotes.set(note.unionId, [...(unionNotes.get(note.unionId) || []), note.note]);
-  const member = (id: string, where: string) => {
-    if (!seen.has(id)) throw new Error(`${where} names a person who is not there: ${id}`);
-    return id;
-  };
-  const unions = table("unions.csv", files).map((u) => ({
-    id: u.id,
-    partnerIds: splitIds(u.partnerIds).map((id) => member(id, `Union ${u.id}`)),
-    ...(splitIds(u.childIds).length ? { childIds: splitIds(u.childIds).map((id) => member(id, `Union ${u.id}`)) } : {}),
-    ...(blank(u.type) ? { type: u.type } : {}),
-    ...(blank(u.label) ? { label: u.label } : {}),
-    ...(blank(u.date) ? { date: u.date } : {}),
-    ...(blank(u.place) ? { place: u.place } : {}),
-    ...(blank(u.confidence) ? { confidence: u.confidence } : {}),
-    ...(splitIds(u.sourceIds).length ? { sourceIds: splitIds(u.sourceIds) } : {}),
-    ...(unionNotes.get(u.id) ? { notes: unionNotes.get(u.id) } : {}),
-  }));
-  const unionIds = new Set(unions.map((u) => u.id));
-  for (const id of unionNotes.keys())
-    if (!unionIds.has(id)) throw new Error(`union-notes.csv names a union that is not there: ${id}`);
-
-  const directParentage = table("parentage.csv", files).map((p) => ({
-    id: p.id,
-    parentId: member(p.parentId, `Parentage ${p.id}`),
-    childId: member(p.childId, `Parentage ${p.id}`),
-    ...(blank(p.type) ? { type: p.type } : {}),
-    ...(blank(p.confidence) ? { confidence: p.confidence } : {}),
-    ...(blank(p.label) ? { label: p.label } : {}),
-    ...(splitIds(p.sourceIds).length ? { sourceIds: splitIds(p.sourceIds) } : {}),
-  }));
-
-  const links = new Map<string, { ref: string; role: string }[]>();
-  for (const link of table("claim-evidence.csv", files))
-    links.set(link.claimId, [...(links.get(link.claimId) || []), { ref: link.evidenceRef, role: link.role }]);
 
   const claims: ResearchClaim[] = [];
-  const claimIds = new Set<string>();
-  for (const claim of table("claims.csv", files)) {
-    if (claimIds.has(claim.id)) throw new Error(`Duplicate claim: ${claim.id}`);
-    claimIds.add(claim.id);
-    if (!seen.has(claim.subjectId)) throw new Error(`Claim ${claim.id} has an unknown subject: ${claim.subjectId}`);
-    if (!["entity", "text", "number"].includes(claim.objectType))
-      throw new Error(`Claim ${claim.id} needs an objectType of entity, text or number`);
-    if (claim.objectType === "number" && !Number.isFinite(Number(claim.objectValue)))
-      throw new Error(`Claim ${claim.id} is marked number but its value is not one: ${claim.objectValue}`);
-    if (claim.objectType === "entity" && !seen.has(claim.objectValue))
-      throw new Error(`Claim ${claim.id} points at an unknown node: ${claim.objectValue}`);
+  const edgeIds = new Set<string>();
+  for (const edge of table("edges.csv", files, problems)) {
+    const where = `edges.csv row ${edge.line} (${edge.id || "no id"})`;
+    if (!edge.id) { problems.push(`${where} has no id.`); continue; }
+    if (edgeIds.has(edge.id) || nodeIds.has(edge.id)) problems.push(`${where} repeats the id ${edge.id}.`);
+    edgeIds.add(edge.id);
+    if (!nodeIds.has(edge.from)) problems.push(`${where} starts from a node that is not in nodes.csv: ${edge.from}`);
+    if (!edge.name.trim()) problems.push(`${where} has no name.`);
+    if (!(qualifications as string[]).includes(edge.qualification))
+      problems.push(`${where} has qualification "${edge.qualification}"; use one of ${qualifications.join(", ")}.`);
+    let object: ResearchClaim["object"] = { value: edge.target };
+    if (edge.targetType === "node") {
+      const to = edge.target.trim();
+      if (!nodeIds.has(to)) problems.push(`${where} points at a node that is not in nodes.csv: ${to}`);
+      else if (to === edge.from) problems.push(`${where} points at its own starting node; remove it or point it elsewhere.`);
+      object = { entityId: to };
+    } else if (edge.targetType === "number") {
+      if (!edge.target.trim() || !Number.isFinite(Number(edge.target))) problems.push(`${where} is marked number but its target is not one: ${edge.target}`);
+      object = { value: Number(edge.target) };
+    } else if (edge.targetType !== "text") problems.push(`${where} has targetType "${edge.targetType}"; use node, text or number.`);
+    const evidence = roles.flatMap((role) =>
+      cite(splitIds(edge[role]), evidenceIds, "evidence", where).map((ref) => ({ ref, role })),
+    );
+    const sources = cite(splitIds(edge.sources), sourceIds, "a source", where);
     claims.push({
-      id: claim.id,
-      subjectId: claim.subjectId,
-      predicate: claim.predicate,
-      object:
-        claim.objectType === "entity"
-          ? { entityId: claim.objectValue }
-          : { value: claim.objectType === "number" ? Number(claim.objectValue) : claim.objectValue },
-      qualification: claim.qualification,
-      time: claim.time.length ? claim.time : null,
-      reasoning: claim.reasoning,
-      evidence: links.get(claim.id) || [],
-    } as ResearchClaim);
-  }
-  for (const id of links.keys()) if (!claimIds.has(id)) throw new Error(`claim-evidence.csv names a claim that is not there: ${id}`);
-
-  const evidence: ResearchEvidence[] = table("evidence.csv", files).map((e) => ({
-    id: e.id,
-    sourceId: e.sourceId,
-    locator: e.locator,
-    quote: e.quote,
-    context: e.context,
-    interpretation: e.interpretation,
-    ...(e.stance.length ? { stance: e.stance } : {}),
-  })) as ResearchEvidence[];
-
-  const sources: SourceRecord[] = table("sources.csv", files).map((s) => ({
-    id: s.id,
-    title: s.title,
-    ...(blank(s.author) ? { author: s.author } : {}),
-    ...(blank(s.repository) ? { repository: s.repository } : {}),
-    ...(blank(s.date) ? { date: s.date } : {}),
-    ...(blank(s.url) ? { url: s.url } : {}),
-    ...(blank(s.access) ? { access: s.access } : {}),
-    ...(blank(s.accessedAt) ? { accessedAt: s.accessedAt } : {}),
-    ...(blank(s.note) ? { note: s.note } : {}),
-    ...(blank(s.originalSourceId) ? { originalSourceId: s.originalSourceId } : {}),
-  })) as SourceRecord[];
-
-  const sourceIds = new Set(sources.map((s) => s.id));
-  for (const record of evidence)
-    if (!sourceIds.has(record.sourceId)) throw new Error(`Evidence ${record.id} names a source that is not there: ${record.sourceId}`);
-
-  // Relationships follow from the claims rather than being stored beside them.
-  const contextConnections = claims
-    .filter((c) => "entityId" in c.object)
-    .map((c) => {
-      const to = (c.object as { entityId: string }).entityId;
-      const refs = (c.evidence || []).map((e) => e.ref);
-      const ids = [...new Set(refs.map((ref) => evidence.find((e) => e.id === ref)?.sourceId).filter(Boolean))] as string[];
-      return {
-        id: c.id,
-        fromId: c.subjectId,
-        toId: to,
-        type: connectionTypes[c.predicate] || "association",
-        label: c.predicate.replaceAll("_", " "),
-        ...(c.time ? { date: c.time } : {}),
-        confidence: confidenceFor[c.qualification] || "unknown",
-        qualification: c.qualification,
-        sourceIds: ids,
-      };
+      id: edge.id,
+      subjectId: edge.from,
+      predicate: edge.name,
+      object,
+      qualification: edge.qualification as ResearchClaim["qualification"],
+      time: edge.time || null,
+      reasoning: edge.reasoning,
+      evidence,
+      ...optional("sourceIds", sources, sources.length > 0),
     });
+  }
+  if (problems.length) throw new DraftError(problems);
 
   return {
-    version: Number(meta.version),
-    title: meta.title,
-    initialFocusId: blank(meta.initialFocusId) ?? null,
+    version: 2,
+    title: base.title,
+    initialFocusId: base.initialFocusId && nodeIds.has(base.initialFocusId) ? base.initialFocusId : null,
     people,
-    unions,
-    directParentage,
     contextEntities,
-    contextConnections,
-    sources,
     claims,
-    evidence,
-  } as FamilyDataset;
+    ...(base.evidence ? { evidence: structuredClone(base.evidence) } : {}),
+    ...(base.sources ? { sources: structuredClone(base.sources) } : {}),
+  };
 }

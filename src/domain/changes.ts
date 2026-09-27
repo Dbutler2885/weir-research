@@ -28,14 +28,7 @@ export function applyChanges(
 ): FamilyDataset {
   const next = structuredClone(dataset);
   const touched = new Set<string>();
-  const tables: Table[] = [
-    "people",
-    "unions",
-    "directParentage",
-    "contextEntities",
-    "contextConnections",
-    "sources",
-  ];
+  const tables: Table[] = ["people", "contextEntities", "claims", "sources"];
   requireThat(Array.isArray(changes), "Changes must be a list.");
   for (const change of changes) {
     requireThat(tables.includes(change.table), "Unknown record collection.");

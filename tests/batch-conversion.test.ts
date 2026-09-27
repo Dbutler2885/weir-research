@@ -122,6 +122,7 @@ describe("conversion to batches", () => {
     const [first, later] = convertToBatches(legacy()).investigations;
     expect(first!.readyAt).toBe("2026-01-01T15:00:00.000Z");
     expect(first!.closedAt).toBe("2026-01-02T08:00:00.000Z");
+    expect(first!.status).toBe("closed");
     expect(later!.readyAt).toBe("2026-01-03T12:00:00.000Z");
     expect(later!.closedAt).toBeUndefined();
   });

@@ -19,6 +19,16 @@ export interface Question {
   createdAt: string;
 }
 
+// What a batch is for, kept current by the coordinator so a fresh one can pick it up.
+export interface Brief {
+  purpose: string;
+  // What belongs in this batch and what does not.
+  scope: string;
+  // Where the work is heading now; changes when the human redirects it.
+  direction: string;
+  updatedAt: string;
+}
+
 export interface Decision {
   title: string;
   body: string;
@@ -53,6 +63,7 @@ export const coordinatorConversationCommands = new Set([
   "batch-ready",
   "request-approval",
   "retitle",
+  "set-brief",
 ]);
 
 const text = (value: unknown, label: string, max = 50_000): string => {
@@ -80,6 +91,34 @@ export function batchStatus(
 ): "in progress" | "ready" | "closed" {
   if (i.closedAt) return "closed";
   return i.readyAt ? "ready" : "in progress";
+}
+
+// Batches closed before closing also set their status still read as active work.
+export function repairClosedBatches(state: ResearchState): number {
+  const stale = state.investigations.filter(
+    (i) => i.closedAt && i.status !== "closed",
+  );
+  for (const i of stale) {
+    i.status = "closed";
+    delete i.lease;
+  }
+  return stale.length;
+}
+
+function briefFrom(input: unknown, now: string, prior?: Brief): Brief {
+  const raw = (input || {}) as Record<string, unknown>;
+  assert(
+    typeof input === "object" && input !== null,
+    "A brief needs purpose, scope and direction.",
+  );
+  const field = (key: "purpose" | "scope" | "direction", label: string) =>
+    raw[key] === undefined && prior ? prior[key] : text(raw[key], label, 2000);
+  return {
+    purpose: field("purpose", "Brief purpose"),
+    scope: field("scope", "Brief scope"),
+    direction: field("direction", "Brief direction"),
+    updatedAt: now,
+  };
 }
 
 function annotationFrom(
@@ -318,6 +357,7 @@ export function conversationTransition(
         number:
           Math.max(0, ...next.investigations.map((i) => i.number || 0)) + 1,
         title: text(command.title, "Batch title", 300),
+        brief: briefFrom(command.brief, now),
         createdAt: now,
         status: "queued",
         scope,
@@ -362,6 +402,19 @@ export function conversationTransition(
         assert(question, "Question is not part of this batch.");
         question.title = text(raw.title, "Question heading", 300);
       }
+      return { investigationId: batch.id };
+    }
+    case "set-brief": {
+      const batch = next.investigations.find(
+        (i) => i.id === command.investigationId,
+      );
+      assert(batch, "Unknown batch.");
+      assert(!batch.closedAt, "This batch is closed.");
+      batch.brief = briefFrom(command.brief, now, batch.brief);
+      batch.events.push({
+        at: now,
+        message: `Coordinator updated the brief. Direction: ${batch.brief.direction}`,
+      });
       return { investigationId: batch.id };
     }
     case "batch-ready": {

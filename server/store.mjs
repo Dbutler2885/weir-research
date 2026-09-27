@@ -10,6 +10,9 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { initialState, transition } from "../src/domain/research.ts";
+import { needsGraphUpgrade, upgradeGraphState } from "../src/domain/graph-upgrade.ts";
+import { convertToAppWorkers } from "../src/domain/migration.ts";
+import { repairClosedBatches } from "../src/domain/conversation.ts";
 
 export class WorkspaceStore {
   constructor(directory, dataset) {
@@ -23,8 +26,24 @@ export class WorkspaceStore {
         "Unsupported or corrupt workspace. Original state has been preserved.",
       );
     if (!existsSync(this.path)) this.save(this.state);
+    // A graph stored before it was reduced to nodes and edges is converted once,
+    // keeping the original beside it.
+    if (needsGraphUpgrade(this.state)) {
+      const backup = join(directory, "workspace.before-nodes-edges.json");
+      if (!existsSync(backup)) writeFileSync(backup, readFileSync(this.path), { mode: 0o600 });
+      this.save(upgradeGraphState(this.state));
+    }
+    if (repairClosedBatches(this.state)) this.save(this.state);
+    // A project from before the app ran every worker converts in place.
+    if (convertToAppWorkers(this.state)) this.save(this.state);
     this.marks = [];
     this.mark(this.state);
+    this.listeners = new Set();
+  }
+  // Calls back after every saved change, for work that follows the project's state.
+  subscribe(listener) {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
   }
   // A compact fingerprint per revision, so a waiting coordinator can be told
   // what changed instead of the whole project index.
@@ -37,6 +56,7 @@ export class WorkspaceStore {
         (state.conversation || []).filter((m) => m.decision).map((m) => [m.id, m.decision.status]),
       ),
       candidates: (state.coordination?.candidates || []).length,
+      dispatch: JSON.stringify(state.dispatch ?? null),
       investigations: new Map(state.investigations.map((i) => [i.id, fingerprint(i)])),
     });
     if (this.marks.length > 300) this.marks.shift();
@@ -59,6 +79,7 @@ export class WorkspaceStore {
         ([id, status]) => now.decisions.get(id) !== status,
       ),
       candidatesChanged: now.candidates !== mark.candidates,
+      dispatchChanged: now.dispatch !== mark.dispatch,
     };
   }
   save(next) {
@@ -73,6 +94,7 @@ export class WorkspaceStore {
     renameSync(temporary, this.path);
     this.state = next;
     if (this.marks) this.mark(next);
+    for (const listener of this.listeners || []) listener(next);
   }
   command(command) {
     const { state, result } = transition(this.state, command);
@@ -127,6 +149,8 @@ function fingerprint(i) {
     i.title,
     i.phase,
     i.number,
+    i.queuePosition,
+    i.held,
     i.readyAt,
     i.closedAt,
     i.walkthroughRequestedAt,
@@ -143,7 +167,7 @@ function fingerprint(i) {
     flow?.walkthroughs.length,
     flow?.jobs.map((j) => `${j.status}:${j.updates.length}:${j.resumeRequest?.status}`).join(),
     flow?.graphReviews
-      .map((r) => `${r.status}:${r.appliedGroupIds.length}:${r.rejectedGroupIds.length}`)
+      .map((r) => `${r.status}:${r.decidedAt ?? ""}`)
       .join(),
   ].join("|");
 }

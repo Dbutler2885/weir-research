@@ -238,7 +238,7 @@ function appendContextConnections(
     for (const note of connection.notes ?? []) {
       const paragraph = createElement("p", "connection-note", note);
       paragraph.dataset.researchTarget = JSON.stringify({
-        table: "contextConnections",
+        table: "claims",
         recordId: connection.id,
         label: connection.label,
       });

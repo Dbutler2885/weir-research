@@ -1,10 +1,15 @@
+import { menus, rowChoice } from "./ui/dispatch-settings";
+import { closedNotice, quitDialog } from "./ui/quit-dialog";
+import { contextLevel, contextNotice } from "./ui/live-panel";
 import {
   investigationSubject,
   feedbackView,
   settingsView,
+  coordinatorStatus,
 } from "./ui/investigation-view";
 import { evidenceCard } from "./ui/finding-review";
 import { sourceLibrary } from "./domain/findings";
+import { connectionsFromClaims } from "./domain/model";
 import { GuidedReview } from "./ui/guided-review";
 import { AnnotationsDrawer, type DrawerTab } from "./ui/annotations-drawer";
 import type { Message } from "./domain/conversation";
@@ -15,6 +20,7 @@ import "./findings.css";
 import "./annotations-drawer.css";
 import "./guided-review.css";
 import { mountOrganizationPanel } from "./ui/organization-panel";
+import { livePanel, running, runningSummary, tickerEntries } from "./ui/live-panel";
 import type {
   AnnotationTarget,
   Investigation,
@@ -74,7 +80,7 @@ export function mountResearchWorkspace(
   if (projectHeading) projectHeading.title = initial.dataset.title;
   const nav = document.createElement("nav");
   nav.className = "workspace-nav";
-  nav.ariaLabel = "Research workspace";
+  nav.ariaLabel = "Weir";
   nav.innerHTML = `<div class="workspace-tabs">${[
     ["research", "Graph"],
     ["work", "Investigations"],
@@ -87,7 +93,7 @@ export function mountResearchWorkspace(
     )
     .join(
       "",
-    )}</div><div class="workspace-actions"><button type="button" data-view="feedback" class="feedback-destination">Feedback <span data-count="feedback"></span></button><button type="button" class="running-indicator" data-running hidden></button><span class="local-indicator" title="Saved on this computer">Saved</span><button type="button" data-organize-project>Organize</button><button type="button" data-add-instruction aria-expanded="false" aria-controls="notes-sidebar">Annotations <span data-count="queue" title="Queued annotations"></span></button></div>`;
+    )}</div><div class="workspace-actions"><button type="button" data-view="feedback" class="feedback-destination">Feedback <span data-count="feedback"></span></button><button type="button" class="running-indicator" data-running popovertarget="live-panel" hidden></button><span class="local-indicator" title="Saved on this computer">Saved</span><button type="button" data-organize-project>Organize</button><button type="button" data-open-coordinator aria-expanded="false" aria-controls="notes-sidebar">Coordinator <span data-count="unread" title="Unread messages"></span></button><button type="button" data-annotate role="switch" aria-checked="false"><span class="annotation-switch" aria-hidden="true"></span>Annotate</button><button type="button" data-view="settings" class="settings-destination" aria-label="Research settings" title="Research settings"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button><button type="button" data-quit-app>Quit</button></div>`;
   shell.insertBefore(nav, graph);
   const surface = document.createElement("section");
   surface.className = "research-surface";
@@ -100,6 +106,38 @@ export function mountResearchWorkspace(
   notice.innerHTML =
     '<i class="notice-dot"></i><div><strong></strong><span></span></div><button type="button" data-notice-open>Open</button><button type="button" class="notice-dismiss" data-notice-dismiss aria-label="Dismiss">×</button>';
   shell.append(notice);
+  // As the coordinator's context grows, the human chooses to keep going, compact now, or start fresh.
+  const contextBar = document.createElement("div");
+  contextBar.className = "workspace-notice context-notice";
+  contextBar.hidden = true;
+  contextBar.setAttribute("role", "status");
+  shell.append(contextBar);
+  let contextDismissed = 0;
+  function updateContextNotice() {
+    const level = contextLevel(state);
+    // After a compaction the context is small again, and later growth is worth a notice.
+    if (level < contextDismissed) contextDismissed = level;
+    const said = contextNotice(state);
+    if (!said || level <= contextDismissed) {
+      contextBar.hidden = true;
+      return;
+    }
+    contextBar.innerHTML = `<i class="notice-dot"></i><div><strong>${escape(said.title)}</strong><span>${escape(said.detail)}</span></div><div class="context-actions"><button type="button" data-context="compact">Compact now</button><button type="button" data-context="fresh" ${said.canStartFresh ? "" : "disabled"}>Start fresh</button><button type="button" data-context="keep">Keep going</button></div>`;
+    contextBar.hidden = false;
+  }
+  contextBar.addEventListener("click", async (event) => {
+    const choice = (event.target as Element).closest<HTMLButtonElement>("[data-context]")?.dataset.context;
+    if (!choice) return;
+    contextDismissed = contextLevel(state);
+    contextBar.hidden = true;
+    if (choice === "keep") return;
+    try {
+      await request(choice === "compact" ? "/api/coordinator/compact" : "/api/coordinator/fresh", {});
+      message(choice === "compact" ? "The coordinator is compacting its context." : "A fresh coordinator is starting from the project's saved state.");
+    } catch (error) {
+      message((error as Error).message);
+    }
+  });
   let noticeOpen: (() => void) | undefined;
   let noticeMessage: string | undefined;
   function showNotice(title: string, detail: string, action: string, open: () => void, messageId?: string) {
@@ -129,7 +167,7 @@ export function mountResearchWorkspace(
   const dialog = document.createElement("dialog");
   dialog.className = "annotation-dialog";
   dialog.id = "notes-sidebar";
-  dialog.setAttribute("aria-label", "Annotations");
+  dialog.setAttribute("aria-label", "Coordinator");
   dialog.setAttribute("data-lavish-ui", "research-composer");
   const composerColumn = document.createElement("aside");
   composerColumn.className = "composer-column";
@@ -139,9 +177,7 @@ export function mountResearchWorkspace(
   const nodeInspector = graph.querySelector<HTMLElement>(".details-panel");
   function syncComposer() {
     shell.classList.toggle("composing", dialog.open);
-    nav
-      .querySelector("[data-add-instruction]")!
-      .setAttribute("aria-expanded", String(dialog.open));
+    nav.querySelector("[data-open-coordinator]")!.setAttribute("aria-expanded", String(dialog.open));
     if (nodeInspector) {
       if (dialog.open && view === "research")
         composerColumn.prepend(nodeInspector);
@@ -203,25 +239,75 @@ export function mountResearchWorkspace(
     return result;
   }
   // Research the workspace is running right now, said where every tab can see it.
+  // Clicking it shows who is working, what each is doing, and what just happened.
+  const live = document.createElement("div");
+  live.className = "live-panel";
+  live.id = "live-panel";
+  live.popover = "auto";
+  live.setAttribute("data-lavish-ui", "live");
+  live.setAttribute("aria-label", "What is happening now");
+  document.body.append(live);
+  let liveOpen = false;
+  live.addEventListener("toggle", (event) => {
+    liveOpen = (event as ToggleEvent).newState === "open";
+  });
+  // The header takes turns showing each worker and the step it is on.
+  let turn = 0;
+  let ticker = "";
   function updateRunning() {
-    const running = state.investigations.filter((i) => ["queued", "running"].includes(i.status)).length;
-    const builders = state.investigations.flatMap((i) => i.reviewFlow?.jobs || [])
-      .filter((j) => ["queued", "running", "returned"].includes(j.status)).length;
-    const writing = state.investigations.filter((i) => i.walkthroughRequestedAt).length;
-    const parts = [
-      running ? `${running} ${running === 1 ? "researcher" : "researchers"} working` : "",
-      builders ? `${builders} graph ${builders === 1 ? "update" : "updates"} building` : "",
-      writing ? `${writing} ${writing === 1 ? "walkthrough" : "walkthroughs"} being written` : "",
-    ].filter(Boolean);
     const indicator = nav.querySelector<HTMLButtonElement>("[data-running]")!;
-    indicator.textContent = parts.join(" · ");
-    indicator.hidden = !parts.length;
-    indicator.title = "Open Investigations activity";
+    const entries = tickerEntries(state);
+    const entry = entries[turn % Math.max(1, entries.length)];
+    const shown = entry
+      ? `<span class="ticker-who">${escape(entry.who)}</span><span class="ticker-what">${escape(entry.what)}</span>${entries.length > 1 ? `<span class="ticker-more">+${entries.length - 1}</span>` : ""}`
+      : escape(runningSummary(state));
+    if (shown !== ticker) indicator.innerHTML = ticker = shown;
+    indicator.title = entry ? `${entry.who}: ${entry.what}` : "";
+    indicator.hidden = !shown;
+    updateContextNotice();
+    if (liveOpen) live.innerHTML = livePanel(state);
+    if (dialog.open) drawer?.updateActivity();
   }
+  window.setInterval(() => {
+    if (tickerEntries(state).length < 2 || document.hidden) return;
+    const indicator = nav.querySelector<HTMLButtonElement>("[data-running]")!;
+    indicator.classList.add("is-turning");
+    window.setTimeout(() => {
+      turn++;
+      updateRunning();
+      indicator.classList.remove("is-turning");
+    }, 250);
+  }, 3500);
+  // Times counting up while work runs, in the panel and the conversation.
+  window.setInterval(() => {
+    const now = Date.now();
+    for (const time of document.querySelectorAll<HTMLTimeElement>("time[data-elapsed]"))
+      time.textContent = running(time.dateTime, now);
+  }, 1000);
+  // The indicator opens and closes the panel itself; fill and place it as it opens.
+  live.addEventListener("beforetoggle", (event) => {
+    if ((event as ToggleEvent).newState !== "open") return;
+    const box = nav.querySelector("[data-running]")!.getBoundingClientRect();
+    live.innerHTML = livePanel(state);
+    live.style.top = `${nav.getBoundingClientRect().bottom + 6}px`;
+    live.style.right = `${Math.max(16, window.innerWidth - box.right)}px`;
+  });
+  live.addEventListener("click", (event) => {
+    const target = event.target as Element;
+    const batch = target.closest<HTMLElement>("[data-live-open]")?.dataset.liveOpen;
+    if (target.closest("[data-live-all]")) {
+      live.hidePopover();
+      findingsSection = "activity";
+      setView("work");
+    } else if (batch) {
+      live.hidePopover();
+      openActivity(batch);
+    }
+  });
   function updateCounts() {
     // Unread coordinator messages stay visible until the conversation is read.
     const unread = dialog.open && drawer?.currentTab === "conversation" ? 0 : drawer?.unread() || 0;
-    const badge = nav.querySelector<HTMLElement>('[data-count="queue"]')!;
+    const badge = nav.querySelector<HTMLElement>('[data-count="unread"]')!;
     badge.textContent = unread ? String(unread) : "";
     badge.classList.toggle("alert", unread > 0);
     nav.querySelector('[data-count="feedback"]')!.textContent = String(
@@ -284,12 +370,12 @@ export function mountResearchWorkspace(
   function setMode(enabled: boolean) {
     annotate = enabled;
     document.body.classList.toggle("research-annotating", annotate);
+    nav.querySelector("[data-annotate]")!.setAttribute("aria-checked", String(annotate));
     window.postMessage(
       { type: "lavish:setAnnotationMode", enabled: annotate },
       window.location.origin,
     );
-    if (enabled) openDrawer("queue");
-    else if (dialog.open && drawer?.currentTab === "queue") drawer.render();
+    if (dialog.open && drawer?.currentTab === "queue") drawer.render();
   }
   function resolveTarget(context: any): {
     target: AnnotationTarget;
@@ -312,8 +398,8 @@ export function mountResearchWorkspace(
       const names: [string, AnnotationTarget["table"]][] = [
         ["data-person-id", "people"],
         ["data-context-entity-id", "contextEntities"],
-        ["data-union-id", "unions"],
-        ["data-connection-id", "contextConnections"],
+        ["data-union-id", "claims"],
+        ["data-connection-id", "claims"],
       ];
       for (const [attr, table] of names)
         if (node.hasAttribute(attr)) {
@@ -341,6 +427,8 @@ export function mountResearchWorkspace(
         ?.dataset.investigationId,
     };
   }
+  // The drawer holds the conversation and the annotations being written. Annotating is
+  // its own switch: while it is on, anything selected in the page is added to the note.
   function openDrawer(tab?: DrawerTab, reference?: AnnotationTarget) {
     if (!dialog.open) dialog.show();
     // Lay the drawer out first so the conversation can scroll to its end.
@@ -348,8 +436,11 @@ export function mountResearchWorkspace(
     if (reference) drawer!.addReference(reference);
     else drawer!.show(tab || drawer!.currentTab);
   }
+  function toggleAnnotating() {
+    setMode(!annotate);
+    if (annotate) openDrawer("queue");
+  }
   function closeDrawer() {
-    setMode(false);
     dialog.close();
     syncComposer();
     updateCounts();
@@ -450,9 +541,11 @@ export function mountResearchWorkspace(
     command: (data) => command(data, false),
     navigate,
     batchAction: (batchId, kind) => void requestReview(batchId, kind),
-    setSelecting: (enabled) => setMode(enabled),
+    startCoordinator: async () => {
+      await request("/api/coordinator/fresh", {});
+      await refresh();
+    },
     offline: () => offline,
-    selecting: () => annotate,
     changed: () => updateCounts(),
   });
   dialog.addEventListener("cancel", (event) => {
@@ -474,7 +567,7 @@ export function mountResearchWorkspace(
       event.source === window &&
       event.data?.type === "lavish:toggleAnnotationMode"
     )
-      setMode(!annotate);
+      toggleAnnotating();
   });
   // D3 starts gestures on mousedown; stop those gestures only while selecting annotations.
   shell.addEventListener(
@@ -485,13 +578,34 @@ export function mountResearchWorkspace(
     },
     true,
   );
+  // Quitting asks whether running workers carry on without the app.
+  const quit = document.createElement("dialog");
+  quit.className = "quit-dialog";
+  document.body.append(quit);
+  function openQuit() {
+    quit.innerHTML = quitDialog(state);
+    quit.showModal();
+  }
+  quit.addEventListener("click", async (event) => {
+    const choice = (event.target as Element).closest<HTMLButtonElement>("[data-quit]")?.dataset.quit;
+    if (!choice) return;
+    if (choice === "cancel") return quit.close();
+    try {
+      const { kept } = await request("/api/quit", { keep: choice === "keep" });
+      quit.close();
+      document.body.innerHTML = closedNotice(kept);
+    } catch (error) {
+      quit.close();
+      message((error as Error).message);
+    }
+  });
   nav.addEventListener("click", (event) => {
     const button = (event.target as Element).closest<HTMLButtonElement>(
       "button",
     );
-    if (button?.hasAttribute("data-running")) {
-      findingsSection = "activity";
-      setView("work");
+    if (button?.hasAttribute("data-running")) return;
+    if (button?.hasAttribute("data-quit-app")) {
+      openQuit();
       return;
     }
     if (button?.dataset.view) {
@@ -499,10 +613,10 @@ export function mountResearchWorkspace(
       returnPlace = undefined;
       returnBar.hidden = true;
       setView(button.dataset.view);
-    } else if (button?.hasAttribute("data-add-instruction")) {
+    } else if (button?.hasAttribute("data-open-coordinator")) {
       if (dialog.open) closeDrawer();
-      else openDrawer();
-    }
+      else openDrawer("conversation");
+    } else if (button?.hasAttribute("data-annotate")) toggleAnnotating();
   });
   notice.querySelector("[data-notice-open]")!.addEventListener("click", () => {
     const open = noticeOpen;
@@ -510,6 +624,8 @@ export function mountResearchWorkspace(
     open?.();
   });
   notice.querySelector("[data-notice-dismiss]")!.addEventListener("click", hideNotice);
+  // When the coordinator last suggested edits to a batch's walkthrough, if it has.
+  const editsSuggested = (i?: Investigation) => i?.reviewFlow?.edits?.suggestedAt;
   function openActivity(batchId: string) {
     const flow = state.investigations.find((i) => i.id === batchId)?.reviewFlow;
     if (flow?.graphReviews.at(-1)?.status === "pending") openReview(batchId, "graph");
@@ -577,7 +693,9 @@ export function mountResearchWorkspace(
     guidedReview = new GuidedReview(surface.querySelector<HTMLElement>("[data-guided-host]")!, state, batch, {
       start: reviewTarget.start,
       command: async (data) => {
-        await request("/api/review-flow", data);
+        // Undoing an accepted draft is a graph organization step with its own snapshot.
+        if (data.action === "organization-undo") await request("/api/organization", { action: "organization-undo", undoId: data.undoId });
+        else await request("/api/review-flow", data);
         await refresh();
       },
       source: (id, quote) => showSource(undefined, quote, id),
@@ -588,7 +706,7 @@ export function mountResearchWorkspace(
           annotation: { question: note, references: [reference] },
         });
         await refresh(false);
-        message("Declined. Your note went to the coordinator as new work.");
+        message("Set aside. Your note went to the coordinator as new work.");
       },
     });
   }
@@ -690,22 +808,80 @@ export function mountResearchWorkspace(
           message((error as Error).message);
         }
       });
-    surface
-      .querySelector("#engine-form")
-      ?.addEventListener("submit", async (event) => {
-        event.preventDefault();
-        try {
-          await request("/api/engine", {
-            engine:
-              surface.querySelector<HTMLSelectElement>("#research-engine")!
-                .value,
-          });
-          await refresh();
-          message("Researcher preference saved.");
-        } catch (error) {
-          message((error as Error).message);
-        }
-      });
+    surface.querySelector("[data-open-research-browser]")?.addEventListener("click", async () => {
+      try {
+        await request("/api/research-browser", {});
+        message("The research browser is open. Sign in to your archives there.");
+      } catch (error) {
+        message((error as Error).message);
+      }
+    });
+    surface.querySelector<HTMLFormElement>("#compact-form")?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const compactAt = surface.querySelector<HTMLInputElement>("#compact-at")!.valueAsNumber;
+      try {
+        await request("/api/research-settings", { compactAt });
+        await refresh();
+        message(`The coordinator compacts at ${compactAt.toLocaleString("en-US")} tokens from its next fresh start.`);
+      } catch (error) {
+        message((error as Error).message);
+      }
+    });
+    surface.querySelector("[data-coordinator-fresh]")?.addEventListener("click", async () => {
+      try {
+        await request("/api/coordinator/fresh", {});
+        message("A fresh coordinator is starting from the project's saved state.");
+        await refresh();
+      } catch (error) {
+        message((error as Error).message);
+      }
+    });
+    surface.querySelector<HTMLFormElement>("#max-workers-form")?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const maxWorkers = surface.querySelector<HTMLInputElement>("#max-workers")!.valueAsNumber;
+      try {
+        await request("/api/research-settings", { maxWorkers });
+        await refresh();
+        message(`Your coordinator runs at most ${maxWorkers} ${maxWorkers === 1 ? "worker" : "workers"} at once.`);
+      } catch (error) {
+        message((error as Error).message);
+      }
+    });
+    // Who does which job: each menu saves as it changes; the page redraws from the saved rules.
+    const dispatchChange = async (body: Record<string, unknown>, saved: string) => {
+      try {
+        await request("/api/dispatch", body);
+        await refresh();
+        message(saved);
+      } catch (error) {
+        message((error as Error).message);
+        await refresh();
+      }
+    };
+    surface.querySelectorAll<HTMLElement>("[data-dispatch-role]").forEach((row) =>
+      row.addEventListener("change", (event) => {
+        const field = (event.target as HTMLElement).dataset.field;
+        const choice = rowChoice(row, state.catalog!, field);
+        void dispatchChange({ action: "set-role", role: row.dataset.dispatchRole, ...(choice || {}) }, "Saved.");
+      }),
+    );
+    surface.querySelectorAll<HTMLButtonElement>("[data-remove-rule]").forEach((button) =>
+      button.addEventListener("click", () => void dispatchChange({ action: "remove-rule", ruleId: button.dataset.removeRule }, "Rule removed.")),
+    );
+    const ruleForm = surface.querySelector<HTMLFormElement>("#add-rule-form");
+    const ruleMenus = ruleForm?.querySelector<HTMLElement>("[data-rule-menus]");
+    ruleMenus?.addEventListener("change", (event) => {
+      const choice = rowChoice(ruleMenus, state.catalog!, (event.target as HTMLElement).dataset.field);
+      ruleMenus.innerHTML = menus(state.catalog!, choice || undefined, "Rule", false);
+    });
+    ruleForm?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const data = new FormData(ruleForm);
+      void dispatchChange(
+        { action: "add-rule", role: data.get("role"), when: data.get("when"), reason: data.get("reason"), ...rowChoice(ruleMenus!, state.catalog!) },
+        "Rule added.",
+      );
+    });
   }
   function renderSources() {
     if (selectedSource) {
@@ -870,7 +1046,7 @@ export function mountResearchWorkspace(
     const subjects = [
       ...state.dataset.people,
       ...(state.dataset.contextEntities || []),
-      ...(state.dataset.contextConnections || []),
+      ...connectionsFromClaims(state.dataset),
     ].filter((r) => r.sourceIds?.includes(sourceId || ""));
     surface.innerHTML = `<button data-source-list>Back to source library</button>${currentInvestigation()?.reviewFlow?.walkthroughs.length ? '<button data-open-review>Return to your walkthrough</button>' : ""}<article class="source-inspector" ${targetAttribute({ table: "sources", recordId: sourceId || documentId, label: String(source?.title || doc?.name || "Source") })}><span class="eyebrow">Source record</span><h1>${escape(source?.title || doc?.name || "Source")}</h1><p>${[source?.repository, source?.access || "Access not recorded"].filter(Boolean).map(escape).join(" · ")}</p><p class="preserve-lines">${escape(source?.note)}</p>${doc ? `<p>Preserved ${date(doc.importedAt)}</p><a href="/api/documents/${doc.id}" target="_blank" rel="noopener">Open preserved original</a>` : ""}<section class="source-content">${body}</section><h2>Findings from this source</h2>${related.map(({ i, p, f }) => `<section class="source-finding" data-investigation-id="${i.id}" ${targetAttribute({ label: f.statement, proposalId: p.id, findingId: f.id })}><span class="status-badge">${escape(f.status)} · ${escape(f.qualification)}</span><h3>${escape(f.statement)}</h3><p class="preserve-lines">${escape(f.explanation)}</p><button data-source-review="${i.id}" data-source-proposal="${p.id}">Open finding review</button></section>`).join("") || '<p class="muted">No structured findings recorded yet.</p>'}<h2>Accepted graph connections</h2>${subjects.map((r) => `<p ${targetAttribute({ label: "name" in r ? r.name : r.label || r.id, recordId: r.id })}>${escape("name" in r ? r.name : r.label || r.id)}</p>`).join("") || '<p class="muted">No accepted graph records cite this source yet.</p>'}<details><summary>Recorded passages and review history (${passages.length})</summary>${passages.map(({ i, p, e }) => `<section data-investigation-id="${i.id}"><p class="muted">Revision ${p.revision} · ${escape(p.status)}</p>${evidenceCard(state, p, e)}</section>`).join("")}</details></article>`;
     surface.querySelectorAll("[data-evidence]").forEach((b) => b.remove());
@@ -915,16 +1091,18 @@ export function mountResearchWorkspace(
       renderFindings();
       return;
     }
-    if (button.hasAttribute("data-open-settings")) {
-      setView("settings");
-      return;
-    }
-    if (button.hasAttribute("data-view-work")) {
-      setView("work");
-      return;
-    }
     if (button.hasAttribute("data-new-interface-note")) {
       openDrawer("queue");
+      return;
+    }
+    // The human orders and holds the queue.
+    if (button.dataset.queueMove || button.dataset.queueHold) {
+      const investigationId = button.closest<HTMLElement>("[data-investigation-id]")!.dataset.investigationId!;
+      void command(
+        button.dataset.queueMove
+          ? ({ type: "queue-move", investigationId, direction: button.dataset.queueMove } as ResearchCommand)
+          : ({ type: "queue-hold", investigationId, held: button.dataset.queueHold === "hold" } as ResearchCommand),
+      );
       return;
     }
     if (button.dataset.investigationSection) {
@@ -942,6 +1120,13 @@ export function mountResearchWorkspace(
     }
     if (button.dataset.openSource) {
       showSource(undefined, undefined, button.dataset.openSource);
+      return;
+    }
+    if (button.hasAttribute("data-open-research-browser-page")) {
+      const url = button.dataset.openResearchBrowserPage || null;
+      void request("/api/research-browser", { url })
+        .then(() => message(`It opened in the research browser${state.researchBrowser?.name ? `, a separate ${state.researchBrowser.name} window` : ""}. Sign in there, then choose Access is ready, resume.`))
+        .catch((error) => message((error as Error).message));
       return;
     }
     if (button.hasAttribute("data-source-list")) {
@@ -986,6 +1171,9 @@ export function mountResearchWorkspace(
     polling = true;
     try {
       const revision = await request("/api/revision");
+      // Live activity changes between revisions; take it from every poll.
+      state.live = revision.live;
+      state.usage = revision.usage;
       if (revision.coordinator) {
         // Attaching or dropping does not change the revision, so refresh the drawer here.
         const wasConnected = state.coordinator?.connected;
@@ -995,20 +1183,25 @@ export function mountResearchWorkspace(
         const description = surface.querySelector(
           "[data-coordinator-description]",
         );
-        if (status)
-          status.textContent = revision.coordinator.connected
-            ? "Coordinator connected"
-            : revision.coordinator.enabled
-              ? "Waiting for your coordinator"
-              : "Agent-led research available";
-        if (description)
-          description.textContent = revision.coordinator.connected
-            ? `${revision.coordinator.name} is supervising research and preparing proposals.`
-            : "Research and findings are saved. Open an agent in the research repository to continue.";
+        const said = coordinatorStatus(revision.coordinator);
+        if (status) status.textContent = said.status;
+        if (description) description.textContent = said.description;
       }
+      updateRunning();
       if (revision.revision !== state.revision) {
         const previous = state;
         await refresh(false);
+        // Rules the coordinator changed show at once; a half-written rule is kept.
+        if (view === "settings" && JSON.stringify(state.dispatch) !== JSON.stringify(previous.dispatch)) {
+          const draft = surface.querySelector<HTMLFormElement>("#add-rule-form");
+          const kept = draft ? [...new FormData(draft)] : [];
+          renderView();
+          const form = surface.querySelector<HTMLFormElement>("#add-rule-form");
+          for (const [name, value] of kept) {
+            const field = form?.elements.namedItem(name) as HTMLInputElement | HTMLSelectElement | null;
+            if (field) field.value = String(value);
+          }
+        }
         const current = currentInvestigation();
         if (guidedReview && current) guidedReview.update(state, current);
         const changed = [...state.investigations].reverse().find(i => {
@@ -1016,7 +1209,8 @@ export function mountResearchWorkspace(
           return i.reviewFlow?.walkthroughs.at(-1)?.id !== prior?.reviewFlow?.walkthroughs.at(-1)?.id
             || i.reviewFlow?.graphReviews.at(-1)?.id !== prior?.reviewFlow?.graphReviews.at(-1)?.id
             || i.reviewFlow?.jobs.at(-1)?.status !== prior?.reviewFlow?.jobs.at(-1)?.status
-            || i.proposals.length !== prior?.proposals.length;
+            || i.proposals.length !== prior?.proposals.length
+            || editsSuggested(i) !== editsSuggested(prior);
         });
         const seen = new Set((previous.conversation || []).map((m) => m.id));
         const arrived = (state.conversation || []).filter((m) => m.author === "coordinator" && !seen.has(m.id));
@@ -1028,6 +1222,11 @@ export function mountResearchWorkspace(
         else if (changed && !noticeMessage && !(guidedReview && current?.id === changed.id)) {
           const job = changed.reviewFlow?.jobs.at(-1);
           const subject = investigationSubject(changed);
+          const edits = editsSuggested(changed) !== editsSuggested(previous.investigations.find((p) => p.id === changed.id)) ? changed.reviewFlow?.edits : undefined;
+          if (edits) {
+            showNotice("Walkthrough edits to review", `Batch ${changed.number} · ${edits.edits.length} ${edits.edits.length === 1 ? "edit" : "edits"} suggested by the coordinator`, "Review edits", () => openReview(changed.id, "reading"));
+            return;
+          }
           const [title, action] = changed.reviewFlow?.graphReviews.at(-1)?.status === "pending"
             ? ["A graph update is ready for review", "Open review"]
             : job?.status === "paused" ? ["Graph preparation paused", "Open review"]

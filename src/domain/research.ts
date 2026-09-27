@@ -12,23 +12,20 @@ import {
 } from "./findings.ts";
 import type { Finding, FindingRef, GraphGroup } from "./findings.ts";
 import type { SourceRecord } from "./types.ts";
+import type { Catalog, Dispatch } from "./dispatch.ts";
+import { holdInQueue, moveInQueue } from "./queue.ts";
 import { GenealogyModel } from "./model.ts";
-import type { FamilyDataset } from "./types.ts";
+import type { FamilyDataset, LegacyDataset } from "./types.ts";
+import { upgradeDataset } from "./graph-upgrade.ts";
 import type { ReviewFlow } from "./review-flow";
 import {
   conversationTransition,
   humanConversationCommands,
   coordinatorConversationCommands,
 } from "./conversation.ts";
-import type { Message, Question } from "./conversation.ts";
+import type { Brief, Message, Question } from "./conversation.ts";
 
-export type Table =
-  | "people"
-  | "unions"
-  | "directParentage"
-  | "contextEntities"
-  | "contextConnections"
-  | "sources";
+export type Table = "people" | "contextEntities" | "claims" | "sources";
 export interface AnnotationTarget {
   walkthroughId?: string;
   stepId?: string;
@@ -43,6 +40,13 @@ export interface AnnotationTarget {
   proposalId?: string;
   findingId?: string;
   groupId?: string;
+}
+// What a reference is on, as the human and the coordinator read it: its name, and
+// the words the human selected there when a selection is what they pointed at.
+export function referenceText(r: AnnotationTarget): string {
+  const selected = (r.anchor as { type?: string } | undefined)?.type === "text-range" ? r.text?.replace(/\s+/g, " ").trim() : "";
+  if (!selected || r.label.includes(selected)) return r.label;
+  return `“${selected.length > 300 ? `${selected.slice(0, 297)}...` : selected}” in ${r.label}`;
 }
 export interface Annotation {
   id: string;
@@ -94,10 +98,14 @@ export interface Proposal {
 // that one walkthrough and one graph update explain.
 export interface Investigation {
   number?: number;
+  brief?: Brief;
   questions?: Question[];
   readyAt?: string;
   closedAt?: string;
   walkthroughRequestedAt?: string;
+  // The batch's place in the queue, once the human has reordered it, and whether they hold it.
+  queuePosition?: number;
+  held?: boolean;
   reviewFlow?: ReviewFlow;
   resumeRequest?: {
     id: string;
@@ -186,7 +194,7 @@ export interface ResearchState {
     };
   }[];
   engine?: "manual" | "codex" | "claude";
-  researchSettings?: { timeLimitMinutes: number | null };
+  researchSettings?: { timeLimitMinutes: number | null; maxWorkers?: number; compactAt?: number };
   reviewSettings?: { autoWalkthrough: boolean; autoGraph: boolean };
   organization?: {
     history: {
@@ -201,19 +209,60 @@ export interface ResearchState {
     // Listening right now, as opposed to attached but busy elsewhere.
     connected: boolean;
     attached?: boolean;
+    // Waiting for the next thing to do, rather than working on something.
+    listening?: boolean;
+    // What it last did, from its output stream or the command it sent.
+    latest?: { at: string; text: string } | null;
+    // The few steps before the latest, most recent first.
+    trail?: { at: string; text: string }[];
+    // When its current turn began, while it is working.
+    since?: string | null;
+    // When the usage limit holds it: messages wait until it resets.
+    paused?: { until: string } | null;
+    // Why the app's coordinator is not running, when it is not.
+    problem?: string | null;
+    // The sample's coordinator, which starts when the human first writes to it.
+    waiting?: boolean;
+    // How full its context is, and the size at which it compacts.
+    context?: { tokens: number; threshold: number; compactions: number; compacting: boolean } | null;
     lastSeenSecondsAgo?: number | null;
     name: string | null;
     handoff: string;
     awaitingSynthesis: string[];
   };
-  researcher?: {
-    selected: "manual" | "codex" | "claude";
-    engines: { id: string; available: boolean }[];
-    limit: number;
-  };
+  // What each running worker is doing right now; never saved.
+  live?: LiveWorker[];
+  // Which agent, model and effort does each job, and what the installed CLIs offer.
+  dispatch?: Dispatch;
+  catalog?: Catalog;
+  // Whether Google Chrome is installed for the research browser.
+  researchBrowser?: { available: boolean; name?: string | null };
+  // The latest usage each agent CLI reported, where it reports any.
+  usage?: Partial<Record<"claude" | "codex", Usage>>;
 }
 
-export function initialState(dataset: FamilyDataset): ResearchState {
+export interface Usage {
+  exhausted: boolean;
+  resetsAt: number | null;
+  windows: { name: string; used: number; resetsAt: number | null }[];
+  at: number;
+}
+
+export interface LiveWorker {
+  role: "researcher" | "builder" | "writer" | "helper";
+  name: string;
+  // Absent for a helper, whose task belongs to no batch.
+  investigationId?: string;
+  task?: string;
+  jobId?: string;
+  startedAt: string;
+  latest: { at: string; text: string } | null;
+  // The few steps before the latest, most recent first.
+  trail?: { at: string; text: string }[];
+}
+
+export function initialState(source: FamilyDataset | LegacyDataset): ResearchState {
+  const dataset = upgradeDataset(source);
   new GenealogyModel(dataset);
   return {
     version: 1,
@@ -282,7 +331,10 @@ export interface ResearchCommand {
     | "add-to-batch"
     | "batch-ready"
     | "request-approval"
-    | "retitle";
+    | "retitle"
+    | "set-brief"
+    | "queue-move"
+    | "queue-hold";
   investigationId?: string;
   [key: string]: unknown;
 }
@@ -305,6 +357,15 @@ export function transition(
     (i) => i.id === command.investigationId,
   );
   let result: unknown;
+  // The human orders the queue and holds batches in it.
+  if (command.type === "queue-move" || command.type === "queue-hold") {
+    const result =
+      command.type === "queue-move"
+        ? moveInQueue(next, command.investigationId!, command.direction as "up" | "down", now)
+        : holdInQueue(next, command.investigationId!, Boolean(command.held), now);
+    next.revision++;
+    return { state: next, result };
+  }
   if (command.type === "resume-decision") {
     assert(investigation?.status === "paused", "Investigation is not paused.");
     const pending = investigation.resumeRequest;

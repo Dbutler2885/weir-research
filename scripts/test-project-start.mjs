@@ -13,7 +13,8 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 const exec = promisify(execFile);
 const directory = mkdtempSync(join(tmpdir(), "research-start-e2e-"));
-const env = { ...process.env, RESEARCH_HOME: directory };
+// The test drives the coordinator API itself, so the app starts no coordinator agent.
+const env = { ...process.env, RESEARCH_HOME: directory, RESEARCH_COORDINATOR_AGENT: "0" };
 const run = async (script, args) =>
   JSON.parse(
     (
@@ -42,7 +43,9 @@ try {
     "Lubec, Maine industrial history",
     "--no-browser",
   ]);
-  ({ sessionFile, url } = started);
+  ({ url } = started);
+  assert.equal(started.project.name, "Lubec, Maine industrial history");
+  ({ sessionFile } = await run("coordinator", ["attach", "Test coordinator", "--project", started.project.id]));
   assert.ok(sessionFile);
   let current = await state();
   assert.equal(current.dataset.title, "Lubec, Maine industrial history");
@@ -118,8 +121,8 @@ try {
   assert.ok(current.organization.history.every((h) => !h.before));
   await run("coordinator", ["detach", "--session", sessionFile]);
   const resumed = await run("workspace", ["resume", "--no-browser"]);
-  sessionFile = resumed.sessionFile;
   assert.equal(resumed.url, url);
+  ({ sessionFile } = await run("coordinator", ["attach", "Test coordinator", "--project", resumed.project.id]));
   assert.equal((await state()).dataset.contextEntities.length, 2);
   await run("coordinator", ["detach", "--session", sessionFile]);
   sessionFile = undefined;

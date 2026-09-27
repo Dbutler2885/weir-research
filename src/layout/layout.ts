@@ -290,7 +290,7 @@ export async function layoutFamily(
     }
   }
 
-  for (const link of model.dataset.directParentage ?? []) {
+  for (const link of model.directParentLinks) {
     addEdge(
       link.id,
       link.parentId,
@@ -301,7 +301,7 @@ export async function layoutFamily(
     );
   }
 
-  for (const connection of model.dataset.contextConnections ?? []) {
+  for (const connection of model.contextConnections) {
     addEdge(
       connection.id,
       connection.fromId,
@@ -312,7 +312,7 @@ export async function layoutFamily(
     );
   }
 
-  if ((model.dataset.contextConnections?.length ?? 0) > 0) {
+  if (model.contextConnections.length > 0) {
     const nodes: LayoutNode[] = [...personNodes, ...unionNodes, ...contextNodes].map(node => ({
       id: node.id,
       kind: model.peopleById.has(node.id) ? "person" : model.unionsById.has(node.id) ? "union" : "context",

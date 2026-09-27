@@ -12,15 +12,27 @@ import {
   closeSync,
   unlinkSync,
 } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, resolve, extname, basename, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes, createHash } from "node:crypto";
 import { WorkspaceStore } from "./store.mjs";
 import { organize } from "./organization.mjs";
-import { graphImport } from "./graph-import.mjs";
 import { Coordinator } from "./coordinator.mjs";
 import { ResearcherPool } from "./researchers.mjs";
-import { GraphBuilderPool } from "./graph-builders.mjs";
+import { GraphBuilders } from "./graph-builders.mjs";
+import { WalkthroughWriters } from "./walkthrough-writers.mjs";
+import { CoordinatorHost } from "./coordinator-host.mjs";
+import { AgentSupervisor } from "./agents/supervisor.mjs";
+import { agentHomes } from "./agents/isolation.mjs";
+import { agentCatalog } from "./agents/catalog.mjs";
+import { DispatchRules } from "./dispatch.mjs";
+import { Helpers } from "./helpers.mjs";
+import { ResearchBrowser } from "./research-browser.mjs";
+import { setupRoutes } from "./setup-routes.mjs";
+import { validateChoice } from "../src/domain/dispatch.ts";
+import { LiveActivity } from "./live-activity.mjs";
+import { projectSkills } from "./skills.mjs";
 import { flowCommand } from "./review-flow.mjs";
 import { humanConversationCommands } from "../src/domain/conversation.ts";
 
@@ -48,17 +60,86 @@ process.on("exit", () => {
   if (existsSync(lock) && readFileSync(lock, "utf8") === String(process.pid))
     unlinkSync(lock);
 });
-process.on("SIGTERM", () => process.exit(0));
-process.on("SIGINT", () => process.exit(0));
+// Closing stops the app's agents, except workers the human chose to keep running;
+// their stop reaches the hosts before the app exits.
+let closing = false;
+function close() {
+  if (closing) return;
+  closing = true;
+  for (const stop of [() => coordinatorHost.stop(), () => helpers.stop(), () => researchers.stop(), () => graphBuilders.stop(), () => writers.stop()])
+    try {
+      stop();
+    } catch {
+      /* Closing carries on. */
+    }
+  setTimeout(() => process.exit(0), 300);
+}
+process.on("SIGTERM", close);
+process.on("SIGINT", close);
 const store = new WorkspaceStore(
   directory,
   JSON.parse(readFileSync(join(root, "src/data/empty.json"), "utf8")),
 );
-const coordinator = new Coordinator(store);
-const researchers = new ResearcherPool(store, directory, root, { coordinator });
-const graphBuilders = new GraphBuilderPool(store, directory, root);
+const live = new LiveActivity();
+const coordinator = new Coordinator(store, { workers: () => live.list(), skills: projectSkills(root) });
+// One supervisor launches and reads every agent the app runs.
+// Codex agents share the app's own homes, beside the projects.
+const appDirectory = resolve(process.env.RESEARCH_HOME || join(root, ".research"));
+// Each agent runs under its own host process, recorded beside the projects, so a
+// worker the human keeps running outlives the app and is taken back when it opens.
+const supervisor = new AgentSupervisor({
+  live,
+  homes: agentHomes(appDirectory),
+  hosts: { registry: join(appDirectory, "agent-hosts"), sockets: join(tmpdir(), `research-agents-${process.getuid?.() ?? "user"}`) },
+});
+// One research browser for the app, with its own profile, shared by every project.
+const researchBrowser = new ResearchBrowser(appDirectory, { root });
+const setupScreen = setupRoutes({ homes: agentHomes(appDirectory), next: { label: "Back to your project", href: "/" } });
+const researchers = new ResearcherPool(store, directory, root, { coordinator, live, supervisor, browser: researchBrowser });
+coordinator.researchers = researchers;
+const graphBuilders = new GraphBuilders(store, directory, root, { live, supervisor });
+const writers = new WalkthroughWriters(store, directory, root, { live, supervisor });
+coordinator.writers = writers;
+// What the installed agent CLIs offer, and the project's rules for which does each job.
+const catalog = agentCatalog({ findExecutable: researchers.findExecutable });
+const dispatch = new DispatchRules(store, catalog);
+dispatch.ensure();
+coordinator.dispatch = dispatch;
+process.on("exit", () => writers.stop());
 process.on("exit", () => graphBuilders.stop());
 process.on("exit", () => researchers.stop());
+// A coordinator command, from the app's coordinator or one attached from outside.
+function coordinatorCommand(data) {
+  // An agent, model or effort named for one assignment must be one the installed CLIs offer.
+  if (["assign", "assign-graph", "assign-walkthrough", "ask-helper"].includes(data.action) && data.engine && data.engine !== "manual")
+    validateChoice({ agent: data.engine, model: data.model ?? null, effort: data.effort ?? null }, catalog, "The named agent");
+  const result = coordinator.command(data);
+  researchers.pump();
+  graphBuilders.pump();
+  writers.pump();
+  return result;
+}
+// The app starts a fresh coordinator every time it opens the project.
+const coordinatorHost = new CoordinatorHost({ store, coordinator, supervisor, directory, root, dispatch, handle: coordinatorCommand });
+const helpers = new Helpers(store, directory, { live, supervisor, dispatch, answer: (text) => coordinatorHost.tell(text) });
+coordinator.helpers = helpers;
+process.on("exit", () => helpers.stop());
+// For the context evaluation, the coordinator's folder is prepared for an agent it runs itself.
+if (process.env.RESEARCH_COORDINATOR_AGENT === "prepare") {
+  const prompt = coordinatorHost.prepare();
+  writeFileSync(join(directory, "coordinator", "prepared.json"), JSON.stringify({ folder: coordinatorHost.folder, prompt }));
+} else if (process.env.RESEARCH_COORDINATOR_AGENT !== "0") {
+  // The sample project spends nothing until the visitor first sends something.
+  if (store.state.sample) coordinator.waiting = true;
+  else coordinatorHost.start();
+}
+// Starts the sample's coordinator on the visitor's first message to it.
+function startWaitingCoordinator() {
+  if (!coordinator.waiting) return;
+  coordinator.waiting = false;
+  coordinatorHost.start();
+}
+process.on("exit", () => coordinatorHost.stop());
 const token = randomBytes(32).toString("hex");
 const coordinatorToken = randomBytes(32).toString("hex");
 const documentsDir = join(directory, "documents");
@@ -73,6 +154,8 @@ const userCommands = new Set([
   "interface-feedback",
   "reclassify-annotation",
   "resume-decision",
+  "queue-move",
+  "queue-hold",
   "resolve-access",
   "annotate",
   "dispatch",
@@ -210,44 +293,27 @@ const server = createServer(async (req, res) => {
       return json(res, 403, { error: "Open the local workspace directly." });
     res.setHeader("X-Content-Type-Options", "nosniff");
     const url = new URL(req.url, `http://${host}`);
+    // The setup screen, to come back to from Research settings.
+    const handled = await setupScreen(req, url, {
+      json: (value) => json(res, 200, value),
+      html: (text) => {
+        res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+        res.end(text);
+      },
+      body: () => body(req),
+      redirect: (location) => {
+        res.writeHead(302, { Location: location });
+        res.end();
+      },
+    });
+    if (handled !== false) return;
     if (url.pathname === "/api/coordinator" && req.method === "POST") {
       if (req.headers.authorization !== `Bearer ${coordinatorToken}`)
         return json(res, 403, { error: "Coordinator credentials required." });
       const data = await body(req);
       if (data.action === "attach")
         return json(res, 200, coordinator.attach(data.name, data.session));
-      if (data.action === "wait") {
-        coordinator.require(data.session);
-        const since = Number(data.since);
-        if (!Number.isInteger(since) || since < -1)
-          throw new Error("Valid revision cursor required.");
-        // Long waits are cheap now that a quiet one answers with its revision alone.
-        const deadline =
-          Date.now() + Math.min(300_000, Math.max(0, Number(data.timeout) || 0));
-        while (
-          store.state.revision === since &&
-          Date.now() < deadline &&
-          !res.destroyed
-        ) {
-          await new Promise((resolve) => setTimeout(resolve, 200));
-          coordinator.require(data.session);
-        }
-        if (res.destroyed) return;
-        return json(res, 200, coordinator.delta(data.session, since));
-      }
-      if (
-        data.action === "assign" &&
-        !researchers.findExecutable(data.engine || store.state.engine)
-      )
-        throw new Error("Requested researcher CLI is not available.");
-      if (["claim-graph", "submit-graph-files"].includes(data.action)) {
-        coordinator.require(data.session);
-        return json(res, 200, graphBuilders.native(data));
-      }
-      const result = coordinator.command(data);
-      researchers.pump();
-      graphBuilders.pump();
-      return json(res, 200, result ?? null);
+      return json(res, 200, coordinatorCommand(data) ?? null);
     }
     if (
       req.method === "POST" &&
@@ -263,14 +329,19 @@ const server = createServer(async (req, res) => {
     if (req.method === "GET" && url.pathname === "/api/state")
       return json(res, 200, {
         ...store.publicState(),
-        researcher: researchers.capabilities(),
         coordinator: coordinator.status(),
+        live: live.list(),
+        catalog,
+        usage: supervisor.usage,
+        researchBrowser: { available: researchBrowser.available, name: researchBrowser.browser.name },
       });
     if (req.method === "GET" && url.pathname === "/api/revision")
       return json(res, 200, {
         revision: store.state.revision,
         datasetRevision: store.state.datasetRevision,
         coordinator: coordinator.status(),
+        live: live.list(),
+        usage: supervisor.usage,
       });
     if (req.method === "GET" && url.pathname.startsWith("/api/documents/")) {
       const doc = store.state.documents.find(
@@ -284,11 +355,6 @@ const server = createServer(async (req, res) => {
         "Cache-Control": "private, max-age=31536000, immutable",
       });
       return res.end(readFileSync(join(documentsDir, doc.id)));
-    }
-    if (req.method === "POST" && url.pathname === "/api/graph-import") {
-      const result = graphImport(store, await body(req));
-      researchers.pump();
-      return json(res, 200, result);
     }
     if (req.method === "POST" && url.pathname === "/api/review-flow") {
       const result = flowCommand(store, await body(req), "human");
@@ -317,6 +383,7 @@ const server = createServer(async (req, res) => {
       if (!workerCommands.has(command.type) && !userCommands.has(command.type))
         throw new Error("Unknown command.");
       const result = store.command(command);
+      if (!isWorker) startWaitingCoordinator();
       researchers.pump();
       return json(res, 200, { result, revision: store.state.revision });
     }
@@ -332,11 +399,29 @@ const server = createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/api/research-settings") {
       return json(res, 200, researchers.configure(await body(req)));
     }
-    if (req.method === "POST" && url.pathname === "/api/engine") {
-      const data = await body(req);
-      researchers.choose(data.engine);
-      return json(res, 200, researchers.capabilities());
+    // Quitting from the app: workers are kept running or stopped, as the human chose.
+    if (req.method === "POST" && url.pathname === "/api/quit") {
+      const { keep } = await body(req);
+      const kept = keep ? supervisor.hosted((r) => r.meta?.project === directory && ["researcher", "builder", "writer"].includes(r.meta?.role) && !r.ended).length : 0;
+      if (keep) supervisor.keep((r) => r.meta?.project === directory && ["researcher", "builder", "writer"].includes(r.meta?.role));
+      json(res, 200, { closing: true, kept });
+      setTimeout(close, 100);
+      return;
     }
+    // The human compacts the coordinator's context now, or starts a fresh one when it is idle.
+    if (req.method === "POST" && url.pathname === "/api/coordinator/compact") {
+      coordinatorHost.compact();
+      return json(res, 200, { compacting: true });
+    }
+    if (req.method === "POST" && url.pathname === "/api/coordinator/fresh")
+      return json(res, 200, { started: coordinatorHost.startFresh() });
+    // The human opens the research browser to sign in to archives once.
+    if (req.method === "POST" && url.pathname === "/api/research-browser") {
+      await researchBrowser.show((await body(req)).url ?? null);
+      return json(res, 200, { open: true });
+    }
+    if (req.method === "POST" && url.pathname === "/api/dispatch")
+      return json(res, 200, { dispatch: dispatch.change(await body(req), "human") });
     if (req.method === "POST" && url.pathname === "/api/import") {
       const data = await body(req);
       if (typeof data.name !== "string" || typeof data.content !== "string")

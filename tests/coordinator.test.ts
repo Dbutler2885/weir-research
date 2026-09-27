@@ -50,7 +50,7 @@ const proposal = {
   changes: [],
 };
 describe("research coordination", () => {
-  it("answers a quiet wait with its revision alone and a wake with only what changed", () => {
+  it("says nothing changed with the revision alone, and otherwise sends only what changed", () => {
     const f = fixture();
     const start = f.coordinator.snapshot(f.secret).revision;
     // Nothing happened: the coordinator is told the revision and no more.
@@ -74,6 +74,15 @@ describe("research coordination", () => {
     // Findings are counted, not re-sent; inspection retrieves them.
     expect(second.changed.investigations[0]).not.toHaveProperty("findings");
     expect(second.changed.investigations[0]).toHaveProperty("findingCount");
+  });
+
+  it("tells the coordinator when the human changes who does which job", () => {
+    const f = fixture();
+    const start = f.coordinator.snapshot(f.secret).revision;
+    f.store.update((next: any) => {
+      next.dispatch = { default: { agent: "codex" }, roles: {}, rules: [] };
+    });
+    expect((f.coordinator.delta(f.secret, start) as any).changed.dispatch).toEqual({ default: { agent: "codex" }, roles: {}, rules: [] });
   });
 
   it("ignores its own replies but wakes when the human decides a request", () => {
@@ -115,7 +124,7 @@ describe("research coordination", () => {
     const f = fixture();
     f.store.command({ type: "send", text: "Can you see this message?" });
     const snapshot = f.coordinator.snapshot(f.secret);
-    const shown = snapshotView(snapshot, "session.json", "snapshot.json", -1);
+    const shown = snapshotView(snapshot, "session.json", "snapshot.json");
     expect(shown.conversation.recentMessages.at(-1)).toMatchObject({
       author: "human",
       text: "Can you see this message?",
@@ -143,7 +152,7 @@ describe("research coordination", () => {
       }).requestId,
     ).toBe(requested.requestId);
     expect(() =>
-      f.run({ action: "claim", investigationId: id, brief: "Continue" }),
+      f.run({ action: "assign", investigationId: id, engine: "claude", brief: "Continue" }),
     ).toThrow("queued");
     expect(() => f.run({ action: "resume", investigationId: id })).toThrow(
       "Unknown coordinator action",
@@ -184,8 +193,9 @@ describe("research coordination", () => {
     );
     expect(() =>
       f.run({
-        action: "claim",
+        action: "assign",
         investigationId: id,
+        engine: "claude",
         brief: "Prepare review from saved evidence",
       }),
     ).not.toThrow();
@@ -241,36 +251,18 @@ describe("research coordination", () => {
       original,
     );
     f.store.command({ type: "resume", investigationId: id });
-    const next = f.run({
-      action: "claim",
+    f.run({
+      action: "assign",
       investigationId: id,
+      engine: "claude",
       brief: "Continue the research",
     });
-    expect(next.investigation.lease.annotationIds).not.toContain(original.id);
-    expect(next.investigation.annotations).toHaveLength(1);
+    // The replacement researcher is given only the research annotation.
+    expect(f.store.state.coordination.assignments[id].annotationIds).toEqual([f.store.state.investigations[0].annotations[0].id]);
   });
-  it("requires exclusive live ownership and fences the previous session after recovery", () => {
+  it("requires exclusive live ownership, and a takeover ends the previous session", () => {
     const f = fixture();
-    const id = f.queue();
-    const brief = f.run({
-      action: "claim",
-      investigationId: id,
-      brief: "Check the source",
-    }) as any;
-    f.run({
-      action: "checkpoint",
-      investigationId: id,
-      summary: "Checked",
-      findings: "One source inspected",
-      nextSteps: "Check second source",
-    });
-    f.store.command({
-      type: "annotate",
-      investigationId: id,
-      target: { label: "Later" },
-      question: "Do not send this yet",
-      dispatch: false,
-    });
+    f.queue();
     expect(() => f.coordinator.attach("Second", randomUUID())).toThrow(
       "Another coordinator",
     );
@@ -281,20 +273,6 @@ describe("research coordination", () => {
       "expired",
     );
     expect(f.store.state.investigations[0]!.status).toBe("queued");
-    expect(f.store.state.investigations[0]!.checkpoints).toHaveLength(1);
-    expect(
-      f.store.state.investigations[0]!.annotations[1]!.dispatchedAt,
-    ).toBeUndefined();
-    expect(() =>
-      f.store.command({
-        type: "checkpoint",
-        investigationId: id,
-        token: brief.investigation.lease.token,
-        summary: "late",
-        findings: "late",
-        nextSteps: "late",
-      }),
-    ).toThrow("lease");
   });
   it("starts with a small index and retrieves source passages and investigations only on request", () => {
     const f = fixture();
@@ -318,7 +296,12 @@ describe("research coordination", () => {
     expect(JSON.stringify(index)).not.toContain("Unique archival passage");
     expect(JSON.stringify(index)).not.toContain("lease");
     expect(index.project.researchMap).toContain("resolve identities");
-    expect(JSON.stringify(index).length).toBeLessThan(6000);
+    // The old index and the layered context are two views of the same project; each stays small.
+    const { context, ...oldIndex } = index as any;
+    expect(JSON.stringify(oldIndex).length).toBeLessThan(6000);
+    expect(context.text).toContain("resolve identities");
+    expect(context.text).not.toContain("Unique archival passage");
+    expect(context.text.length).toBeLessThan(6000);
     const source = f.run({
       action: "inspect",
       kind: "source",

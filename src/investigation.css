@@ -52,6 +52,16 @@
   text-decoration: underline;
   text-underline-offset: 6px;
 }
+/* Research settings is a gear; while it is open, the gear takes the accent colour. */
+.research-app .workspace-actions > .settings-destination {
+  display: inline-flex;
+  align-items: center;
+  color: var(--ink-soft);
+}
+.research-app .workspace-actions > .settings-destination:hover,
+.research-app .workspace-actions > .settings-destination[aria-current] {
+  color: var(--sea-dark);
+}
 .research-app .local-indicator {
   display: none;
 }
@@ -451,4 +461,131 @@
   .workspace-actions
   > [data-organize-project] {
   display: block;
+}
+.dispatch-row {
+  display: grid;
+  grid-template-columns: 170px 1fr;
+  gap: 16px;
+  align-items: center;
+  padding: 10px 0;
+}
+.dispatch-row.is-default {
+  padding-bottom: 18px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+.dispatch-job {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 15px;
+}
+.dispatch-job small {
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+.dispatch-menus {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.settings-page .dispatch-menus select {
+  min-width: 0;
+  flex: 1 1 150px;
+}
+.dispatch-settings h3 {
+  font-size: 16px;
+  margin: 28px 0 8px;
+}
+.dispatch-rules {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.dispatch-rules li {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+.dispatch-rules p {
+  margin: 0 0 4px;
+  font-size: 15px;
+}
+.dispatch-reason,
+.dispatch-empty {
+  color: var(--ink-soft);
+}
+.dispatch-add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 12px;
+  margin-top: 16px;
+}
+.dispatch-add .dispatch-wide {
+  flex: 1 1 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.dispatch-add input {
+  flex: 1;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+}
+.dispatch-add .dispatch-menus {
+  flex: 1 1 100%;
+}
+@media (max-width: 640px) {
+  .dispatch-row {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+}
+.usage-line {
+  margin: 0 0 6px;
+  font-size: 15px;
+}
+#max-workers {
+  width: 85px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+}
+#max-workers-form .page-context {
+  margin: 12px 0 0;
+}
+.setting-link {
+  display: inline-block;
+  padding: 9px 16px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--paper);
+  color: var(--ink);
+  text-decoration: none;
+  font-size: 14px;
+}
+.setting-link:hover {
+  border-color: var(--sea);
+}
+#compact-at {
+  width: 130px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+}
+#compact-form {
+  margin-bottom: 18px;
+}
+#compact-form .page-context {
+  margin: 12px 0 0;
 }

@@ -1,5 +1,5 @@
 {
-  "name": "pike-family-explorer",
+  "name": "weir-research",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -8,7 +8,7 @@
     "pdf": "node scripts/docling.mjs",
     "pdf:import": "node scripts/import-pdf-collection.mjs",
     "test:pdf": "node scripts/docling.mjs --test",
-    "start": "npm run build && node server/main.mjs",
+    "start": "node scripts/start.mjs",
     "serve": "node server/main.mjs",
     "research": "node scripts/research.mjs",
     "example": "npm run build && node scripts/example.mjs",
@@ -22,12 +22,16 @@
     "open:brave": "npm run build && open -a 'Brave Browser' dist/index.html",
     "workspace": "node scripts/workspace.mjs",
     "coordinator": "node scripts/coordinator.mjs",
-    "test:integration": "npm run build && node scripts/test-coordinator.mjs && node scripts/test-project-start.mjs && node scripts/test-findings.mjs",
+    "context:review": "node --no-warnings scripts/context-review.mjs",
+    "context:eval": "node --no-warnings scripts/context-eval.mjs",
+    "test:integration": "npm run build && node scripts/test-coordinator.mjs && node scripts/test-project-start.mjs && node scripts/test-findings.mjs && node --no-warnings scripts/test-isolation.mjs && node --no-warnings scripts/test-research-browser.mjs",
     "convert:batches": "node --no-warnings scripts/convert-to-batches.mjs"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.1",
     "d3": "^7.9.0",
-    "elkjs": "^0.11.0"
+    "elkjs": "^0.11.0",
+    "puppeteer-core": "^25.12.0"
   },
   "devDependencies": {
     "@types/d3": "^7.4.3",

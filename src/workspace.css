@@ -145,6 +145,44 @@ dialog button:hover,
   border-color: var(--sea);
   background: #edf1e9;
 }
+/* The Coordinator button reads as pressed while its sidebar is open. */
+[data-open-coordinator][aria-expanded="true"] {
+  color: var(--sea-dark);
+  font-weight: 600;
+}
+/* The Annotate switch: while it is on, selecting in the page starts an annotation. */
+[data-annotate] {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.annotation-switch {
+  position: relative;
+  flex: none;
+  width: 26px;
+  height: 15px;
+  border-radius: 10px;
+  background: #d7d1c4;
+  transition: background 0.15s;
+}
+.annotation-switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 20%);
+  transition: transform 0.15s;
+}
+[data-annotate][aria-checked="true"] .annotation-switch {
+  background: var(--sea);
+}
+[data-annotate][aria-checked="true"] .annotation-switch::after {
+  transform: translateX(11px);
+}
 .research-surface button:disabled {
   cursor: not-allowed;
   opacity: 0.45;
@@ -1215,8 +1253,38 @@ dialog .muted {
 .running-indicator[hidden] {
   display: none;
 }
+/* Who is working and the step they are on, taking turns when several are. */
+.workspace-actions > .running-indicator {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 330px;
+}
+.running-indicator .ticker-who {
+  flex: none;
+  color: var(--ink);
+  font-weight: 600;
+}
+.running-indicator .ticker-what {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.running-indicator .ticker-more {
+  flex: none;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.running-indicator .ticker-who,
+.running-indicator .ticker-what {
+  transition: opacity 0.25s;
+}
+.running-indicator.is-turning .ticker-who,
+.running-indicator.is-turning .ticker-what {
+  opacity: 0;
+}
 .running-indicator::before {
   content: "";
+  flex: none;
   width: 6px;
   height: 6px;
   border-radius: 50%;
@@ -1232,4 +1300,215 @@ dialog .muted {
   .running-indicator::before {
     animation: none;
   }
+}
+/* Who is working and what each is doing, opened from the running line. */
+.live-panel {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  width: min(380px, calc(100vw - 32px));
+  max-height: min(560px, calc(100vh - 96px));
+  overflow-y: auto;
+  padding: 16px 18px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: var(--shadow);
+  font-size: 13px;
+}
+.live-panel h2 {
+  margin: 0 0 8px;
+  color: var(--ink-soft);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.live-panel h2:not(:first-child) {
+  margin-top: 18px;
+}
+.live-working,
+.live-attention,
+.live-waiting,
+.live-trail {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.live-agent {
+  padding: 10px 0;
+  border-top: 1px solid var(--paper-deep);
+}
+.live-agent:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+.live-panel [data-live-open] {
+  cursor: pointer;
+}
+.live-agent[data-live-open]:hover strong {
+  color: var(--sea-dark);
+}
+.live-who {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.live-who strong {
+  font-weight: 600;
+}
+.live-who span,
+.live-who time {
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+.live-who time {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+/* The step it is on now, with a dot that pulses while it works. */
+/* Wrapped lines hang beside the dot rather than under it. */
+.live-now {
+  margin: 4px 0 0;
+  padding-left: 14px;
+  text-indent: -14px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.live-now::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin: 0 8px 1px 0;
+  border-radius: 50%;
+  background: #c8a44d;
+  animation: research-pulse 1.8s ease-in-out infinite;
+}
+.live-now.is-listening::before {
+  background: var(--sea);
+  animation: none;
+}
+.live-now.is-quiet {
+  color: var(--ink-soft);
+}
+.live-trail {
+  margin: 3px 0 0 14px;
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.live-attention li,
+.live-waiting li {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 5px 0;
+  line-height: 1.4;
+}
+.live-attention li span,
+.live-waiting li span {
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+.live-attention li span {
+  color: var(--rust-dark);
+}
+.live-attention .text-action,
+.live-waiting .text-action,
+.live-panel [data-live-all] {
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--sea-dark);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.live-attention .text-action:hover,
+.live-waiting .text-action:hover,
+.live-panel [data-live-all]:hover {
+  color: var(--sea);
+}
+.live-empty {
+  margin: 0;
+  color: var(--ink-soft);
+}
+.live-foot {
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid var(--paper-deep);
+}
+@media (prefers-reduced-motion: reduce) {
+  .live-now::before {
+    animation: none;
+  }
+}
+
+.quit-dialog {
+  width: min(480px, calc(100vw - 32px));
+}
+.quit-dialog h2 {
+  margin: 0 0 12px;
+  font-size: 22px;
+}
+.quit-dialog p {
+  margin: 0 0 20px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+}
+.quit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.app-closed {
+  max-width: 560px;
+  margin: 18vh auto 0;
+  padding: 0 16px;
+  color: var(--ink);
+}
+.app-closed h1 {
+  font-family: Georgia, serif;
+  font-size: 34px;
+  font-weight: 500;
+  letter-spacing: -0.7px;
+  margin: 0 0 12px;
+}
+.app-closed p {
+  line-height: 1.6;
+  color: var(--ink-soft);
+}
+
+.context-notice {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+}
+.context-notice .notice-dot {
+  margin-top: 5px;
+}
+.context-notice div span {
+  margin-top: 3px;
+  line-height: 1.45;
+  white-space: normal;
+  overflow: visible;
+}
+.context-actions [data-context="keep"] {
+  background: transparent;
+  color: white;
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 45%);
+}
+.context-actions {
+  grid-column: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.context-actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }

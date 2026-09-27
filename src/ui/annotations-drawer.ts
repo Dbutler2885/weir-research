@@ -4,8 +4,10 @@ import type {
   ResearchCommand,
   ResearchState,
 } from "../domain/research";
+import { referenceText } from "../domain/research";
 import type { Message } from "../domain/conversation";
 import { html } from "./finding-review";
+import { clock, running } from "./live-panel";
 
 export type DrawerTab = "conversation" | "queue";
 
@@ -14,10 +16,10 @@ export interface DrawerHost {
   command(data: ResearchCommand): Promise<unknown>;
   navigate(reference: AnnotationTarget): void;
   batchAction(batchId: string, action: "walkthrough" | "graph"): void;
-  setSelecting(enabled: boolean): void;
+  // Starts a coordinator again from the project's saved state, after one stopped.
+  startCoordinator(): Promise<unknown>;
   // True when the workspace service cannot be reached right now.
   offline?(): boolean;
-  selecting(): boolean;
   changed(): void;
 }
 
@@ -155,8 +157,8 @@ export class AnnotationsDrawer {
     const queue = state.queue || [];
     this.markSeen();
     const unread = this.unread();
-    this.root.innerHTML = `<div class="drawer-head"><h2>Annotations</h2><button type="button" class="drawer-close" data-close aria-label="Close annotations">×</button></div>
-<nav class="drawer-tabs" aria-label="Annotations"><button type="button" data-tab="conversation" ${this.tab === "conversation" ? 'aria-current="page"' : ""}>Conversation${unread ? '<span class="unread-dot" aria-label="Unread messages"></span>' : ""}</button><button type="button" data-tab="queue" ${this.tab === "queue" ? 'aria-current="page"' : ""}>Queue${queue.length ? `<span class="tab-count">${queue.length}</span>` : ""}</button></nav>
+    this.root.innerHTML = `<div class="drawer-head"><h2>Coordinator</h2><button type="button" class="drawer-close" data-close aria-label="Close the coordinator panel">×</button></div>
+<nav class="drawer-tabs" aria-label="Coordinator"><button type="button" data-tab="conversation" ${this.tab === "conversation" ? 'aria-current="page"' : ""}>Conversation${unread ? '<span class="unread-dot" aria-label="Unread messages"></span>' : ""}</button><button type="button" data-tab="queue" ${this.tab === "queue" ? 'aria-current="page"' : ""}>Annotations${queue.length ? `<span class="tab-count">${queue.length}</span>` : ""}</button></nav>
 ${this.tab === "conversation" ? this.conversation(state) : this.queue(state)}`;
     const list = this.tab === "conversation" ? this.root.querySelector<HTMLElement>(".conversation") : null;
     const pinned = list && this.pinned ? this.messageElement(this.pinned) : undefined;
@@ -196,8 +198,43 @@ ${this.tab === "conversation" ? this.conversation(state) : this.queue(state)}`;
         return separator + this.message(state, m);
       })
       .join("");
-    return `<div class="conversation" aria-label="Conversation with the coordinator">${items || '<p class="conversation-empty">Ask the coordinator anything, or queue annotations from the page and send them together.</p>'}</div>
-${this.presence(state)}<form class="message-form" data-message-form><div class="message-box"><textarea data-message rows="2" placeholder="Message the coordinator…" aria-label="Message the coordinator">${html(this.draft.message || "")}</textarea><button type="submit" class="primary">Send</button></div>${this.error && this.tab === "conversation" ? `<p class="form-error" role="alert">${html(this.error)}</p>` : ""}</form>`;
+    return `<div class="conversation" aria-label="Conversation with the coordinator">${items || '<p class="conversation-empty">Ask the coordinator anything, or queue annotations from the page and send them together.</p>'}<div data-coordinator-activity>${this.activity(state)}</div></div>
+<div data-presence>${this.presence(state)}</div><form class="message-form" data-message-form><div class="message-box"><textarea data-message rows="2" placeholder="Message the coordinator…" aria-label="Message the coordinator">${html(this.draft.message || "")}</textarea><button type="submit" class="primary">Send</button></div>${this.error && this.tab === "conversation" ? `<p class="form-error" role="alert">${html(this.error)}</p>` : ""}</form>`;
+  }
+
+  // What the coordinator is doing about the human's message, and whether it is
+  // listening, as it changes between renders; the rest of the drawer is untouched.
+  updateActivity(): void {
+    if (this.tab !== "conversation") return;
+    const state = this.host.state();
+    const activity = this.root.querySelector<HTMLElement>("[data-coordinator-activity]");
+    const presence = this.root.querySelector<HTMLElement>("[data-presence]");
+    const said = this.activity(state);
+    if (activity && activity.dataset.shown !== said) {
+      activity.innerHTML = said;
+      activity.dataset.shown = said;
+      const list = this.root.querySelector<HTMLElement>(".conversation");
+      if (list && this.following) list.scrollTop = list.scrollHeight;
+    }
+    const line = this.presence(state);
+    if (presence && presence.dataset.shown !== line) {
+      presence.innerHTML = line;
+      presence.dataset.shown = line;
+    }
+  }
+
+  // The coordinator at work on the human's latest message: the step it is on now and
+  // the one before, until its reply takes their place.
+  private activity(state: ResearchState): string {
+    const c = state.coordinator;
+    const last = state.conversation?.at(-1);
+    if (!c?.connected || c.listening || last?.author !== "human") return "";
+    if (c.paused)
+      return `<div class="coordinator-working is-paused" aria-live="polite"><div class="coordinator-working-head"><strong>${html(c.name || "Coordinator")} is paused</strong><time datetime="${html(c.paused.until)}">until ${html(clock(c.paused.until))}</time></div><p>The usage limit is reached. It reads your messages when the limit resets.</p></div>`;
+    const since = c.since || last.at;
+    const steps = [c.latest, ...(c.trail || [])].filter((s): s is { at: string; text: string } => Boolean(s && s.at >= since));
+    const before = steps[1]?.text || (steps[0] ? "Read your message" : "");
+    return `<div class="coordinator-working" aria-live="polite"><div class="coordinator-working-head"><strong>${html(c.name || "Coordinator")} is working</strong><time datetime="${html(since)}" data-elapsed>${html(running(since, Date.now()))}</time></div><p>${html(steps[0]?.text || "Reading your message")}</p>${before ? `<p class="coordinator-working-before">Before that: ${html(before.charAt(0).toLowerCase() + before.slice(1))}</p>` : ""}</div>`;
   }
 
   // Whether anyone is listening, said where the human types.
@@ -207,12 +244,21 @@ ${this.presence(state)}<form class="message-form" data-message-form><div class="
     const c = state.coordinator;
     if (!c?.enabled) return "";
     const who = html(c.name || "Your coordinator");
-    if (c.connected)
+    if (c.connected && c.paused)
+      return `<p class="coordinator-presence is-paused"><span class="presence-dot"></span>${who} is paused until ${html(clock(c.paused.until))}. Messages you send wait until then.</p>`;
+    if (c.connected && c.listening)
       return `<p class="coordinator-presence"><span class="presence-dot"></span>${who} is listening.</p>`;
+    if (c.connected)
+      return `<p class="coordinator-presence is-busy"><span class="presence-dot"></span>${
+        state.conversation?.at(-1)?.author === "human" ? `${who} is working on your message.` : `${who} is working. A message you send reaches it at its next step.`
+      }</p>`;
     if (c.attached)
       return `<p class="coordinator-presence is-busy"><span class="presence-dot"></span>${who} is working${
         c.lastSeenSecondsAgo == null ? "" : `, last seen ${elapsed(c.lastSeenSecondsAgo)} ago`
       }. Messages wait until it checks back.</p>`;
+    if (c.waiting) return '<p class="coordinator-presence">Your coordinator starts when you write to it.</p>';
+    if (c.problem)
+      return `<p class="coordinator-presence is-away"><span>${html(c.problem)} Messages wait here until it starts.</span><button type="button" data-start-coordinator>Start it again</button></p>`;
     return '<p class="coordinator-presence is-away">No coordinator is attached. Messages wait here until one connects.</p>';
   }
 
@@ -251,7 +297,7 @@ ${this.presence(state)}<form class="message-form" data-message-form><div class="
   private about(state: ResearchState, a: Annotation): string {
     const ref = a.references?.[0];
     if (!ref || ref.label === state.dataset.title) return "";
-    return `<span class="msg-about">on ${html(ref.label)}</span>`;
+    return `<span class="msg-about">on ${html(referenceText(ref))}</span>`;
   }
 
   private queue(state: ResearchState): string {
@@ -260,17 +306,16 @@ ${this.presence(state)}<form class="message-form" data-message-form><div class="
     const refs = d.references
       .map(
         (r, n) =>
-          `<li><span>${html(r.label)}</span><button type="button" data-remove-reference="${n}" aria-label="Remove reference">✕</button></li>`,
+          `<li><span>${html(referenceText(r))}</span><button type="button" data-remove-reference="${n}" aria-label="Remove reference">✕</button></li>`,
       )
       .join("");
-    const selecting = this.host.selecting();
     const items = queue
       .map(
         (a) =>
           `<div class="queue-item${a.id === d.editing ? " is-editing" : ""}" data-annotation-id="${html(a.id)}"><div class="queue-item-row"><span>${html(a.question)}</span><span class="queue-item-actions"><button type="button" class="text-link" data-edit-queued>Edit</button><button type="button" class="text-link" data-remove-queued>Remove</button></span></div>${this.about(state, a)}</div>`,
       )
       .join("");
-    return `<div class="queue-pane"><form class="new-note" data-note-form><p class="new-note-label">${d.editing ? "Editing queued annotation" : "New annotation"}${d.references.length ? " about" : ""}</p>${refs ? `<ul class="note-references">${refs}</ul>` : ""}<button type="button" class="text-link select-references" data-select aria-pressed="${selecting}">${selecting ? "Selecting in the page… (⌘ I to stop)" : "Select references in the page (⌘ I)"}</button><textarea data-note rows="3" aria-label="Annotation" placeholder="A question, a doubt, or a thought to follow up…">${html(d.question)}</textarea><div class="new-note-row"><label class="feedback-check"><input type="checkbox" data-feedback ${d.feedback ? "checked" : ""}> Interface feedback</label><span class="new-note-actions">${d.editing ? '<button type="button" data-cancel-edit>Cancel</button>' : ""}${d.feedback ? '<button type="submit" class="primary" data-submit="feedback">Save feedback</button>' : `<button type="submit" data-submit="queue">${d.editing ? "Save" : "Add to queue"}</button>${d.editing ? "" : '<button type="submit" class="primary" data-submit="now">Send now</button>'}`}</span></div>${this.error && this.tab === "queue" ? `<p class="form-error" role="alert">${html(this.error)}</p>` : ""}</form>${items ? `<div class="queue-list" aria-label="Queued annotations">${items}</div>` : '<p class="queue-empty">Nothing queued. Annotations you add wait here until you send them together.</p>'}</div>
+    return `<div class="queue-pane"><form class="new-note" data-note-form><p class="new-note-label">${d.editing ? "Editing queued annotation" : "New annotation"}${d.references.length ? " about" : ""}</p>${refs ? `<ul class="note-references">${refs}</ul>` : ""}${d.references.length ? "" : '<p class="new-note-hint">Select anything on the page to add it here.</p>'}<textarea data-note rows="3" aria-label="Annotation" placeholder="A question, a doubt, or a thought to follow up…">${html(d.question)}</textarea><div class="new-note-row"><label class="feedback-check"><input type="checkbox" data-feedback ${d.feedback ? "checked" : ""}> Interface feedback</label><span class="new-note-actions">${d.editing ? '<button type="button" data-cancel-edit>Cancel</button>' : ""}${d.feedback ? '<button type="submit" class="primary" data-submit="feedback">Save feedback</button>' : `<button type="submit" data-submit="queue">${d.editing ? "Save" : "Add to queue"}</button>${d.editing ? "" : '<button type="submit" class="primary" data-submit="now">Send now</button>'}`}</span></div>${this.error && this.tab === "queue" ? `<p class="form-error" role="alert">${html(this.error)}</p>` : ""}</form>${items ? `<div class="queue-list" aria-label="Queued annotations">${items}</div>` : '<p class="queue-empty">Nothing queued. Annotations you add wait here until you send them together.</p>'}</div>
 <div class="queue-foot"><span>Your coordinator reads these together.</span><button type="button" class="primary" data-send-queue ${queue.length ? "" : "disabled"}>Send queue</button></div>`;
   }
 
@@ -340,7 +385,6 @@ ${this.presence(state)}<form class="message-form" data-message-form><div class="
     if (!ok) return;
     this.draft = { references: [], question: "", feedback: d.feedback };
     this.saveDraft();
-    this.host.setSelecting(false);
     this.show(mode === "now" ? "conversation" : "queue");
   }
 
@@ -351,8 +395,6 @@ ${this.presence(state)}<form class="message-form" data-message-form><div class="
     const messageId = button.closest<HTMLElement>("[data-message-id]")?.dataset.messageId;
     const annotationId = button.closest<HTMLElement>("[data-annotation-id]")?.dataset.annotationId;
     if (button.dataset.tab) this.show(button.dataset.tab as DrawerTab);
-    else if (button.hasAttribute("data-select"))
-      this.host.setSelecting(!this.host.selecting());
     else if (button.dataset.removeReference) {
       this.draft.references.splice(Number(button.dataset.removeReference), 1);
       this.saveDraft();
@@ -379,6 +421,10 @@ ${this.presence(state)}<form class="message-form" data-message-form><div class="
     } else if (button.closest("[data-message-form]") && button.type === "submit") {
       event.preventDefault();
       await this.sendMessage();
+    } else if (button.hasAttribute("data-start-coordinator")) {
+      button.disabled = true;
+      if (await this.run(() => this.host.startCoordinator())) this.render();
+      else button.disabled = false;
     } else if (button.dataset.decide && messageId) {
       if (
         await this.run(() =>

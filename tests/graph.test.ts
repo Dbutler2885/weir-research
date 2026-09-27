@@ -7,7 +7,12 @@ import {
   renderDetailsPanel,
   renderContextDetailsPanel,
 } from "../src/ui/details-panel";
-import type { FamilyDataset } from "../src/domain/types";
+import type { FamilyDataset, ResearchClaim } from "../src/domain/types";
+import { isFamilyEdge } from "../src/domain/family-edges";
+
+const edge = (id: string, from: string, name: string, to: string): ResearchClaim => ({
+  id, subjectId: from, predicate: name, object: { entityId: to }, qualification: "supported", time: null, reasoning: "", evidence: [],
+});
 const dataset = () => structuredClone(fixture) as FamilyDataset;
 const model = new GenealogyModel(dataset());
 describe("fictional graph", () => {
@@ -29,12 +34,12 @@ describe("fictional graph", () => {
     const d = dataset();
     d.people.push({ ...d.people[0]! });
     expect(() => new GenealogyModel(d)).toThrow("Duplicate person");
-    const u = dataset();
-    u.unions[0]!.childIds = ["missing"];
-    expect(() => new GenealogyModel(u)).toThrow("unknown person");
     const c = dataset();
-    c.contextConnections![0]!.toId = "missing";
-    expect(() => new GenealogyModel(c)).toThrow("unknown endpoint");
+    c.claims!.push(edge("dangling", "alex", "parent_of", "missing"));
+    expect(() => new GenealogyModel(c)).toThrow("unknown node");
+    const loop = dataset();
+    loop.claims!.push(edge("loop", "alex", "worked_with", "alex"));
+    expect(() => new GenealogyModel(loop)).toThrow("its own subject");
   });
   it("projects relative roles and changes them with focus", () => {
     const p = projectAround(model, "alex");
@@ -69,7 +74,7 @@ describe("fictional graph", () => {
   });
   it("retains generation order for a pure family tree", async () => {
     const data = dataset();
-    data.contextConnections = [];
+    data.claims = data.claims!.filter(isFamilyEdge);
     data.contextEntities = [];
     const family = new GenealogyModel(data);
     const layout = await layoutFamily(family, projectAround(family, "alex"));
@@ -78,15 +83,15 @@ describe("fictional graph", () => {
   });
   it("spreads a crowded research hub around the focus without overlapping cards", async () => {
     const data: FamilyDataset = {
-      version: 1, title: "Fictional port", initialFocusId: "port", people: [], unions: [], sources: [],
+      version: 2, title: "Fictional port", initialFocusId: "port", people: [], sources: [],
       contextEntities: [
         {id: "port", name: "Example Port", kind: "place"},
         ...Array.from({length: 13}, (_, i) => ({id: `firm-${i}`, name: `Fictional firm ${i}`, kind: "organization" as const})),
       ],
-      contextConnections: Array.from({length: 13}, (_, i) => ({id: `location-${i}`, fromId: `firm-${i}`, toId: "port", type: "location", label: "located in"})),
+      claims: Array.from({length: 13}, (_, i) => edge(`location-${i}`, `firm-${i}`, "located_in", "port")),
     };
-    data.contextConnections!.push({id: "founding", fromId: "port", toId: "firm-0", type: "association", label: "established"});
-    for (let i = 0; i < 6; i++) data.contextConnections!.push({id: `trade-${i}`, fromId: `firm-${i}`, toId: `firm-${i + 7}`, type: "association", label: "traded with"});
+    data.claims!.push(edge("founding", "port", "established", "firm-0"));
+    for (let i = 0; i < 6; i++) data.claims!.push(edge(`trade-${i}`, `firm-${i}`, "traded_with", `firm-${i + 7}`));
     const network = new GenealogyModel(data);
     const layout = await layoutFamily(network, projectAround(network, "port"));
     const focus = layout.nodes.find(node => node.id === "port")!;

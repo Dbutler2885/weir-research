@@ -1,7 +1,7 @@
 import { organize } from "./organization.mjs";
 import { flowCommand, autoReview } from "./review-flow.mjs";
 import { randomUUID } from "node:crypto";
-import { transition } from "../src/domain/research.ts";
+import { referenceText, transition } from "../src/domain/research.ts";
 import {
   coordinatorConversationCommands,
   unassignedAnnotations,
@@ -12,23 +12,54 @@ import {
   inspectContext,
   searchContext,
 } from "./research-context.mjs";
+import { coordinatorAction, step } from "./live-activity.mjs";
+import { buildCoordinatorContext } from "../src/domain/coordinator-context.ts";
 
 // Durable research state belongs to the store; session liveness belongs to this server.
 export class Coordinator {
   // Ownership of the project and being live are separate: a coordinator busy
   // writing for ten minutes still owns its project, but is not listening.
-  constructor(store, { now = Date.now, ttl = 120_000, ownership = 1_800_000 } = {}) {
+  constructor(store, { now = Date.now, ttl = 120_000, ownership = 1_800_000, workers = () => [], skills = [] } = {}) {
     this.store = store;
+    this.workers = workers;
+    this.skills = skills;
     this.now = now;
     this.ttl = ttl;
     this.ownership = ownership;
     this.session = null;
+    this.latest = null;
+    this.trail = [];
+    // The app's own coordinator, when it runs one; it says whether it is working.
+    this.host = null;
+    this.problem = null;
+    // The researcher pool, set once both exist, for steering and stopping researchers.
+    this.researchers = null;
+    // The walkthrough writers, set once both exist, for sending a writer instructions.
+    this.writers = null;
+    // The project's dispatch rules, which say which agent does each job.
+    this.dispatch = null;
+    // Helpers for small tasks, whose answers come back to the coordinator.
+    this.helpers = null;
+  }
+  // What the coordinator is doing, read from the command it just sent.
+  noteAction(data) {
+    this.noteText(coordinatorAction(data, this.store.state));
+  }
+  // What the coordinator is doing, read from its output stream.
+  noteText(text) {
+    Object.assign(this, step(this, text, this.now()));
+  }
+  // The app's coordinator owns the project for as long as it runs.
+  hosted() {
+    return Boolean(this.host && this.session && this.session.secret === this.host.secret);
   }
   owner() {
+    if (this.hosted()) return this.session;
     return this.session && this.session.owned > this.now() ? this.session : null;
   }
   live() {
     const owner = this.owner();
+    if (this.hosted()) return this.host.status().connected ? owner : null;
     return owner && owner.seen + this.ttl > this.now() ? owner : null;
   }
   get enabled() {
@@ -41,6 +72,18 @@ export class Coordinator {
       enabled: this.enabled,
       connected: Boolean(live),
       attached: Boolean(owner),
+      // An attached coordinator from outside the app reports no turns; it is shown as working.
+      listening: Boolean(live) && this.hosted() && this.host.status().listening,
+      latest: live ? this.latest : null,
+      trail: live ? this.trail : [],
+      // When its current turn began, while it is working.
+      since: live && this.hosted() ? this.host.status().since : null,
+      // When the usage limit holds it, and until when.
+      paused: live && this.hosted() ? this.host.status().paused ?? null : null,
+      problem: live ? null : this.problem,
+      waiting: !live && Boolean(this.waiting),
+      // How full the app's coordinator's context is, and where it compacts.
+      context: this.hosted() ? this.host.status().context ?? null : null,
       name: owner ? owner.name : null,
       lastSeenSecondsAgo: owner ? Math.round((this.now() - owner.seen) / 1000) : null,
       handoff: (this.store.state.coordination?.handoff || "").slice(0, 6000),
@@ -75,20 +118,7 @@ export class Coordinator {
       throw new Error(
         `Another coordinator is connected: ${live.name}. Close or detach that session before taking over.`,
       );
-    const recovering = !this.session || this.session.secret !== secret;
     this.session = { name, secret, seen: this.now(), owned: this.now() + this.ownership };
-    if (recovering) {
-      for (const i of [...this.store.state.investigations]) {
-        if (
-          i.status === "running" &&
-          i.lease?.worker.startsWith("Coordinator:")
-        )
-          this.requeue(
-            i.id,
-            "Coordinator session recovered; saved findings retained and old worker lease fenced.",
-          );
-      }
-    }
     if (!this.enabled)
       this.store.update((next) => {
         next.coordination = {
@@ -141,7 +171,8 @@ export class Coordinator {
       !investigations.length &&
       !changed.removedInvestigationIds.length &&
       !changed.decisionsChanged &&
-      !changed.candidatesChanged
+      !changed.candidatesChanged &&
+      !changed.dispatchChanged
     )
       return { revision: state.revision, unchanged: true };
     const conversation = conversationIndex(state);
@@ -156,6 +187,8 @@ export class Coordinator {
         unassignedAnnotations: conversation.unassignedAnnotations,
         pendingDecisions: conversation.pendingDecisions,
         ...(changed.decisionsChanged ? { decisions: conversation.recentDecisions } : {}),
+        // Who does which job, when the human changed it in settings.
+        ...(changed.dispatchChanged ? { dispatch: state.dispatch } : {}),
         ...(changed.candidatesChanged
           ? { candidates: this.candidates().map((c) => ({ id: c.id, investigationId: c.investigationId, title: c.proposal.title })) }
           : {}),
@@ -184,6 +217,7 @@ export class Coordinator {
       preferredEngine: state.engine || "manual",
       coordinator: this.status(),
       conversation: conversationIndex(state),
+      context: buildCoordinatorContext(state, { workers: this.workers(), skills: this.skills }),
     };
   }
   assignment(id) {
@@ -203,7 +237,19 @@ export class Coordinator {
   }
   command(data) {
     this.require(data.session);
-    if (["publish-walkthrough", "inspect-flow", "assign-graph", "graph-update", "request-graph-resume", "publish-graph-review"].includes(data.action)) return flowCommand(this.store, data);
+    this.noteAction(data);
+    if (data.action === "walkthrough-update") return this.writers.steer(data.investigationId, data.message);
+    if (data.action === "ask-helper") {
+      if (!this.helpers) throw new Error("Helpers are unavailable.");
+      return this.helpers.ask(data);
+    }
+    // The human's stated preference becomes a dispatch rule they can see in settings.
+    if (["set-role", "add-rule", "remove-rule"].includes(data.action)) {
+      if (!this.dispatch) throw new Error("Dispatch rules are unavailable.");
+      const { session, ...change } = data;
+      return { dispatch: this.dispatch.change(change, "coordinator") };
+    }
+    if (["assign-walkthrough", "publish-walkthrough", "inspect-flow", "assign-graph", "graph-update", "request-graph-resume", "publish-graph-review", "answer-draft-feedback"].includes(data.action)) return flowCommand(this.store, data);
     if (data.action?.startsWith("organization-"))
       return organize(this.store, data);
     if (coordinatorConversationCommands.has(data.action)) {
@@ -216,6 +262,8 @@ export class Coordinator {
     const i = this.store.state.investigations.find((i) => i.id === id);
     if (data.action === "detach") {
       this.session = null;
+      this.latest = null;
+      this.trail = [];
       return { detached: true };
     }
     if (data.action === "snapshot") return this.snapshot(data.session);
@@ -240,6 +288,8 @@ export class Coordinator {
       return { saved: true };
     }
     if (!i) throw new Error("Unknown investigation.");
+    if (data.action === "steer") return this.researchers.steer(id, data.message);
+    if (data.action === "stop-researcher") return this.researchers.halt(id, data.reason);
     if (data.action === "request-resume") {
       if (i.status !== "paused")
         throw new Error("Only paused investigations need resume approval.");
@@ -272,7 +322,7 @@ export class Coordinator {
       });
       return { awaitingApproval: true, requestId };
     }
-    if (data.action === "assign" || data.action === "claim") {
+    if (data.action === "assign") {
       if (i.status !== "queued")
         throw new Error(
           "Only dispatched, queued investigations can be assigned.",
@@ -283,22 +333,16 @@ export class Coordinator {
         data.brief.length > 50_000
       )
         throw new Error("A bounded research brief is required.");
-      if (data.action === "claim") {
-        const result = this.store.command({
-          type: "claim",
-          investigationId: id,
-          worker: `Coordinator: ${this.session.name}`,
-          provider: data.provider || "coordinator/native",
-          model: data.model,
-        });
-        return { ...structuredClone(result), coordinatorBrief: data.brief };
-      }
-      data.engine ||= this.store.state.engine;
-      if (!["codex", "claude"].includes(data.engine))
+      // What the coordinator names wins; otherwise the project's dispatch rules decide.
+      const choice = this.dispatch?.choose("researcher", data.engine ? { agent: data.engine, model: data.model, effort: data.effort } : null)
+        ?? (data.engine || this.store.state.engine ? { agent: data.engine || this.store.state.engine } : null);
+      if (!["codex", "claude"].includes(choice?.agent))
         throw new Error("Choose codex or claude for a managed researcher.");
       this.store.update((next) => {
         next.coordination.assignments[id] = {
-          engine: data.engine,
+          engine: choice.agent,
+          model: choice.model ?? null,
+          effort: choice.effort ?? null,
           phase: i.phase || "research",
           graphRequestedAt: i.graphRequest?.at,
           brief: data.brief,
@@ -315,35 +359,17 @@ export class Coordinator {
       });
       return { assigned: true };
     }
-    if (data.action === "checkpoint") {
-      if (!i.lease || !i.lease.worker.startsWith("Coordinator:"))
-        throw new Error("This investigation belongs to a managed researcher.");
-      return this.store.command({
-        type: "checkpoint",
-        investigationId: id,
-        token: i.lease.token,
-        summary: data.summary,
-        findings: data.findings,
-        nextSteps: data.nextSteps,
-        accessRequest: data.accessRequest,
-      });
-    }
     if (data.action === "publish") {
       const candidate = this.candidates().find(
         (c) => c.id === data.candidateId && c.investigationId === id,
       );
-      if (
-        !candidate &&
-        (!i.lease?.worker.startsWith("Coordinator:") || data.candidateId)
-      )
-        throw new Error(
-          "A current researcher result or coordinator-owned investigation is required.",
-        );
+      // Only a researcher's current result is published; the coordinator reconciles it first.
+      if (!candidate) throw new Error("Publish a current researcher result, named by its candidateId.");
       const result = this.store.command({
         type: "propose",
         investigationId: id,
-        token: candidate?.token || i.lease.token,
-        proposal: data.proposal || candidate?.proposal,
+        token: candidate.token,
+        proposal: data.proposal || candidate.proposal,
       });
       return result;
     }
@@ -416,7 +442,7 @@ function conversationIndex(state) {
     unassignedAnnotations: unassignedAnnotations(state).map((a) => ({
       id: a.id,
       question: a.question,
-      references: (a.references || []).map((r) => r.label),
+      references: (a.references || []).map(referenceText),
       sentAt: a.dispatchedAt,
     })),
     pendingDecisions: messages

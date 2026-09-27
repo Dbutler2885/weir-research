@@ -30,7 +30,7 @@ export function projects() {
   const defaults = [];
   if (existsSync(join(home, "workspace.json")))
     defaults.push({
-      id: "pike",
+      id: "original",
       name:
         read(join(home, "workspace.json"), {}).dataset?.title ||
         "Research workspace",
@@ -96,14 +96,13 @@ export function createTopicProject(topic) {
     id = `${base}-${number}`;
   const directory = join(home, "projects", id);
   const state = initialState({
-    version: 1,
+    version: 2,
     title: name,
     initialFocusId: null,
     people: [],
-    unions: [],
     contextEntities: [],
-    contextConnections: [],
-    directParentage: [],
+    claims: [],
+    evidence: [],
     sources: [],
   });
   save(join(directory, "workspace.json"), state);
@@ -115,11 +114,62 @@ export function createTopicProject(topic) {
   return created;
 }
 
+// The fictional sample project, built the first time a visitor opens it.
+export async function sampleProject() {
+  const registry = read(join(home, "projects.json"), []);
+  const known = registry.find((p) => p.sample);
+  if (known && existsSync(join(known.directory, "workspace.json"))) return known;
+  let id = "sample";
+  for (let number = 2; projects().some((p) => p.id === id) || existsSync(join(home, "projects", id)); number++) id = `sample-${number}`;
+  const directory = join(home, "projects", id);
+  const { buildSample } = await import("../server/sample-project.mjs");
+  buildSample(directory);
+  const created = { id, name: "Sample: the fictional Marrow family", directory, sample: true };
+  save(join(home, "projects.json"), [...registry.filter((p) => p !== known), created]);
+  return created;
+}
+
 function newest(path) {
   if (!existsSync(path)) return 0;
   return statSync(path).isDirectory()
     ? Math.max(0, ...readdirSync(path).map((n) => newest(join(path, n))))
     : statSync(path).mtimeMs;
+}
+// Workers of a project that are running now, which the human may keep running.
+export function runningWorkers(p) {
+  const registry = join(home, "agent-hosts");
+  if (!existsSync(registry)) return 0;
+  return readdirSync(registry)
+    .filter((name) => /^[0-9a-f]{8}\.json$/.test(name))
+    .map((name) => read(join(registry, name), null))
+    .filter((r) => r && !r.ended && r.meta?.project === p.directory && ["researcher", "builder", "writer"].includes(r.meta?.role)).length;
+}
+// Stops a project's service, and with it the agents it runs, except workers kept running.
+export async function stopProject(p, { keepWorkers = false } = {}) {
+  const lock = join(p.directory, "server.lock");
+  if (!existsSync(lock)) return { stopped: false };
+  const pid = Number(readFileSync(lock, "utf8"));
+  const connection = read(join(p.directory, "connection.json"), null);
+  let asked = false;
+  if (connection?.url)
+    asked = await fetch(`${connection.url}/api/quit`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ keep: keepWorkers }) })
+      .then((r) => r.ok)
+      .catch(() => false);
+  try {
+    if (!asked) process.kill(pid, "SIGTERM");
+  } catch (error) {
+    if (error.code === "ESRCH") return { stopped: false };
+    throw error;
+  }
+  for (let n = 0; n < 100; n++) {
+    try {
+      process.kill(pid, 0);
+    } catch {
+      return { stopped: true };
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error("The project's service did not stop.");
 }
 export async function openProject(p, { browser = true, build = true } = {}) {
   const artifact = join(root, "dist/index.html");
@@ -171,6 +221,7 @@ export async function openProject(p, { browser = true, build = true } = {}) {
       env: {
         ...process.env,
         RESEARCH_STATE_DIR: p.directory,
+        RESEARCH_HOME: home,
         // Reopen on the port this project used last, so an open browser tab survives a restart.
         RESEARCH_PORT: String(Number(connection?.url?.split(":").at(-1)) || 0),
       },
