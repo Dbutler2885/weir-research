@@ -7,11 +7,13 @@
 import { createServer } from 'node:http';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import { launcherFile } from './start-launcher.mjs';
+import { codeStamp, launcherFile } from './start-launcher.mjs';
 import { agentHomes } from './agents/isolation.mjs';
 import { setupRoutes } from './setup-routes.mjs';
 import { home } from '../scripts/workspace-lib.mjs';
 
+// The code this launcher runs, so a later start can tell when it is out of date.
+const stamp = codeStamp();
 const setup = setupRoutes({homes: agentHomes(resolve(home)), next: {label: 'Continue', href: '/welcome'}});
 let lastRequest = Date.now();
 const server = createServer(async (req, res) => {
@@ -54,7 +56,7 @@ const server = createServer(async (req, res) => {
 server.listen(0, '127.0.0.1', () => {
   const url = `http://127.0.0.1:${server.address().port}`;
   mkdirSync(dirname(launcherFile), {recursive: true});
-  writeFileSync(launcherFile, url);
+  writeFileSync(launcherFile, JSON.stringify({url, pid: process.pid, stamp}));
   writeFileSync(process.argv[2], url);
 });
 // Idle for half an hour, the launcher has done its job.
