@@ -1,4 +1,4 @@
-# Research Workspace
+# Weir guide
 
 A local research workspace built around an interactive research graph, with genealogy support, annotated investigations, and evidence review.
 Graph, Investigations, Review, and Sources are views of the same application.
@@ -22,7 +22,7 @@ A kept worker carries on alone, including waiting out a usage limit, and the app
 When the app opens a project, it starts a fresh research coordinator for it, which picks up from the project's saved state.
 You write to the coordinator from the browser; it assigns researchers, graph builders and walkthrough writers, which the app launches and shows in the live panel.
 New projects live under `.research/projects/`, alongside the registry and outside version control.
-See [the coordinator guide](skills/coordinate-research/SKILL.md) for how the coordinator works.
+See [the coordinator guide](../skills/coordinate-research/SKILL.md) for how the coordinator works.
 
 You can also open Codex or Claude Code in this folder and ask it to open the app; it runs the same command, after you approve it running outside its sandbox.
 That agent is for working on the app itself; it is not the coordinator.
@@ -118,7 +118,7 @@ npm run research -- checkpoint /path/to/checkpoint.json
 npm run research -- propose /path/to/proposal.json
 ```
 
-See [the research-agent contract](skills/research-contract/SKILL.md) for the proposal format, source expectations, and recovery behavior.
+See [the research-agent contract](../skills/research-contract/SKILL.md) for the proposal format, source expectations, and recovery behavior.
 The supervisor implements a narrow research workflow inspired by Firstmate; it does not run Firstmate's fleet or Git worktrees.
 With the coordinator, researcher findings pass through its synthesis before they become proposals for your review.
 
@@ -159,11 +159,11 @@ npm run serve
 It also checks separate findings and graph phases, partial application, human-only decisions, source-access recovery, and interface feedback.
 `serve` starts the local service using an existing build.
 Set `RESEARCH_PORT` and `RESEARCH_STATE_DIR` to run an isolated workspace elsewhere.
-See [the post-trial design notes](Plans/post_trial_design_notes.md) for the implemented direction and remaining design experiments.
+See [the post-trial design notes](../Plans/post_trial_design_notes.md) for the implemented direction and remaining design experiments.
 
 The production build remains a single `dist/index.html` file.
 Opened directly from disk, it opens an empty standalone surface; the live workspace requires the local service.
-The annotation engine is vendored from MIT-licensed Lavish, with [attribution and provenance](src/vendor/lavish/README.md).
+The annotation engine is vendored from MIT-licensed Lavish, with [attribution and provenance](../src/vendor/lavish/README.md).
 The live workspace does not require a global Lavish installation.
 The legacy `npm run lavish` command still opens the standalone viewer in an installed Lavish host.
 

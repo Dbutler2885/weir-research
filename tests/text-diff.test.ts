@@ -28,7 +28,7 @@ describe("what changed in a passage", () => {
 
 describe("lining up two lists", () => {
   it("matches items by what they say, so one removed does not shift the rest", () => {
-    expect(align(["a first caveat", "a second caveat about Lubec", "a third caveat about Pike"], ["a first caveat", "a third caveat about Pike, reworded"])).toEqual([
+    expect(align(["a first caveat", "a second caveat about Lubec", "a third caveat about Marrow"], ["a first caveat", "a third caveat about Marrow, reworded"])).toEqual([
       { before: 0, after: 0 },
       { before: 1 },
       { before: 2, after: 1 },

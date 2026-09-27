@@ -20,7 +20,7 @@ afterEach(() => {
     .forEach((clean) => clean());
 });
 function fixture() {
-  const directory = mkdtempSync(join(tmpdir(), "pike-pool-"));
+  const directory = mkdtempSync(join(tmpdir(), "weir-pool-"));
   cleanups.push(() => rmSync(directory, { recursive: true, force: true }));
   const store = new WorkspaceStore(directory, dataset);
   const launches: {
@@ -358,7 +358,7 @@ describe.each(["claude", "codex"] as const)("a %s researcher under the coordinat
   const executables = { claude: resolve("tests/fixtures/fake-claude.mjs"), codex: resolve("tests/fixtures/fake-codex.mjs") };
   async function running() {
     const { Coordinator } = await import("../server/coordinator.mjs");
-    const directory = mkdtempSync(join(tmpdir(), "pike-steer-"));
+    const directory = mkdtempSync(join(tmpdir(), "weir-steer-"));
     cleanups.push(() => rmSync(directory, { recursive: true, force: true }));
     const store = new WorkspaceStore(directory, dataset);
     const pool = new ResearcherPool(store, directory, resolve("."), { findExecutable: (name: string) => (executables as any)[name] });

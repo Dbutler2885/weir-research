@@ -126,10 +126,10 @@ for (const kind of browsers) {
       const snapshot = await one.call("take_snapshot", { pageId: form });
       assert.match(snapshot, /heading "Search the fictional archive" level=1/);
       const uid = (role, name) => snapshot.match(new RegExp(`uid=(\\d+) ${role} "${name}"`))?.[1];
-      await one.call("fill", { pageId: form, uid: uid("textbox", "Surname"), value: "Pike" });
+      await one.call("fill", { pageId: form, uid: uid("textbox", "Surname"), value: "Marrow" });
       await one.call("fill", { pageId: form, uid: uid("combobox", "Parish"), value: "Upton" });
-      assert.match(await one.call("click", { pageId: form, uid: uid("button", "Search") }), /surname=Pike&parish=upton/);
-      assert.match(await one.call("take_snapshot", { pageId: form }), /Results for Pike in upton/);
+      assert.match(await one.call("click", { pageId: form, uid: uid("button", "Search") }), /surname=Marrow&parish=upton/);
+      assert.match(await one.call("take_snapshot", { pageId: form }), /Results for Marrow in upton/);
       const shot = (await one.raw("take_screenshot", { pageId: form })).content[0];
       assert.ok(shot.type === "image" && Buffer.from(shot.data, "base64").subarray(1, 4).toString() === "PNG", "a screenshot comes back as an image");
       // A worker's tabs close when its tool server ends.

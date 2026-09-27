@@ -160,7 +160,7 @@ The live graph and every undo snapshot are converted when a workspace is first o
 The family layout recognises a small set of edge names, such as `married_to` and `parent_of`, and groups them into couples and children for display.
 This grouping is computed on read and never stored.
 
-The only affected graph today is the original Pike family map, which holds 23 unions and 4 direct parentage links across 60 people, and the example project that copies it.
+The only affected graph today is the original family map, which holds 23 unions and 4 direct parentage links across 60 people, and the example project that copies it.
 The registered research projects hold none.
 
 ### The builder's tables

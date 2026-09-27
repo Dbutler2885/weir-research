@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import assert from "node:assert/strict";
 const exec = promisify(execFile);
-const directory = mkdtempSync(join(tmpdir(), "pike-coordinator-e2e-"));
+const directory = mkdtempSync(join(tmpdir(), "weir-coordinator-e2e-"));
 // The test drives the coordinator API itself, so the app starts no coordinator agent.
 // Researchers are a stand-in Claude CLI that saves a checkpoint and returns an unresolved result.
 const steps = join(directory, "researcher-steps.json");

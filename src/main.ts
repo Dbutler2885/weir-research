@@ -44,7 +44,7 @@ async function startApplication() {
   <div class="app-shell">
     <header class="app-header">
       <div class="brand-block">
-        <span class="archive-label">Research workspace</span>
+        <span class="archive-label">Weir</span>
         <div>
           <h1>${escapeHtml(dataset.title)}</h1>
           <p>Follow the evidence. Change the center of the story.</p>

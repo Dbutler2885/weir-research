@@ -30,7 +30,7 @@ export function projects() {
   const defaults = [];
   if (existsSync(join(home, "workspace.json")))
     defaults.push({
-      id: "pike",
+      id: "original",
       name:
         read(join(home, "workspace.json"), {}).dataset?.title ||
         "Research workspace",

@@ -80,7 +80,7 @@ export function mountResearchWorkspace(
   if (projectHeading) projectHeading.title = initial.dataset.title;
   const nav = document.createElement("nav");
   nav.className = "workspace-nav";
-  nav.ariaLabel = "Research workspace";
+  nav.ariaLabel = "Weir";
   nav.innerHTML = `<div class="workspace-tabs">${[
     ["research", "Graph"],
     ["work", "Investigations"],
