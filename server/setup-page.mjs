@@ -298,14 +298,19 @@ const post = async (path, body) => {
 };
 // Opening a project starts its own service, which takes a moment.
 // A project's service takes a moment to start; the fish swim through the weir
-// until its page takes over. A problem brings the welcome page back to say why.
+// until its page takes over, and for long enough to see a leap or two when it is
+// quick. A problem brings the welcome page back to say why.
+const shownFor = 2400;
 const go = async (control, path, body, busy) => {
   control.disabled = true;
   problem.hidden = true;
   opening.querySelector('[data-opening-text]').textContent = busy;
   opening.hidden = false;
+  const shown = new Promise((resolve) => setTimeout(resolve, shownFor));
   try {
-    location.href = (await post(path, body)).url;
+    const {url} = await post(path, body);
+    await shown;
+    location.href = url;
   } catch (error) {
     opening.hidden = true;
     control.disabled = false;
