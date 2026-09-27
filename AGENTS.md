@@ -28,6 +28,7 @@ Do not attach to a project as its coordinator, send coordinator commands, or edi
 Development requests take the ordinary coding-agent route: read the code, change it, and verify it.
 `npm run check` runs the tests and the build; `npm run test:integration` runs the local integration checks.
 Interface feedback the human records in the app is kept in the project's `workspace.json` under `interfaceFeedback`; read it when working on the app, and never treat it as research.
+The human records it with developer mode on, in Research settings; each reference then carries a `page` field with the element, the headings above it and the window size.
 The app's agents are supervised in `server/agents/`: one supervisor with a Claude and a Codex adapter, and the sandbox settings in `isolation.mjs`.
 
 ## Repository conventions

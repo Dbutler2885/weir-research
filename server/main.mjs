@@ -95,6 +95,16 @@ const supervisor = new AgentSupervisor({
 });
 // One research browser for the app, with its own profile, shared by every project.
 const researchBrowser = new ResearchBrowser(appDirectory, { root });
+// Settings for the whole app rather than one project: developer mode, which shows
+// the tools for recording feedback about Weir itself.
+const appSettingsFile = join(appDirectory, "app-settings.json");
+const appSettings = () => {
+  try {
+    return JSON.parse(readFileSync(appSettingsFile, "utf8"));
+  } catch {
+    return {};
+  }
+};
 const setupScreen = setupRoutes({ homes: agentHomes(appDirectory), next: { label: "Back to your project", href: "/" } });
 const researchers = new ResearcherPool(store, directory, root, { coordinator, live, supervisor, browser: researchBrowser });
 coordinator.researchers = researchers;
@@ -335,6 +345,7 @@ const server = createServer(async (req, res) => {
         catalog,
         usage: supervisor.usage,
         researchBrowser: { available: researchBrowser.available, name: researchBrowser.browser.name },
+        developerMode: Boolean(appSettings().developerMode),
       });
     if (req.method === "GET" && url.pathname === "/api/revision")
       return json(res, 200, {
@@ -396,6 +407,13 @@ const server = createServer(async (req, res) => {
         next.reviewSettings = { autoWalkthrough: data.autoWalkthrough, autoGraph: data.autoGraph };
       });
       return json(res, 200, store.state.reviewSettings);
+    }
+    if (req.method === "POST" && url.pathname === "/api/app-settings") {
+      const { developerMode } = await body(req);
+      if (typeof developerMode !== "boolean") return json(res, 400, { error: "Say whether developer mode is on." });
+      mkdirSync(appDirectory, { recursive: true });
+      writeFileSync(appSettingsFile, JSON.stringify({ ...appSettings(), developerMode }, null, 2), { mode: 0o600 });
+      return json(res, 200, { developerMode });
     }
     if (req.method === "POST" && url.pathname === "/api/research-settings") {
       return json(res, 200, researchers.configure(await body(req)));

@@ -341,6 +341,15 @@
 .settings-page label {
   font-size: 14px;
 }
+.setting-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.setting-check input {
+  margin: 0;
+  accent-color: var(--sea-dark);
+}
 .setting-control {
   display: flex;
   gap: 14px;

@@ -66,6 +66,10 @@ beforeEach(() => {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (path, options) => {
+      if (path === "/api/app-settings") {
+        state.developerMode = JSON.parse(options.body).developerMode;
+        return { ok: true, json: async () => ({ developerMode: state.developerMode }) };
+      }
       if (path === "/api/research-settings") {
         state.researchSettings = JSON.parse(options.body);
         return { ok: true, json: async () => state.researchSettings };
@@ -518,7 +522,29 @@ describe("investigation workspace", () => {
     toggle.dispatchEvent(new Event("change", { bubbles: true }));
     await vi.waitFor(() => expect(state.reviewSettings).toEqual({ autoWalkthrough: true, autoGraph: false }));
   });
+  it("offers feedback about Weir itself only in developer mode, and annotation only of research objects without it", async () => {
+    mount();
+    const feedbackButton = document.querySelector<HTMLElement>(".feedback-destination")!;
+    const canAnnotate = (element: Element) => (window as any).lavishUnifiedFeedback.canAnnotate(element);
+    expect(feedbackButton.hidden).toBe(true);
+    expect(canAnnotate(document.querySelector(".app-header h1")!)).toBe(false);
+    click('[data-view="work"]');
+    expect(canAnnotate(document.querySelector(".batch-card h2")!)).toBe(true);
+    click("[data-open-coordinator]");
+    click('[data-tab="queue"]');
+    expect(document.querySelector("[data-feedback]")).toBeNull();
+    // Research settings turns it on for the whole app.
+    click('[data-view="settings"]');
+    const box = document.querySelector<HTMLInputElement>("#developer-mode")!;
+    box.checked = true;
+    box.dispatchEvent(new Event("change", { bubbles: true }));
+    await vi.waitFor(() => expect(feedbackButton.hidden).toBe(false));
+    expect(state.developerMode).toBe(true);
+    expect(canAnnotate(document.querySelector(".app-header h1")!)).toBe(true);
+  });
   it("keeps repeated feedback saves out of research and remembers the choice", async () => {
+    state.developerMode = true;
+    mount();
     const annotations = state.investigations[0]!.annotations.length;
     click("[data-open-coordinator]");
     click('[data-tab="queue"]');
