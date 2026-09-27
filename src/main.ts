@@ -12,7 +12,7 @@ import { GraphRenderer } from "./ui/graph-renderer";
 
 import { mountResearchWorkspace } from "./research-workspace";
 import type { ResearchState } from "./domain/research";
-import { weirMark } from "./ui/logo";
+import { weirIcon, weirMark } from "./ui/logo";
 
 const escapeHtml = (value: string) =>
   value.replace(
@@ -41,6 +41,10 @@ async function startApplication() {
     throw new Error("Application root was not found.");
   }
 
+  const icon = document.createElement("link");
+  icon.rel = "icon";
+  icon.href = weirIcon;
+  document.head.append(icon);
   app.innerHTML = `
   <div class="app-shell">
     <header class="app-header">

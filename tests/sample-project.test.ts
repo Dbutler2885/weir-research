@@ -41,10 +41,15 @@ describe("the sample project", () => {
     expect(state.investigations[0].reviewFlow.walkthroughs[0].caveats[0]).toBe("Every record here is invented for the sample.");
   });
   it("is offered on the welcome screen, apart from the human's own projects", () => {
-    const page = welcomePage({ projects: [{ id: "harbour", name: "The harbour families" }] });
-    expect(page).toContain("What would you like to research?");
+    // With projects, the page leads with them; the first visit asks for a topic instead.
+    const page = welcomePage({ projects: [{ id: "harbour", name: "The harbour families", updated: "2026-09-26T12:00:00Z" }] });
+    expect(page).toContain("Your projects");
     expect(page).toContain('data-open="harbour"');
+    expect(page).toContain("Last worked on September 26");
+    expect(page).toContain("Start a new project");
     expect(page).toContain("It uses nothing from your account until you write to it.");
-    expect(welcomePage({ projects: [] })).not.toContain("Your projects");
+    const first = welcomePage({ projects: [] });
+    expect(first).not.toContain("Your projects");
+    expect(first).toContain("What would you like to research?");
   });
 });

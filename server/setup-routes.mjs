@@ -1,3 +1,5 @@
+import { statSync } from 'node:fs';
+import { join } from 'node:path';
 import { checkSetup, startInstall, startSignIn } from './setup.mjs';
 import { setupPage, welcomePage } from './setup-page.mjs';
 import { createTopicProject, openProject, project, projects, sampleProject } from '../scripts/workspace-lib.mjs';
@@ -43,7 +45,17 @@ export function setupRoutes({homes, next}) {
     if (req.method === 'GET' && url.pathname === '/welcome') {
       cached = null;
       if (!check().ready) return redirect('/setup');
-      return html(welcomePage({projects: projects().filter((p) => !p.sample)}));
+      // Most recently worked on first, going by when each project last saved.
+      const updated = (p) => {
+        try {
+          return statSync(join(p.directory, 'workspace.json')).mtime.toISOString();
+        } catch {
+          return undefined;
+        }
+      };
+      const mine = projects().filter((p) => !p.sample).map((p) => ({...p, updated: updated(p)}));
+      mine.sort((a, b) => (b.updated || '').localeCompare(a.updated || ''));
+      return html(welcomePage({projects: mine}));
     }
     if (req.method === 'GET' && url.pathname === '/api/setup') return json({setup: check(), ...current()});
     if (req.method !== 'POST') return false;
