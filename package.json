@@ -5,9 +5,7 @@
   "type": "module",
   "scripts": {
     "setup:pdf": "node scripts/setup-docling.mjs",
-    "pdf": "node scripts/docling.mjs",
-    "pdf:import": "node scripts/import-pdf-collection.mjs",
-    "test:pdf": "node scripts/docling.mjs --test",
+    "test:pdf": "node scripts/test-docling.mjs",
     "start": "node scripts/start.mjs",
     "serve": "node server/main.mjs",
     "research": "node scripts/research.mjs",
@@ -29,9 +27,13 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.1",
+    "@napi-rs/canvas": "^1.0.9",
+    "@tesseract.js-data/eng": "^1.0.0",
     "d3": "^7.9.0",
     "elkjs": "^0.11.0",
-    "puppeteer-core": "^25.12.0"
+    "pdfjs-dist": "^6.3.289",
+    "puppeteer-core": "^25.12.0",
+    "tesseract.js": "^7.0.0"
   },
   "devDependencies": {
     "@types/d3": "^7.4.3",

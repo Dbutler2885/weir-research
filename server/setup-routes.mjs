@@ -2,12 +2,13 @@ import { statSync } from 'node:fs';
 import { join } from 'node:path';
 import { checkSetup, startInstall, startSignIn } from './setup.mjs';
 import { setupPage, welcomePage } from './setup-page.mjs';
+import { choosePdfReader, pdfReading } from './pdf/reading.mjs';
 import { createTopicProject, openProject, project, projects, sampleProject } from '../scripts/workspace-lib.mjs';
 
 // The setup screen's routes, served on first run by the launcher and later by any
 // project's service, so the human can come back to it from Research settings.
-// Next is where its Continue button leads.
-export function setupRoutes({homes, next}) {
+// Next is where its Continue button leads; home is the app's folder, beside the projects.
+export function setupRoutes({home, homes, next}) {
   let signingIn = null;
   let installing = null;
   let installProblem = null;
@@ -39,7 +40,7 @@ export function setupRoutes({homes, next}) {
   return async (req, url, {json, html, body, redirect}) => {
     if (req.method === 'GET' && url.pathname === '/setup') {
       cached = null;
-      return html(setupPage({setup: check(), ...current(), installProblem, next}));
+      return html(setupPage({setup: check(), ...current(), installProblem, pdfReading: pdfReading(home), next}));
     }
     // Until an account is connected, there is nothing to start.
     if (req.method === 'GET' && url.pathname === '/welcome') {
@@ -57,7 +58,7 @@ export function setupRoutes({homes, next}) {
       mine.sort((a, b) => (b.updated || '').localeCompare(a.updated || ''));
       return html(welcomePage({projects: mine}));
     }
-    if (req.method === 'GET' && url.pathname === '/api/setup') return json({setup: check(), ...current()});
+    if (req.method === 'GET' && url.pathname === '/api/setup') return json({setup: check(), ...current(), pdfReading: pdfReading(home)});
     if (req.method !== 'POST') return false;
     if (url.pathname === '/api/setup/sign-in') {
       const {agent} = await body();
@@ -80,6 +81,10 @@ export function setupRoutes({homes, next}) {
       installProblem = null;
       installing = startInstall(id);
       return json(current());
+    }
+    if (url.pathname === '/api/setup/pdf-reader') {
+      choosePdfReader(home, (await body()).reader);
+      return json({pdfReading: pdfReading(home)});
     }
     if (url.pathname === '/api/setup/start') {
       const {topic} = await body();

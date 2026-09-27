@@ -1,60 +1,13 @@
-import { existsSync } from "node:fs";
-import { spawnSync } from "node:child_process";
+// Installs Docling, the High accuracy PDF reader, into the app's tools folder.
+// The app runs this when High accuracy is chosen; `npm run setup:pdf` runs it by hand.
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { join } from "node:path";
+import { installDocling } from "../server/pdf/docling.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
-const tooling = join(root, ".python-tools");
-const windows = process.platform === "win32";
-const executableDir = windows ? "Scripts" : "bin";
-const python = join(tooling, executableDir, windows ? "python.exe" : "python");
-const env = {
-  ...process.env,
-  UV_CACHE_DIR: join(tooling, "cache"),
-  UV_PYTHON_INSTALL_DIR: join(tooling, "pythons"),
-};
-function run(command, args) {
-  const result = spawnSync(command, args, { cwd: root, env, stdio: "inherit" });
-  if (result.error) throw result.error;
-  if (result.status !== 0)
-    throw new Error(`${command} exited with ${result.status ?? result.signal}`);
-}
+const home = resolve(process.env.RESEARCH_HOME || join(root, ".research"));
 try {
-  if (!existsSync(python)) {
-    const candidates = windows
-      ? [
-          ["py", ["-3"]],
-          ["python", []],
-          ["python3", []],
-        ]
-      : [
-          ["python3", []],
-          ["python", []],
-        ];
-    const installed = candidates.find(
-      ([command, args]) =>
-        spawnSync(
-          command,
-          [...args, "-c", "import sys; assert sys.version_info.major == 3"],
-          {
-            stdio: "ignore",
-          },
-        ).status === 0,
-    );
-    if (!installed)
-      throw new Error("Install Python 3, then rerun npm run setup:pdf.");
-    run(installed[0], [...installed[1], "-m", "venv", tooling]);
-  }
-  run(python, ["-m", "pip", "install", "uv==0.10.0"]);
-  run(join(tooling, executableDir, windows ? "uv.exe" : "uv"), [
-    "sync",
-    "--locked",
-    "--python",
-    "3.12",
-  ]);
-  console.log(
-    "Docling is installed in .venv. Run npm run pdf -- /path/to/document.pdf",
-  );
+  await installDocling(home, { log: (line) => console.log(line) });
 } catch (error) {
   console.error(`Docling setup failed: ${error.message}`);
   process.exitCode = 1;

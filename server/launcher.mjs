@@ -14,7 +14,7 @@ import { home } from '../scripts/workspace-lib.mjs';
 
 // The code this launcher runs, so a later start can tell when it is out of date.
 const stamp = codeStamp();
-const setup = setupRoutes({homes: agentHomes(resolve(home)), next: {label: 'Continue', href: '/welcome'}});
+const setup = setupRoutes({home: resolve(home), homes: agentHomes(resolve(home)), next: {label: 'Continue', href: '/welcome'}});
 let lastRequest = Date.now();
 const server = createServer(async (req, res) => {
   lastRequest = Date.now();

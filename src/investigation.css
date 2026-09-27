@@ -350,6 +350,32 @@
   margin: 0;
   accent-color: var(--sea-dark);
 }
+.setting-choices {
+  display: grid;
+  gap: 14px;
+  margin: 16px 0;
+  padding: 0;
+  border: 0;
+}
+.setting-choice {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  align-items: start;
+  max-width: 62ch;
+}
+.setting-choice input {
+  margin: 3px 0 0;
+  accent-color: var(--sea-dark);
+}
+.setting-choice strong {
+  display: block;
+  font-weight: 600;
+}
+.setting-choice .page-context {
+  display: block;
+  margin: 2px 0 0;
+}
 .setting-control {
   display: flex;
   gap: 14px;
@@ -567,15 +593,16 @@
 #max-workers-form .page-context {
   margin: 12px 0 0;
 }
+/* A link that leads elsewhere, sized as the buttons beside it. */
 .setting-link {
   display: inline-block;
-  padding: 9px 16px;
+  padding: 9px 13px;
   border: 1px solid var(--line);
   border-radius: 6px;
   background: var(--paper);
   color: var(--ink);
   text-decoration: none;
-  font-size: 14px;
+  font-size: 12px;
 }
 .setting-link:hover {
   border-color: var(--sea);

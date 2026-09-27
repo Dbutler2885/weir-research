@@ -64,9 +64,11 @@ Document metadata includes its SHA-256 and the immutable captured text when avai
 Read each source yourself before citing it.
 When you can reach a document, download and read it rather than rely on a search engine's snippet of it.
 A snippet is a lead, not a reading: a quote taken from one says so in its locator, and its source's access is `abstract`.
-PDF originals are preserved, and the app does not extract their text.
-A scanned PDF or an image has no text inside; look at its pages with your file-reading tool, which shows them, and quote what you see.
-Record the exact page, and say whether a quote was read from the page image or from extracted text.
+The app reads every PDF into text, page by page, with OCR for scanned pages; a PDF's text sits in the textFile beside it, with "[Page n]" before each page.
+Search that text, quote from it exactly, and give the page.
+Where the text reads oddly, as a table or a damaged scan can, look at the page itself with your file-reading tool, which shows it.
+A PDF with no textFile has not been read yet, and an image has no text: look at its pages and quote what you see.
+Record the exact page, and say whether a quote was read from the page image or from the text.
 Never invent quotations, locators, source independence, or historical certainty.
 Keep what the source says separate from what it implies.
 Preserve contradictory evidence and plausible alternative identities.
