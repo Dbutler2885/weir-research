@@ -109,6 +109,16 @@ describe("the app's coordinator", () => {
     expect(f.received(host)).toHaveLength(1);
   });
 
+  it("replaces a coordinator paused by its usage limit", async () => {
+    const f = fixture([{ quota: 600 }]);
+    const host = f.open();
+    await until(() => f.coordinator.status().paused);
+    const limited = host.agent;
+    expect(host.startFresh()).toBe(true);
+    expect(host.agent).not.toBe(limited);
+    expect(f.coordinator.status()).toMatchObject({ connected: true, problem: null });
+  });
+
   it("answers commands from its tool, without telling it about its own changes", async () => {
     const f = fixture();
     const host = f.open();
