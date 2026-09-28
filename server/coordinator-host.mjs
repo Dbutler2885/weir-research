@@ -33,6 +33,7 @@ export class CoordinatorHost {
     return agent ? {agent} : null;
   }
   start() {
+    this.coordinator.waiting = false;
     // Every opening starts a fresh coordinator; one left from an earlier opening stops.
     for (const record of this.supervisor.hosted((r) => r.meta?.project === this.directory && ['coordinator', 'helper'].includes(r.meta?.role)))
       this.supervisor.dismiss(record);

@@ -143,11 +143,13 @@ if (process.env.RESEARCH_COORDINATOR_AGENT === "prepare") {
   const prompt = coordinatorHost.prepare();
   writeFileSync(join(directory, "coordinator", "prepared.json"), JSON.stringify({ folder: coordinatorHost.folder, prompt }));
 } else if (process.env.RESEARCH_COORDINATOR_AGENT !== "0") {
-  // The sample project spends nothing until the visitor first sends something.
-  if (store.state.sample) coordinator.waiting = true;
+  // Reopening a project spends nothing: the coordinator starts when the human first
+  // writes to it, annotates, or decides something. A new project's topic is the
+  // human's first word, so it starts at once; the sample waits for its visitor.
+  if (existsSync(join(directory, "coordinator")) || store.state.sample) coordinator.waiting = true;
   else coordinatorHost.start();
 }
-// Starts the sample's coordinator on the visitor's first message to it.
+// Starts the coordinator on the human's first message, annotation or decision.
 function startWaitingCoordinator() {
   if (!coordinator.waiting) return;
   coordinator.waiting = false;
@@ -366,11 +368,13 @@ const server = createServer(async (req, res) => {
     }
     if (req.method === "POST" && url.pathname === "/api/review-flow") {
       const result = flowCommand(store, await body(req), "human");
+      startWaitingCoordinator();
       graphBuilders.pump();
       return json(res, 200, result);
     }
     if (req.method === "POST" && url.pathname === "/api/organization") {
       const result = organize(store, await body(req));
+      startWaitingCoordinator();
       researchers.pump();
       return json(res, 200, result);
     }
