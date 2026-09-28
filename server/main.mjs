@@ -29,7 +29,7 @@ import { DispatchRules } from "./dispatch.mjs";
 import { Helpers } from "./helpers.mjs";
 import { ResearchBrowser } from "./research-browser.mjs";
 import { setupRoutes } from "./setup-routes.mjs";
-import { startLauncher } from "./start-launcher.mjs";
+import { codeStamp, startLauncher } from "./start-launcher.mjs";
 import { validateChoice } from "../src/domain/dispatch.ts";
 import { emptyGraph } from "../src/domain/graph-schema.ts";
 import { LiveActivity } from "./live-activity.mjs";
@@ -44,6 +44,9 @@ const directory = resolve(
   process.env.RESEARCH_STATE_DIR || join(root, ".research"),
 );
 let port = Number(process.env.RESEARCH_PORT || 4318);
+// When the code this service runs last changed, so opening a project after an update
+// replaces a service still running the old code.
+const stamp = codeStamp();
 mkdirSync(directory, { recursive: true });
 const lock = join(directory, "server.lock");
 if (existsSync(lock)) {
@@ -325,7 +328,7 @@ const server = createServer(async (req, res) => {
         error: "This credential is limited to worker commands.",
       });
     if (req.method === "GET" && url.pathname === "/api/project")
-      return json(res, 200, { directory, protocol: 2 });
+      return json(res, 200, { directory, protocol: 2, stamp });
     if (req.method === "GET" && url.pathname === "/api/state")
       return json(res, 200, {
         ...store.publicState(),
