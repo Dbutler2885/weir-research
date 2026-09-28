@@ -50,8 +50,8 @@ Request a separate graph-construction pass from selected kept findings, then pre
 Older reviews remain available in their original format.
 The graph and source inspectors link back to the findings that inform them.
 An empty project provides Ask a research question and Add sources without requiring any nodes.
-You may also add a named starting point, such as a place or organization, without creating a person.
-Use Organize to preview which nodes to keep, apply the change in place, or undo the latest organization.
+You may also ask the coordinator to add a named starting point, such as a place or organization, or to trim the graph to the nodes you want to keep.
+The coordinator previews such a change before applying it, and you can undo the latest one.
 Organization preserves sources and research history, pauses active work, and prevents old results from being applied to the reorganized graph.
 
 ## Reading PDFs

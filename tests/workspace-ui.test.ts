@@ -13,9 +13,6 @@ vi.mock("../src/vendor/lavish/artifact-sdk.js", () => ({
   createArtifactSdk: vi.fn(),
   deriveLavishQueueKey: vi.fn(),
 }));
-vi.mock("../src/ui/organization-panel", () => ({
-  mountOrganizationPanel: vi.fn(),
-}));
 let state: ResearchState;
 const click = (selector: string) =>
   document.querySelector<HTMLButtonElement>(selector)!.click();

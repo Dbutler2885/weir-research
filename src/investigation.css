@@ -486,14 +486,6 @@
 .research-app .brand-block h1 {
   max-width: 65ch;
 }
-.research-app .workspace-actions > [data-organize-project] {
-  display: none;
-}
-.research-app[data-workspace-view="research"]
-  .workspace-actions
-  > [data-organize-project] {
-  display: block;
-}
 .dispatch-row {
   display: grid;
   grid-template-columns: 170px 1fr;

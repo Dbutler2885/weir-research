@@ -401,7 +401,7 @@ async function startApplication() {
 
   const empty = document.createElement("section");
   empty.className = "empty-research";
-  empty.innerHTML = `<span class="eyebrow">A new investigation starts here</span><h2></h2><p>No findings yet. Start with a question or bring in sources you already have. What the research is about will appear here as you review and accept it.</p><div class="empty-actions"><button class="primary" type="button" data-ask-topic>Ask a research question</button><button type="button" data-open-sources>Add sources</button><button type="button" data-organize-project>Add a starting point</button></div>`;
+  empty.innerHTML = `<span class="eyebrow">A new investigation starts here</span><h2></h2><p>No findings yet. Start with a question or bring in sources you already have. What the research is about will appear here as you review and accept it.</p><div class="empty-actions"><button class="primary" type="button" data-ask-topic>Ask a research question</button><button type="button" data-open-sources>Add sources</button></div>`;
   empty.querySelector("h2")!.textContent = dataset.title;
   empty.dataset.researchTarget = JSON.stringify({
     label: dataset.title,

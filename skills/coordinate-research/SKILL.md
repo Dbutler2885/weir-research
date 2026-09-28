@@ -74,7 +74,7 @@ Check their references and scope before resuming.
 The compact project index points to the latest organization action for recovery.
 Undo uses `{"action":"organization-undo","undoId":"returned-id"}` and is available until another graph change.
 Any intervening workspace revision invalidates an unapplied preview; prepare a new preview instead of forcing it.
-The browser Organize control exposes the same operations, and research workers cannot call them.
+Research workers cannot call these operations.
 Do not delete and recreate a project or edit its live state files to trim the graph.
 
 ## The conversation and batches

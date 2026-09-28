@@ -897,47 +897,6 @@ dialog .muted {
   }
 }
 
-.organization-dialog {
-  width: min(660px, calc(100vw - 32px));
-}
-.organization-nodes {
-  max-height: 260px;
-  overflow: auto;
-  border: 1px solid #d0c6b5;
-  border-radius: 8px;
-  padding: 12px;
-  margin: 16px 0;
-}
-.organization-nodes label {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  padding: 7px 0;
-  margin: 0;
-}
-.organization-nodes input {
-  width: auto;
-}
-.organization-nodes small {
-  display: block;
-  font-weight: 400;
-  color: #52666c;
-}
-.organization-selection {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-.organization-undo,
-#organization-preview {
-  border-top: 1px solid #d0c6b5;
-  margin-top: 20px;
-  padding-top: 16px;
-}
-#organization-preview p {
-  overflow-wrap: anywhere;
-}
-
 /* The composer occupies layout space so additional references stay reachable. */
 .composer-column {
   display: none;
