@@ -1,6 +1,6 @@
 # Modular graph
 
-Status: design agreed with the human on 2026-09-27; not yet built.
+Status: design agreed with the human on 2026-09-27; built on the `modular-graph` branch on 2026-09-27, not yet merged.
 A mockup of the node panel, made from the real North Lubec cannery data, is kept privately at `.research/ui-review/node-panel/panel.html`.
 
 ## Problem Statement
@@ -169,3 +169,18 @@ They stay in the evidence registry where researchers put them, cited by identifi
 - How ranked layout treats cycles and contradictory ranks, such as a disputed parent, is settled during implementation; a node never sits in two rows.
 - The exact set of colors and shapes is settled during implementation, reviewed with the human in the browser.
 - The mockup's summary for the cannery was written by hand from the project's data, as an example of the length and tone the builder should aim for.
+
+## Decisions made while building
+
+- A node's core also keeps optional `dates`, shown on its card, and `notes`, what to look into next, because existing projects hold both and neither is a fact that needs evidence.
+- Existing summaries come from the old descriptor and biography, joined when both exist, so most converted nodes open on something readable before any reorganization.
+- A field has a name and a kind of value; any field can hold several dated values, shown in date order, so there is no separate setting for fields that repeat.
+- A relationship read from its target with no reverse reading reads as its name followed by "this", such as "Established this", so its direction is never lost.
+- The project's types are stored in three small tables: `types.csv` for looks, `fields.csv` for fields, and `relationships.csv` for readings and arrangements.
+- The one-time rebuild is a reorganization job: the human asks for it, the coordinator opens a batch and sends `reorganize-graph`, and the draft is signed off and decided like any other. The coordinator's context counts nodes without a summary so it can offer one.
+- In a row, a couple is placed as one unit, so no one lands between partners and the bar joining them never crosses another card.
+- The fixed layout engine for pure family trees is gone; every graph uses the one network layout with rows.
+- Converting a project keeps the original as `workspace.before-types.json`, beside any backup from the earlier conversion.
+- A builder's tables written in the old format are set aside in `untyped-tables/`, and the draft starts again from the converted graph.
+- The app has no dark theme, so looks are chosen for the light one.
+

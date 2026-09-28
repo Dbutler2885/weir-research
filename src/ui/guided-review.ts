@@ -5,11 +5,12 @@ import { progressLine } from './review-view';
 import { html, target } from './finding-review';
 import { sourceLibrary } from '../domain/findings';
 import { reviewGraph } from '../domain/graph-delivery';
-import { GenealogyModel } from '../domain/model';
+import { GraphModel } from '../domain/model';
 import { projectAround } from '../domain/projection';
-import { layoutFamily } from '../layout/layout';
+import { layoutGraph } from '../layout/layout';
 import { GraphRenderer } from './graph-renderer';
-import { renderDetailsPanel, renderContextDetailsPanel } from './details-panel';
+import { renderNodePanel, renderStatementPanel } from './details-panel';
+import { nodeView, statementView } from '../domain/node-view';
 
 import {researchText as paragraphs, researchInline} from './research-text';
 import { addedCaveats, editPage, type EditDecision, type WalkthroughEdit } from '../domain/walkthrough-edits';
@@ -39,13 +40,13 @@ type Change = {label: string; ids: string[]; target: Partial<AnnotationTarget>};
 // The difference between the accepted graph and a draft, as sections a person can read.
 // Every line names real records, so it can be annotated and shown on the graph.
 export function changeSections(r: GraphReview): {title: string; items: Change[]}[] {
-  const names = new Map([...r.baseDataset.people, ...(r.baseDataset.contextEntities || []), ...r.draft.people, ...(r.draft.contextEntities || [])].map(n => [n.id, n.name]));
+  const names = new Map([...r.baseDataset.nodes, ...r.draft.nodes].map(n => [n.id, n.name]));
   const name = (id: string) => names.get(id) || id;
   const list = (items: string[]) => items.length < 3 ? items.join(' and ') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`;
   // An edge name reads as a phrase between two names: "Alex worked at the workshop".
   const phrase = (edgeName: string) => { const words = edgeName.replaceAll('_', ' '); return /^[A-Z][a-z]/.test(words) ? words.charAt(0).toLowerCase() + words.slice(1) : words; };
   const edge = (e: {from: string; name: string; target: string}) => `${name(e.from)} ${phrase(e.name)} ${name(e.target)}`;
-  const node = (id: string, removed = false): Partial<AnnotationTarget> => ({table: r.draft.people.some(p => p.id === id) || r.baseDataset.people.some(p => p.id === id) ? 'people' : 'contextEntities', recordId: id, ...(removed ? {text: 'Removed by this draft'} : {})});
+  const node = (id: string, removed = false): Partial<AnnotationTarget> => ({table: 'nodes', recordId: id, ...(removed ? {text: 'Removed by this draft'} : {})});
   const claim = (id: string, removed = false): Partial<AnnotationTarget> => ({table: 'claims', recordId: id, claimId: id, ...(removed ? {text: 'Removed by this draft'} : {})});
   const d = r.diff;
   return [
@@ -251,7 +252,7 @@ export class GuidedReview {
     if (r.format !== 'draft') { host.innerHTML = '<p class="muted">This graph review was prepared in an older format and cannot be shown.</p>'; return; }
     const generation = this.generation;
     const view = reviewGraph(r);
-    const model = new GenealogyModel(view.dataset);
+    const model = new GraphModel(view.dataset);
     const shows = this.progress.changes ?? r.status === 'pending';
     host.innerHTML = `<section class="guided-graph-review" data-graph-review-id="${html(r.id)}"><header class="graph-review-heading">${this.walkthrough() ? '<button data-guided-reading>Back to the research</button>' : '<span></span>'}<span>${r.status === 'applied' ? 'Accepted draft' : 'Graph draft'} · Revision ${r.revision}</span><button data-guided-tour-home>Overview</button></header><div class="guided-graph-layout"><div class="guided-graph-stage${shows ? ' shows-changes' : ''}"><div class="guided-graph-controls"><button data-guided-fit>Fit all</button><button data-guided-zoom="1.3" aria-label="Zoom in">+</button><button data-guided-zoom="0.77" aria-label="Zoom out">−</button><label class="draft-toggle"><input type="checkbox" data-guided-changes ${shows ? 'checked' : ''}> Show changes</label></div><div class="guided-graph-canvas"></div></div><aside class="guided-graph-sidebar"><div data-tour-guidance></div><div data-tour-record></div></aside></div></section>`;
     const canvas = host.querySelector<HTMLElement>('.guided-graph-canvas')!;
@@ -264,21 +265,33 @@ export class GuidedReview {
         element.setAttribute('data-research-target', JSON.stringify({...original, graphReviewId: r.id, ...(original.table === 'claims' ? {claimId: original.recordId} : {}), ...(removed ? {text: 'Removed by this draft'} : {})}));
       }
     };
+    // The sidebar shows a node, or one statement opened from a node or a line.
+    const options = {
+      onClose: () => record.replaceChildren(),
+      onOpenNode: (id: string) => { this.renderer?.centerOn(id); showRecord(id); },
+      onOpenStatement: (id: string) => showStatement(id),
+    };
+    let shownNode: string | undefined;
     const showRecord = (id: string) => {
-      const options = {onClose: () => record.replaceChildren(), onNavigate: showRecord, onOpenContextEntity: showRecord};
-      if (model.peopleById.has(id)) renderDetailsPanel(record, model, id, options);
-      else if (model.contextEntitiesById.has(id)) renderContextDetailsPanel(record, model, id, options);
+      if (!model.hasNode(id)) return;
+      shownNode = id;
+      renderNodePanel(record, nodeView(model, id), options);
+      if (view.ghostIds.has(id)) record.insertAdjacentHTML('afterbegin', '<p class="draft-ghost-note">This draft removes this record.</p>');
+      annotateRecords(record);
+    };
+    const showStatement = (id: string) => {
+      const from = shownNode && model.hasNode(shownNode) ? model.getNode(shownNode) : undefined;
+      renderStatementPanel(record, statementView(model, id), options, from && {id: from.id, name: from.name});
       if (view.ghostIds.has(id)) record.insertAdjacentHTML('afterbegin', '<p class="draft-ghost-note">This draft removes this record.</p>');
       annotateRecords(record);
     };
     this.renderer = new GraphRenderer(canvas, {
-      onFocus: id => { this.renderer?.centerOn(id); showRecord(id); this.exploring(); },
-      onOpenDetails: id => { showRecord(id); this.exploring(); },
-      onOpenContextEntity: id => { this.renderer?.centerOn(id); showRecord(id); this.exploring(); },
+      onSelectNode: id => { this.renderer?.centerOn(id); showRecord(id); this.exploring(); },
+      onSelectEdge: id => { shownNode = undefined; showStatement(id); this.exploring(); },
     }, true);
     if (view.focusId) {
       const projection = projectAround(model, view.focusId);
-      const layout = await layoutFamily(model, projection);
+      const layout = layoutGraph(model, projection);
       if (this.disposed || generation !== this.generation) return;
       this.renderer.render(layout, projection, model);
       annotateRecords(canvas);

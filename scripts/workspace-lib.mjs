@@ -13,6 +13,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
 import { initialState } from "../src/domain/research.ts";
+import { emptyGraph } from "../src/domain/graph-schema.ts";
 export const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const home = resolve(
   process.env.RESEARCH_HOME || join(root, ".research"),
@@ -95,16 +96,7 @@ export function createTopicProject(topic) {
   )
     id = `${base}-${number}`;
   const directory = join(home, "projects", id);
-  const state = initialState({
-    version: 2,
-    title: name,
-    initialFocusId: null,
-    people: [],
-    contextEntities: [],
-    claims: [],
-    evidence: [],
-    sources: [],
-  });
+  const state = initialState(emptyGraph(name));
   save(join(directory, "workspace.json"), state);
   const registry = read(join(home, "projects.json"), []);
   const created = { id, name, directory };

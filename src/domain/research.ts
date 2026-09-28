@@ -14,8 +14,9 @@ import type { Finding, FindingRef, GraphGroup } from "./findings.ts";
 import type { SourceRecord } from "./types.ts";
 import type { Catalog, Dispatch } from "./dispatch.ts";
 import { holdInQueue, moveInQueue } from "./queue.ts";
-import { GenealogyModel } from "./model.ts";
-import type { FamilyDataset, LegacyDataset } from "./types.ts";
+import { GraphModel } from "./model.ts";
+import type { GraphDataset } from "./types.ts";
+import type { LegacyDataset, NodesEdgesDataset } from "./legacy-types.ts";
 import { upgradeDataset } from "./graph-upgrade.ts";
 import type { ReviewFlow } from "./review-flow";
 import {
@@ -25,7 +26,7 @@ import {
 } from "./conversation.ts";
 import type { Brief, Message, Question } from "./conversation.ts";
 
-export type Table = "people" | "contextEntities" | "claims" | "sources";
+export type Table = "nodes" | "claims" | "sources";
 export interface AnnotationTarget {
   walkthroughId?: string;
   stepId?: string;
@@ -152,7 +153,7 @@ export interface Investigation {
     worker: string;
     at: string;
     annotationIds: string[];
-    dataset: FamilyDataset;
+    dataset: GraphDataset;
   };
 }
 export interface SourceCollection {
@@ -196,7 +197,7 @@ export interface ResearchState {
   version: 1;
   revision: number;
   datasetRevision: number;
-  dataset: FamilyDataset;
+  dataset: GraphDataset;
   investigations: Investigation[];
   queue?: Annotation[];
   conversation?: Message[];
@@ -291,9 +292,9 @@ export interface LiveWorker {
   trail?: { at: string; text: string }[];
 }
 
-export function initialState(source: FamilyDataset | LegacyDataset): ResearchState {
+export function initialState(source: GraphDataset | NodesEdgesDataset | LegacyDataset): ResearchState {
   const dataset = upgradeDataset(source);
-  new GenealogyModel(dataset);
+  new GraphModel(dataset);
   return {
     version: 1,
     revision: 0,

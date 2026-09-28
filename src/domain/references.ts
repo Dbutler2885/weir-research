@@ -1,5 +1,5 @@
 import type { AnnotationTarget, Investigation, ResearchState } from "./research.ts";
-import type { FamilyDataset } from "./types.ts";
+import type { GraphDataset } from "./types.ts";
 
 // What the human pointed at, said in the research's own terms. The coordinator
 // never sees the page, so a reference names the research object, where it lives,
@@ -41,17 +41,16 @@ function batchOf(state: ResearchState, r: AnnotationTarget) {
   );
 }
 
-function nodeName(dataset: FamilyDataset, id: string) {
-  return dataset.people.find((p) => p.id === id)?.name || dataset.contextEntities?.find((e) => e.id === id)?.name;
+function nodeName(dataset: GraphDataset, id: string) {
+  return dataset.nodes.find((n) => n.id === id)?.name;
 }
 
-// A graph record in words: a person, a place or other entity, or a connection.
-function recordPhrase(dataset: FamilyDataset, table: string, id: string, label: string) {
-  if (table === "people") return { what: "person", phrase: `the person ${quoted(dataset.people.find((p) => p.id === id)?.name || label, 80)}` };
-  if (table === "contextEntities") {
-    const entity = dataset.contextEntities?.find((e) => e.id === id);
-    const kind = entity?.kind || "entity";
-    return { what: kind, phrase: `the ${kind} ${quoted(entity?.name || label, 80)}` };
+// A graph record in words: a node of the project's own type, or a connection.
+function recordPhrase(dataset: GraphDataset, table: string, id: string, label: string) {
+  if (table === "nodes") {
+    const node = dataset.nodes.find((n) => n.id === id);
+    const type = node?.type || "node";
+    return { what: type, phrase: `the ${type} ${quoted(node?.name || label, 80)}` };
   }
   if (table === "claims") {
     const claim = dataset.claims?.find((c) => c.id === id);

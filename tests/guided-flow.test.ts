@@ -10,11 +10,12 @@ import {flowCommand} from '../server/review-flow.mjs';
 import {organize} from '../server/organization.mjs';
 import {GraphBuilders} from '../server/graph-builders.mjs';
 import {emptyGraph, prepareResearch, draftFiles, writeDraft, returnDraft, tourFor} from './fixtures/guided-flow';
-import type {FamilyDataset} from '../src/domain/types';
+import {graphToTables} from '../src/domain/graph-csv';
+import type {GraphDataset} from '../src/domain/types';
 
 const cleanup: (()=>void)[] = [];
 afterEach(()=>cleanup.splice(0).reverse().forEach(fn=>fn()));
-function fixture(engine = 'manual', graph: FamilyDataset = emptyGraph) {
+function fixture(engine = 'manual', graph: GraphDataset = emptyGraph) {
   const directory = mkdtempSync(join(tmpdir(),'fictional-guided-'));
   cleanup.push(()=>rmSync(directory,{recursive:true,force:true}));
   const store = new WorkspaceStore(directory, graph);
@@ -39,6 +40,38 @@ function builder(f: ReturnType<typeof fixture>) {
   return {child, pool, task: pool.active.get(f.jobId)!};
 }
 
+describe('reorganizing the graph',()=>{
+  it('lets the coordinator start a reorganization with no new research, which the human decides on like any draft',()=>{
+    const directory = mkdtempSync(join(tmpdir(),'fictional-reorganize-'));
+    cleanup.push(()=>rmSync(directory,{recursive:true,force:true}));
+    const graph: GraphDataset={...emptyGraph,initialFocusId:'works',nodes:[{id:'works',name:'Example Works',type:'facility'}],claims:[{id:'built',subjectId:'works',predicate:'built_in_year',object:{value:'1880'},qualification:'supported',time:null,reasoning:'Absorbs the former works-1880 edge.',evidence:[]}]};
+    const store = new WorkspaceStore(directory, graph);
+    // The human asks; the coordinator opens a batch for it.
+    store.command({type:'send',text:'Please reorganize the graph.',annotation:{question:'Reorganize the graph with summaries.',references:[]}});
+    const annotationId = store.state.conversation.at(-1).annotations[0].id;
+    const {investigationId}: any = store.command({type:'open-batch',title:'Reorganize the graph',brief:{purpose:'Organize the graph as it stands.',scope:'The whole graph.',direction:'No new research.'},questions:[{title:'Reorganize the graph with summaries.',annotationIds:[annotationId]}]});
+    expect(()=>flowCommand(store,{action:'reorganize-graph',investigationId,message:'x'},'human')).toThrow('other review role');
+    expect(()=>flowCommand(store,{action:'reorganize-graph',investigationId,message:' '})).toThrow('Say what the human asked');
+    const {jobId}: any = flowCommand(store,{action:'reorganize-graph',investigationId,message:'The human asked for summaries and a timeline of names.'});
+    const job = () => store.state.investigations.find((i: any)=>i.id===investigationId).reviewFlow.jobs[0];
+    expect(job()).toMatchObject({reorganization:true,status:'queued',consumedUpdateSequence:0});
+    expect(job().updates[0].message).toMatch(/^Reorganize the graph as it stands; there is no new research to add\..*\n\nThe human asked for summaries/s);
+    expect(job().packet.findings).toEqual({});
+    expect(()=>flowCommand(store,{action:'reorganize-graph',investigationId,message:'again'})).toThrow('already has graph work');
+    // The builder writes a type with a field, files the fact under it, and summarizes the node.
+    const files = graphToTables(job().baseDataset);
+    files['fields.csv'] += 'facility,built,date\n';
+    files['nodes.csv'] = files['nodes.csv'].replace('works,facility,Example Works,,,,', 'works,facility,Example Works,,An invented works built in 1880.,,');
+    files['edges.csv'] = files['edges.csv'].replace('built,works,built_in_year,text,1880,supported,,Absorbs the former works-1880 edge.', 'built,works,built,text,1880,supported,,The register gives the year.');
+    returnDraft(store, investigationId, {...files, 'submission.txt':'done 1\n'});
+    expect(job().candidate.diff.vocabulary).toEqual(['The facility type records built.']);
+    const {graphReviewId}: any = flowCommand(store,{action:'publish-graph-review',investigationId,jobId,tour:{introduction:'The graph, organized.',steps:[{id:'works',title:'The works',focusNodeIds:['works'],focusClaimIds:['built'],explanation:'Its year is now under Built.',issueIds:[],transition:'That is all.'}]}});
+    flowCommand(store,{action:'graph-accept',investigationId,graphReviewId},'human');
+    expect(store.state.dataset.nodes[0].summary).toBe('An invented works built in 1880.');
+    expect(store.state.dataset.claims[0].predicate).toBe('built');
+  });
+});
+
 describe('guided research flow',()=>{
   it('accepts a whole draft: the graph is replaced, research is copied in, and an undo is kept',()=>{
     const f=fixture();
@@ -46,10 +79,10 @@ describe('guided research flow',()=>{
     expect(f.store.state.investigations[0].proposals[0].findings[0].status).toBe('pending');
     const {graphReviewId}=publish(f);
     expect(f.review().summary).toBe('2 new nodes, 1 new edge, 1 evidence record added from the research.');
-    expect(f.store.state.dataset.contextEntities).toBeUndefined();
+    expect(f.store.state.dataset.nodes).toEqual([]);
     const accepted: any=f.command('graph-accept',{graphReviewId},'human');
     expect(f.store.state.datasetRevision).toBe(1);
-    expect(f.store.state.dataset.contextEntities.map((e: any)=>e.id)).toEqual(['bay','works']);
+    expect(f.store.state.dataset.nodes.map((n: any)=>n.id)).toEqual(['bay','works']);
     expect(f.store.state.dataset.claims[0].qualification).toBe('reported');
     expect(f.store.state.dataset.evidence[0].quote).toBe('Example Works stood in Example Bay.');
     expect(f.store.state.dataset.sources.map((s: any)=>s.id)).toEqual(['register']);
@@ -216,7 +249,8 @@ describe('guided research flow',()=>{
   it('hands a builder the graph as tables, and reads its edits back as a candidate draft',()=>{
     const f=fixture('claude');
     const {child,task,pool}=builder(f);
-    expect(readFileSync(join(task.work,'nodes.csv'),'utf8')).toBe('id,kind,name,descriptor,biography,dates,born,died,alternateNames,notes,sources\n');
+    expect(readFileSync(join(task.work,'nodes.csv'),'utf8')).toBe('id,type,name,dates,summary,notes,sources\n');
+    expect(readFileSync(join(task.work,'types.csv'),'utf8')).toBe('type,color,shape\nplace,,\nfacility,,\n');
     expect(readFileSync(join(task.work,'start','edges.csv'),'utf8')).toContain('id,from,name,targetType');
     expect(readFileSync(join(task.work,'AGENTS.md'),'utf8')).toContain('edit them in place');
     // Progress comes from the builder's stream; it is never asked to report it.
@@ -240,9 +274,9 @@ describe('guided research flow',()=>{
     expect(f.store.state.datasetRevision).toBe(0);
   });
   it('lets a builder merge three nodes into one, and accepting leaves one node',()=>{
-    const works=(id: string,name: string)=>({id,name,kind:'facility' as const});
+    const works=(id: string,name: string)=>({id,name,type:'facility'});
     const edge=(id: string,from: string,name: string,object: any)=>({id,subjectId:from,predicate:name,object,qualification:'supported' as const,time:null,reasoning:'From the invented register.',evidence:[]});
-    const graph: FamilyDataset={...emptyGraph,initialFocusId:'works-old',contextEntities:[{id:'bay',name:'Example Bay',kind:'place'},works('works-north','North Works'),works('works-old','The Old Works'),works('works-mill','Bay Mill')],claims:[
+    const graph: GraphDataset={...emptyGraph,initialFocusId:'works-old',nodes:[{id:'bay',name:'Example Bay',type:'place'},works('works-north','North Works'),works('works-old','The Old Works'),works('works-mill','Bay Mill')],claims:[
       edge('c1','works-north','located_in',{entityId:'bay'}),edge('c2','works-old','located_in',{entityId:'bay'}),edge('c3','works-old','built',{value:1880}),
       edge('c4','works-mill','built',{value:1902}),edge('c5','works-old','same_site_as',{entityId:'works-north'}),edge('c6','works-mill','adjoins',{entityId:'works-old'}),
     ]};
@@ -257,7 +291,7 @@ describe('guided research flow',()=>{
     expect(f.job().candidate.summary).toBe('3 nodes merged into one, 3 edges moved, 2 edges removed.');
     const {graphReviewId}: any=f.command('publish-graph-review',{tour:{introduction:'Three works were one building.',steps:[{id:'merge',title:'One building',focusNodeIds:['works-north','works-old','works-mill'],focusClaimIds:['c5'],explanation:'The Old Works and Bay Mill stood on the North Works site.',issueIds:[],transition:'That is all.'}]}});
     f.command('graph-accept',{graphReviewId},'human');
-    expect(f.store.state.dataset.contextEntities.map((e: any)=>e.id)).toEqual(['bay','works-north']);
+    expect(f.store.state.dataset.nodes.map((n: any)=>n.id)).toEqual(['bay','works-north']);
     expect(f.store.state.dataset.claims.map((c: any)=>[c.id,c.subjectId])).toEqual([['c1','works-north'],['c2','works-north'],['c3','works-north'],['c4','works-north']]);
     // The focus followed the building into the node it merged into.
     expect(f.store.state.dataset.initialFocusId).toBe('works-north');
@@ -272,7 +306,20 @@ describe('guided research flow',()=>{
     cleanup.push(()=>pool.stop());
     pool.prepare(f.jobId);
     expect(readFileSync(join(f.directory,'graph-builders',f.jobId,'proposal-format','nodes.csv'),'utf8')).toContain('existingId');
-    expect(readFileSync(join(work,'nodes.csv'),'utf8')).toContain('id,kind,name,descriptor');
+    expect(readFileSync(join(work,'nodes.csv'),'utf8')).toContain('id,type,name,dates');
+  });
+  it('keeps tables written before nodes had types aside, and starts again from the graph',()=>{
+    const f=fixture();
+    const work=join(f.directory,'graph-builders',f.jobId,'work');
+    mkdirSync(work,{recursive:true});
+    writeFileSync(join(work,'nodes.csv'),'id,kind,name,descriptor,biography,dates,born,died,alternateNames,notes,sources\nbay,place,Example Bay,,,,,,,,\n');
+    writeFileSync(join(work,'edges.csv'),'id,from,name,targetType,target,qualification,time,reasoning,supports,challenges,context,sources\n');
+    const pool=new GraphBuilders(f.store,f.directory,resolve('.'));
+    cleanup.push(()=>pool.stop());
+    pool.prepare(f.jobId);
+    expect(readFileSync(join(f.directory,'graph-builders',f.jobId,'untyped-tables','nodes.csv'),'utf8')).toContain('Example Bay');
+    expect(readFileSync(join(work,'nodes.csv'),'utf8')).toBe('id,type,name,dates,summary,notes,sources\n');
+    expect(existsSync(join(work,'relationships.csv'))).toBe(true);
   });
   it('retains incomplete worker files and picks interrupted workers back up on restart',()=>{
     const f=fixture();
@@ -280,7 +327,7 @@ describe('guided research flow',()=>{
     cleanup.push(()=>pool.stop());
     const task=pool.prepare(f.jobId);
     writeFileSync(join(task.work,'checkpoint.md'),'Saved research representation.');
-    writeFileSync(join(task.work,'nodes.csv'),readFileSync(join(task.work,'nodes.csv'),'utf8')+'bay,place,Example Bay,,,,,,,,\n');
+    writeFileSync(join(task.work,'nodes.csv'),readFileSync(join(task.work,'nodes.csv'),'utf8')+'bay,place,Example Bay,,An invented bay.,,\n');
     const replacement=new GraphBuilders(f.store,f.directory,resolve('.'));
     cleanup.push(()=>replacement.stop());
     expect(f.job().status).toBe('queued');

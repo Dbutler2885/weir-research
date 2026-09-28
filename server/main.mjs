@@ -31,6 +31,7 @@ import { ResearchBrowser } from "./research-browser.mjs";
 import { setupRoutes } from "./setup-routes.mjs";
 import { startLauncher } from "./start-launcher.mjs";
 import { validateChoice } from "../src/domain/dispatch.ts";
+import { emptyGraph } from "../src/domain/graph-schema.ts";
 import { LiveActivity } from "./live-activity.mjs";
 import { projectSkills } from "./skills.mjs";
 import { flowCommand } from "./review-flow.mjs";
@@ -78,10 +79,7 @@ function close() {
 }
 process.on("SIGTERM", close);
 process.on("SIGINT", close);
-const store = new WorkspaceStore(
-  directory,
-  JSON.parse(readFileSync(join(root, "src/data/empty.json"), "utf8")),
-);
+const store = new WorkspaceStore(directory, emptyGraph());
 const live = new LiveActivity();
 const coordinator = new Coordinator(store, { workers: () => live.list(), skills: projectSkills(root) });
 // One supervisor launches and reads every agent the app runs.

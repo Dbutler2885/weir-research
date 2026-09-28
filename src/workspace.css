@@ -886,11 +886,6 @@ dialog .muted {
   gap: 12px;
   margin-top: 20px;
 }
-.context-node.is-focus .context-card {
-  stroke: #235b60;
-  stroke-width: 3px;
-  filter: var(--focus-shadow);
-}
 @media (max-width: 600px) {
   .empty-research {
     inset: 85px 16px 20px;

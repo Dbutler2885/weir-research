@@ -144,10 +144,10 @@ describe('graph review',()=>{
   f.click('[data-guided-accept]');
   await vi.waitFor(()=>expect(f.review().status).toBe('applied'));
   await f.ready('[data-guided-undo]');
-  expect(f.store.state.dataset.contextEntities.map((e:any)=>e.id)).toEqual(['bay','works']);
+  expect(f.store.state.dataset.nodes.map((n:any)=>n.id)).toEqual(['bay','works']);
   expect(f.store.state.investigations[0].closedAt).toBeTruthy();
   f.click('[data-guided-undo]');
-  await vi.waitFor(()=>expect(f.store.state.dataset.contextEntities ?? []).toEqual([]));
+  await vi.waitFor(()=>expect(f.store.state.dataset.nodes).toEqual([]));
   // Undoing reopens the batch for a revised draft, and the review says what happened.
   expect(f.review().status).toBe('undone');
   expect(f.store.state.investigations[0].closedAt).toBeUndefined();

@@ -1,12 +1,17 @@
-// One-time conversion of a stored graph to nodes and edges.
+// One-time conversions of a stored graph to the current shape.
 //
-// Unions, direct parentage and stored relationship rows become edges. Their
-// identifiers are reused where one record becomes one edge, so annotations and
-// history that name them still resolve. Nothing a record carried is dropped:
-// dates become the edge's time, and labels, places and notes become its reasoning.
-import { COUPLE_EDGE, PARENT_EDGE, parentEdgeName } from "./family-edges.ts";
-import type { Confidence, FamilyDataset, LegacyDataset, ResearchClaim } from "./types";
+// Version 1 stored unions, direct parentage and relationship rows as records of their
+// own; they became edges. Version 2 kept people and other things in separate lists
+// with fixed kinds; they became one list of nodes, each with a type the project
+// defines. Identifiers are reused throughout, so annotations and history that name a
+// record still resolve, and nothing a record carried is dropped.
+import { COUPLE_EDGE, PARENT_EDGE, defaultRelationships } from "./graph-schema.ts";
+import type { Confidence, GraphDataset, GraphNode, LookColor, LookShape, NodeType, ParentageType, ResearchClaim } from "./types";
+import type { ContextEntityRecord, LegacyDataset, NodesEdgesDataset, PersonRecord } from "./legacy-types.ts";
 import { convertLegacyReviews, hasLegacyReviews } from "./legacy-graph-review.ts";
+
+const parentEdgeName = (type: ParentageType | undefined) =>
+  !type || type === "biological" || type === "unknown" ? PARENT_EDGE : `${type}_${PARENT_EDGE}`;
 
 const qualificationFor: Record<Confidence, ResearchClaim["qualification"]> = {
   established: "supported",
@@ -20,8 +25,7 @@ const snake = (label: string) => label.trim().replace(/[^\p{L}\p{N}]+/gu, "_").r
 
 const prose = (...parts: (string | undefined)[]) => parts.filter((p) => p && p.trim()).join("\n");
 
-export function upgradeDataset(source: FamilyDataset | LegacyDataset): FamilyDataset {
-  if (source.version === 2) return source as FamilyDataset;
+function toNodesAndEdges(source: LegacyDataset): NodesEdgesDataset {
   const { unions = [], directParentage = [], contextConnections = [], ...rest } = structuredClone(source as LegacyDataset);
   const claims: ResearchClaim[] = [...(rest.claims || [])];
   const taken = new Set(claims.map((c) => c.id));
@@ -88,46 +92,133 @@ export function upgradeDataset(source: FamilyDataset | LegacyDataset): FamilyDat
   // Citations are listed by role, the order the edge table keeps them in.
   const rank = { supports: 0, challenges: 1, context: 2 };
   for (const claim of claims) claim.evidence = [...claim.evidence].sort((a, b) => rank[a.role] - rank[b.role]);
-  return { ...rest, version: 2, claims } as FamilyDataset;
+  return { ...rest, version: 2, claims } as NodesEdgesDataset;
 }
 
-const legacyTables = new Set(["unions", "directParentage", "contextConnections"]);
+// How each kind a version 2 graph could hold looks, now that kinds are the project's own types.
+const oldKindLooks: Record<string, { color: LookColor; shape: LookShape }> = {
+  person: { color: "sea", shape: "rounded" },
+  family: { color: "gold", shape: "rounded" },
+  organization: { color: "rust", shape: "square" },
+  facility: { color: "clay", shape: "square" },
+  place: { color: "moss", shape: "round" },
+  vessel: { color: "sky", shape: "rounded" },
+  event: { color: "plum", shape: "rounded" },
+  observation: { color: "slate", shape: "rounded" },
+};
 
-// Annotations and history name records by table. Records that became edges kept
-// their identifiers, so only the table name changes.
+const CARRIED_OVER = "Carried over from the node's earlier record, which kept it without evidence.";
+
+// A descriptor and a biography were two tellings of the same thing; the summary keeps both.
+const summaryOf = (record: { descriptor?: string; biography?: string }) => {
+  const descriptor = record.descriptor?.trim();
+  const biography = record.biography?.trim();
+  if (!descriptor || !biography) return descriptor || biography || undefined;
+  return biography.includes(descriptor) ? biography : `${descriptor.replace(/[.\s]+$/, "")}.\n\n${biography}`;
+};
+
+function toProjectTypes(source: NodesEdgesDataset): GraphDataset {
+  const { people, contextEntities = [], ...rest } = structuredClone(source);
+  const claims: ResearchClaim[] = [...(rest.claims || [])];
+  const taken = new Set([...claims.map((c) => c.id), ...people.map((p) => p.id), ...contextEntities.map((e) => e.id)]);
+  const fact = (node: string, name: string, value: string) => {
+    let id = `${node}-${name}`;
+    for (let n = 2; taken.has(id); n++) id = `${node}-${name}-${n}`;
+    taken.add(id);
+    claims.push({ id, subjectId: node, predicate: name, object: { value }, qualification: "reported", time: null, reasoning: CARRIED_OVER, evidence: [] });
+  };
+  const node = (record: PersonRecord | ContextEntityRecord, type: string, dates: string | undefined, notes?: string[]): GraphNode => {
+    const summary = summaryOf(record);
+    return {
+      id: record.id,
+      name: record.name,
+      type,
+      ...(summary ? { summary } : {}),
+      ...(dates ? { dates } : {}),
+      ...(notes?.length ? { notes } : {}),
+      ...(record.sourceIds?.length ? { sourceIds: record.sourceIds } : {}),
+    };
+  };
+  const nodes: GraphNode[] = [];
+  for (const person of people) {
+    nodes.push(node(person, "person", person.lifespan, person.researchNotes));
+    if (person.born) fact(person.id, "born", person.born);
+    if (person.died) fact(person.id, "died", person.died);
+    for (const name of person.alternateNames || []) fact(person.id, "also_known_as", name);
+  }
+  for (const entity of contextEntities) nodes.push(node(entity, entity.kind, entity.activeDates));
+  const used = [...new Set(nodes.map((n) => n.type))];
+  const types: NodeType[] = used.map((name) => ({
+    name,
+    ...(oldKindLooks[name] || {}),
+    fields:
+      name === "person"
+        ? [
+            { name: "born", value: "date" },
+            { name: "died", value: "date" },
+            { name: "also_known_as", value: "text" },
+          ]
+        : [],
+  }));
+  return { ...rest, version: 3, nodes, types, relationships: defaultRelationships(), claims };
+}
+
+export function upgradeDataset(source: GraphDataset | NodesEdgesDataset | LegacyDataset): GraphDataset {
+  if (source.version === 3) return source as GraphDataset;
+  const nodesAndEdges = source.version === 2 ? (source as NodesEdgesDataset) : toNodesAndEdges(source as LegacyDataset);
+  return toProjectTypes(nodesAndEdges);
+}
+
+const edgeTables = new Set(["unions", "directParentage", "contextConnections"]);
+const nodeTables = new Set(["people", "contextEntities"]);
+
+// Annotations, history and proposals name records by table. Records that became edges
+// or nodes kept their identifiers, so only the table name changes, and a proposal's
+// copies of a person or entity become copies of the node.
 function retarget(value: unknown): void {
   if (Array.isArray(value)) return value.forEach(retarget);
   if (!value || typeof value !== "object") return;
   const record = value as Record<string, unknown>;
-  if (typeof record.table === "string" && legacyTables.has(record.table) && typeof record.recordId === "string")
-    record.table = "claims";
+  if (typeof record.table === "string" && typeof record.recordId === "string") {
+    if (edgeTables.has(record.table)) record.table = "claims";
+    else if (nodeTables.has(record.table)) {
+      const kind = record.table === "people" ? "person" : undefined;
+      for (const key of ["before", "after"])
+        if (record[key] && typeof record[key] === "object") {
+          const old = record[key] as PersonRecord & ContextEntityRecord;
+          record[key] = toProjectTypes({ version: 2, title: "", initialFocusId: null, people: kind ? [old] : [], contextEntities: kind ? [] : [old] }).nodes[0];
+        }
+      record.table = "nodes";
+    }
+  }
   Object.values(record).forEach(retarget);
 }
 
-type Snapshot = { baseDataset?: FamilyDataset | LegacyDataset };
-type Upgradable = {
-  dataset: FamilyDataset | LegacyDataset;
-  organization?: { history?: { before?: FamilyDataset | LegacyDataset }[]; preview?: { dataset?: FamilyDataset | LegacyDataset } };
-  investigations?: { reviewFlow?: { jobs?: Snapshot[]; graphReviews?: Snapshot[] } }[];
-};
+const isOldDataset = (value: Record<string, unknown>) => value.version !== 3 && Array.isArray(value.people) && typeof value.title === "string";
 
-export function needsGraphUpgrade(state: Upgradable): boolean {
-  return state.dataset.version !== 2 || hasLegacyReviews(state as never);
+// Every stored graph, wherever the workspace keeps one: the live graph, undo
+// snapshots, and the graphs that graph work started from or produced.
+function upgradeEverywhere(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(upgradeEverywhere);
+  if (!value || typeof value !== "object") return value;
+  const record = value as Record<string, unknown>;
+  if (isOldDataset(record)) return upgradeDataset(record as unknown as LegacyDataset);
+  for (const [key, child] of Object.entries(record)) record[key] = upgradeEverywhere(child);
+  return record;
 }
 
-// Upgrade a whole workspace: the live graph, every undo snapshot, and the records
-// that point into the graph.
+type Upgradable = { dataset: GraphDataset | NodesEdgesDataset | LegacyDataset };
+
+export function needsGraphUpgrade(state: Upgradable): boolean {
+  return state.dataset.version !== 3 || hasLegacyReviews(state as never);
+}
+
+// Upgrade a whole workspace, and the records that point into the graph.
 export function upgradeGraphState<S extends Upgradable>(source: S): S {
   if (!needsGraphUpgrade(source)) return source;
   let state = structuredClone(source);
   retarget(state);
-  state.dataset = upgradeDataset(state.dataset);
-  for (const record of state.organization?.history || []) if (record.before) record.before = upgradeDataset(record.before);
-  if (state.organization?.preview?.dataset) state.organization.preview.dataset = upgradeDataset(state.organization.preview.dataset);
-  // Graph work records the graph it started from; builders and reviews read it as tables.
-  for (const flow of (state.investigations || []).map((i) => i.reviewFlow))
-    for (const record of [...(flow?.jobs || []), ...(flow?.graphReviews || [])])
-      if (record.baseDataset) record.baseDataset = upgradeDataset(record.baseDataset);
+  state = upgradeEverywhere(state) as S;
   // Reviews and candidates prepared as proposals become drafts of the graph they were built against.
   state = convertLegacyReviews(state as never) as S;
   return state;

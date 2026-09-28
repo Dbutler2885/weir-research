@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { initialState, type ResearchState } from "../src/domain/research";
 import { convertToBatches, headline } from "../src/domain/batch-conversion";
-import empty from "../src/data/empty.json";
+import { emptyGraph } from "../src/domain/graph-schema";
+const empty = emptyGraph();
 
 function legacy(): ResearchState {
   const state = initialState({ ...empty, title: "The fictional Harbour Mill" });

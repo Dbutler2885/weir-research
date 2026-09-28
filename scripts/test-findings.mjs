@@ -112,7 +112,7 @@ try {
     },
     true,
   );
-  assert.equal((await state()).dataset.people.length, 0);
+  assert.equal((await state()).dataset.nodes.length, 0);
   await post(
     {
       type: "finding-decision",
@@ -154,25 +154,26 @@ try {
         evidence,
         changes: [
           {
-            table: "people",
+            table: "nodes",
             recordId: "alex",
             before: null,
             after: {
               id: "alex",
               name: "Alex Example",
+              type: "person",
               sourceIds: ["fictional-register"],
             },
             reason: "The register names this worker.",
             evidenceIds: ["entry"],
           },
           {
-            table: "contextEntities",
+            table: "nodes",
             recordId: "workshop",
             before: null,
             after: {
               id: "workshop",
               name: "Example Workshop",
-              kind: "organization",
+              type: "organization",
               sourceIds: ["fictional-register"],
             },
             reason: "The named workplace.",

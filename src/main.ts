@@ -1,14 +1,12 @@
 import "./styles.css";
 import "./ui/weir-mark.css";
-import familyData from "./data/empty.json";
-import { GenealogyModel } from "./domain/model";
+import { GraphModel } from "./domain/model";
+import { emptyGraph } from "./domain/graph-schema";
 import { projectAround } from "./domain/projection";
-import type { FamilyDataset } from "./domain/types";
-import { layoutFamily } from "./layout/layout";
-import {
-  renderContextDetailsPanel,
-  renderDetailsPanel,
-} from "./ui/details-panel";
+import type { GraphDataset } from "./domain/types";
+import { layoutGraph } from "./layout/layout";
+import { nodeView, statementView } from "./domain/node-view";
+import { renderNodePanel, renderStatementPanel } from "./ui/details-panel";
 import { GraphRenderer } from "./ui/graph-renderer";
 
 import { mountResearchWorkspace } from "./research-workspace";
@@ -34,8 +32,8 @@ async function startApplication() {
     )
       researchState = await response.json();
   }
-  const dataset = researchState?.dataset ?? (familyData as FamilyDataset);
-  let model = new GenealogyModel(dataset);
+  const dataset = researchState?.dataset ?? emptyGraph();
+  let model = new GraphModel(dataset);
   const app = document.querySelector<HTMLElement>("#app");
 
   if (!app) {
@@ -59,7 +57,7 @@ async function startApplication() {
 
       <div class="header-actions">
         <div class="search-control">
-          <label for="person-search">Find a person, place, or organization</label>
+          <label for="person-search">Find anything in the graph</label>
           <div class="search-input-wrap">
             <svg aria-hidden="true" viewBox="0 0 24 24">
               <circle cx="11" cy="11" r="6"></circle>
@@ -77,13 +75,13 @@ async function startApplication() {
           <div id="search-results" class="search-results" role="listbox" hidden></div>
         </div>
         <div class="record-count" title="Records, relationships, and sources in this research graph">
-          <strong>${model.peopleById.size}</strong>
+          <strong>${model.nodesById.size}</strong>
           <span>nodes</span>
           <i></i>
-          <strong>${model.unionsById.size}</strong>
+          <strong>${model.connections.length}</strong>
           <span>relationships</span>
           <i></i>
-          <strong>${model.contextEntitiesById.size}</strong>
+          <strong>${model.sourcesById.size}</strong>
           <span>sources</span>
         </div>
       </div>
@@ -130,36 +128,7 @@ async function startApplication() {
           Reorganizing relationships
         </div>
 
-        <section class="graph-legend" aria-label="Graph legend">
-          <div>
-            <span class="legend-node legend-focus"></span>
-            <span>Current focus</span>
-          </div>
-          <div>
-            <span class="legend-node legend-near"></span>
-            <span>Near connections</span>
-          </div>
-          <div>
-            <span class="legend-line"></span>
-            <span>Established</span>
-          </div>
-          <div>
-            <span class="legend-line legend-probable"></span>
-            <span>Probable</span>
-          </div>
-          <div>
-            <span class="legend-line legend-disputed"></span>
-            <span>Disputed</span>
-          </div>
-          <div>
-            <span class="legend-node legend-context"></span>
-            <span>Historical context</span>
-          </div>
-          <div>
-            <span class="legend-line legend-context-line"></span>
-            <span>Research connection</span>
-          </div>
-        </section>
+        <section class="graph-legend" aria-label="Graph legend"></section>
 
       </section>
 
@@ -186,20 +155,23 @@ async function startApplication() {
   const searchResults = requiredElement<HTMLElement>("#search-results");
 
   let currentFocusId = model.initialFocus?.id ?? "";
+  // What the side panel shows: a node, or one statement opened from a node or a line.
   let detailsRecord:
-    | { kind: "person"; id: string }
-    | { kind: "context"; id: string }
+    | { kind: "node"; id: string }
+    | { kind: "statement"; id: string; from?: string }
     | undefined;
   let layoutRequestId = 0;
 
   const renderer = new GraphRenderer(graphContainer, {
-    onFocus: (personId) => void focusPerson(personId),
-    onOpenDetails: (personId) => openDetails(personId),
-    onOpenContextEntity: (entityId) => {
-      void focusPerson(entityId);
-      openContextDetails(entityId);
-    },
+    onSelectNode: (nodeId) => showNode(nodeId),
+    onSelectEdge: (claimId) => openDetails({ kind: "statement", id: claimId }),
   });
+
+  // A node becomes the focus and its panel opens.
+  function showNode(nodeId: string): void {
+    void focusNode(nodeId);
+    openDetails({ kind: "node", id: nodeId });
+  }
 
   function focusIdFromHash(): string | undefined {
     const parameters = new URLSearchParams(window.location.hash.slice(1));
@@ -209,11 +181,7 @@ async function startApplication() {
 
   function updateHash(personId: string, mode: "push" | "replace"): void {
     const url = new URL(window.location.href);
-    url.hash = new URLSearchParams(
-      model.peopleById.has(personId)
-        ? { person: personId }
-        : { node: personId },
-    ).toString();
+    url.hash = new URLSearchParams({ node: personId }).toString();
     const state = { focusId: personId };
     if (mode === "push") {
       window.history.pushState(state, "", url);
@@ -227,7 +195,7 @@ async function startApplication() {
     graphContainer.classList.toggle("is-working", isWorking);
   }
 
-  async function focusPerson(
+  async function focusNode(
     personId: string,
     historyMode: "push" | "replace" | "none" = "push",
   ): Promise<void> {
@@ -240,18 +208,13 @@ async function startApplication() {
       return;
     }
 
-    if (detailsRecord?.kind === "person" && detailsRecord.id !== personId) {
-      closeDetails();
-    }
-
     currentFocusId = personId;
-    const person =
-      model.peopleById.get(personId) ?? model.getContextEntity(personId);
+    const person = model.getNode(personId);
     focusName.textContent = person.name;
     // The focus's name can be annotated as the record it names.
     focusName.setAttribute(
       "data-research-target",
-      JSON.stringify({ table: model.peopleById.has(personId) ? "people" : "contextEntities", recordId: personId, label: person.name }),
+      JSON.stringify({ table: "nodes", recordId: personId, label: person.name }),
     );
     focusStatus.textContent = "Recomputing relationships";
     document.title = `${person.name} · ${dataset.title} · Weir`;
@@ -265,22 +228,13 @@ async function startApplication() {
     const projection = projectAround(model, personId);
 
     try {
-      const layout = await layoutFamily(model, projection);
+      const layout = layoutGraph(model, projection);
       if (requestId !== layoutRequestId) {
         return;
       }
       renderer.render(layout, projection, model);
-      focusStatus.textContent = model.peopleById.has(personId)
-        ? `${model.parentsOf(personId).length} parent${
-            model.parentsOf(personId).length === 1 ? "" : "s"
-          } · ${model.spousesOf(personId).length} union partner${
-            model.spousesOf(personId).length === 1 ? "" : "s"
-          } · ${model.childrenOf(personId).length} child${
-            model.childrenOf(personId).length === 1 ? "" : "ren"
-          } · ${model.contextConnectionsForPerson(personId).length} historical connection${
-            model.contextConnectionsForPerson(personId).length === 1 ? "" : "s"
-          }`
-        : `${model.getContextEntity(personId).kind} · ${model.contextConnectionsFor(personId).length} research connections`;
+      const connections = model.connectionsFor(personId).length;
+      focusStatus.textContent = `${person.type} · ${connections} connection${connections === 1 ? "" : "s"}`;
 
       if (detailsRecord) {
         renderDetailsRecord();
@@ -298,28 +252,15 @@ async function startApplication() {
     }
   }
 
-  function renderDetails(personId: string): void {
-    renderDetailsPanel(detailsPanel, model, personId, {
-      onClose: closeDetails,
-      onNavigate: (relativeId) => {
-        void focusPerson(relativeId);
-        openDetails(relativeId);
-      },
-      onOpenContextEntity: openContextDetails,
-    });
-  }
+  const panelHandlers = {
+    onClose: () => closeDetails(),
+    onOpenNode: (nodeId: string) => showNode(nodeId),
+    onOpenStatement: (claimId: string) =>
+      openDetails({ kind: "statement", id: claimId, ...(detailsRecord?.kind === "node" ? { from: detailsRecord.id } : {}) }),
+  };
 
-  function openDetails(personId: string): void {
-    detailsRecord = { kind: "person", id: personId };
-    renderDetailsRecord();
-    workspace.classList.add("details-open");
-    detailsPanel.ariaHidden = "false";
-    detailsPanel.scrollTop = 0;
-    window.setTimeout(() => renderer.centerOn(currentFocusId), 360);
-  }
-
-  function openContextDetails(entityId: string): void {
-    detailsRecord = { kind: "context", id: entityId };
+  function openDetails(record: NonNullable<typeof detailsRecord>): void {
+    detailsRecord = record;
     renderDetailsRecord();
     workspace.classList.add("details-open");
     detailsPanel.ariaHidden = "false";
@@ -328,31 +269,14 @@ async function startApplication() {
   }
 
   function renderDetailsRecord(): void {
-    if (!detailsRecord) {
+    if (!detailsRecord) return;
+    if (detailsRecord.kind === "node") {
+      renderNodePanel(detailsPanel, nodeView(model, detailsRecord.id), panelHandlers);
+      window.dispatchEvent(new CustomEvent("research:inspect", { detail: { id: detailsRecord.id } }));
       return;
     }
-
-    if (detailsRecord.kind === "person") {
-      renderDetails(detailsRecord.id);
-      window.dispatchEvent(
-        new CustomEvent("research:inspect", {
-          detail: { id: detailsRecord.id },
-        }),
-      );
-      return;
-    }
-
-    renderContextDetailsPanel(detailsPanel, model, detailsRecord.id, {
-      onClose: closeDetails,
-      onNavigate: (personId) => {
-        void focusPerson(personId);
-        openDetails(personId);
-      },
-      onOpenContextEntity: openContextDetails,
-    });
-    window.dispatchEvent(
-      new CustomEvent("research:inspect", { detail: { id: detailsRecord.id } }),
-    );
+    const from = detailsRecord.from && model.hasNode(detailsRecord.from) ? model.getNode(detailsRecord.from) : undefined;
+    renderStatementPanel(detailsPanel, statementView(model, detailsRecord.id), panelHandlers, from && { id: from.id, name: from.name });
   }
 
   function closeDetails(): void {
@@ -368,36 +292,17 @@ async function startApplication() {
   }
 
   function renderSearchResults(): void {
-    const personMatches = model.search(searchInput.value).map((person) => ({
-      id: person.id,
-      name: person.name,
-      context: [person.lifespan, person.descriptor].filter(Boolean).join(" · "),
-      kind: "person" as const,
-    }));
-    const contextMatches = model
-      .searchContext(searchInput.value)
-      .map((entity) => ({
-        id: entity.id,
-        name: entity.name,
-        context: [
-          entity.kind === "family" ? "Family network" : entity.kind,
-          entity.activeDates,
-          entity.descriptor,
-        ]
-          .filter(Boolean)
-          .join(" · "),
-        kind: "context" as const,
-      }));
-    const matches = [...personMatches, ...contextMatches]
-      .sort((a, b) => a.name.localeCompare(b.name))
-      .slice(0, 8);
+    const matches = model
+      .search(searchInput.value)
+      .slice(0, 8)
+      .map((node) => ({ id: node.id, name: node.name, context: [node.type, node.dates].filter(Boolean).join(" · ") }));
     searchResults.replaceChildren();
 
     if (matches.length === 0) {
       if (searchInput.value.trim()) {
         const empty = document.createElement("p");
         empty.className = "search-empty";
-        empty.textContent = "No matching people or organizations found.";
+        empty.textContent = "Nothing in the graph matches.";
         searchResults.append(empty);
         searchResults.hidden = false;
         searchInput.ariaExpanded = "true";
@@ -419,12 +324,7 @@ async function startApplication() {
       context.textContent = match.context;
       button.append(name, context);
       button.addEventListener("click", () => {
-        if (match.kind === "person") {
-          void focusPerson(match.id);
-        } else {
-          void focusPerson(match.id);
-          openContextDetails(match.id);
-        }
+        showNode(match.id);
         searchInput.value = "";
         closeSearch();
         searchInput.focus();
@@ -442,16 +342,10 @@ async function startApplication() {
       closeSearch();
     }
     if (event.key === "Enter") {
-      const firstPerson = model.search(searchInput.value)[0];
-      const firstContext = model.searchContext(searchInput.value)[0];
-      if (firstPerson || firstContext) {
+      const first = model.search(searchInput.value)[0];
+      if (first) {
         event.preventDefault();
-        if (firstPerson) {
-          void focusPerson(firstPerson.id);
-        } else if (firstContext) {
-          void focusPerson(firstContext.id);
-          openContextDetails(firstContext.id);
-        }
+        showNode(first.id);
         searchInput.value = "";
         closeSearch();
       }
@@ -501,13 +395,13 @@ async function startApplication() {
         ? event.state.focusId
         : focusIdFromHash();
     if (stateFocus) {
-      void focusPerson(stateFocus, "none");
+      void focusNode(stateFocus, "none");
     }
   });
 
   const empty = document.createElement("section");
   empty.className = "empty-research";
-  empty.innerHTML = `<span class="eyebrow">A new investigation starts here</span><h2></h2><p>No findings yet. Start with a question or bring in sources you already have. People, places, and organizations will appear as you review and accept research.</p><div class="empty-actions"><button class="primary" type="button" data-ask-topic>Ask a research question</button><button type="button" data-open-sources>Add sources</button><button type="button" data-organize-project>Add a starting point</button></div>`;
+  empty.innerHTML = `<span class="eyebrow">A new investigation starts here</span><h2></h2><p>No findings yet. Start with a question or bring in sources you already have. What the research is about will appear here as you review and accept it.</p><div class="empty-actions"><button class="primary" type="button" data-ask-topic>Ask a research question</button><button type="button" data-open-sources>Add sources</button><button type="button" data-organize-project>Add a starting point</button></div>`;
   empty.querySelector("h2")!.textContent = dataset.title;
   empty.dataset.researchTarget = JSON.stringify({
     label: dataset.title,
@@ -515,7 +409,7 @@ async function startApplication() {
   });
   graphContainer.after(empty);
   function showDataset() {
-    const hasNodes = model.peopleById.size + model.contextEntitiesById.size > 0;
+    const hasNodes = model.nodesById.size > 0;
     empty.hidden = hasNodes;
     requiredElement<HTMLElement>(".focus-banner").hidden = !hasNodes;
     requiredElement<HTMLElement>(".record-count").hidden = !hasNodes;
@@ -525,8 +419,8 @@ async function startApplication() {
     const counts =
       requiredElement<HTMLElement>(".record-count").querySelectorAll("strong");
     [
-      model.peopleById.size + model.contextEntitiesById.size,
-      model.dataset.claims?.filter((c) => "entityId" in c.object).length ?? 0,
+      model.nodesById.size,
+      model.connections.length,
       model.dataset.sources?.length ?? 0,
     ].forEach((n, index) => {
       counts[index]!.textContent = String(n);
@@ -549,16 +443,28 @@ async function startApplication() {
     currentFocusId = model.hasNode(currentFocusId)
       ? currentFocusId
       : model.initialFocus!.id;
-    if (detailsRecord && !model.hasNode(detailsRecord.id)) closeDetails();
+    const legend = requiredElement<HTMLElement>(".graph-legend");
+    legend.innerHTML = [
+      ...model.dataset.types
+        .filter((type) => model.dataset.nodes.some((node) => node.type === type.name))
+        .map((type) => `<div class="look-${model.schema.look({ type: type.name }).color}"><span class="legend-node legend-type"></span><span>${escapeHtml(type.name)}</span></div>`),
+      '<div><span class="legend-line"></span><span>Established</span></div>',
+      '<div><span class="legend-line legend-probable"></span><span>Probable</span></div>',
+      '<div><span class="legend-line legend-disputed"></span><span>Disputed</span></div>',
+    ].join("");
+    const gone =
+      detailsRecord &&
+      (detailsRecord.kind === "node" ? !model.hasNode(detailsRecord.id) : !model.dataset.claims?.some((c) => c.id === detailsRecord!.id));
+    if (gone) closeDetails();
     updateHash(currentFocusId, "replace");
-    void focusPerson(currentFocusId, "none");
+    void focusNode(currentFocusId, "none");
   }
   currentFocusId = focusIdFromHash() ?? model.initialFocus?.id ?? "";
   showDataset();
 
   if (researchState)
     mountResearchWorkspace(researchState, (updated) => {
-      model = new GenealogyModel(updated);
+      model = new GraphModel(updated);
       showDataset();
     });
 }

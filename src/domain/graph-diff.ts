@@ -6,7 +6,8 @@
 // This is the only place that decides what counts as a merge, so the panel, the tour
 // and the review all describe the same change.
 import { canonical } from "./changes.ts";
-import type { FamilyDataset, ResearchClaim } from "./types";
+import { normalizeName, readable } from "./graph-schema.ts";
+import type { GraphDataset, RelationshipRule, ResearchClaim } from "./types";
 
 export interface NodeChange {
   id: string;
@@ -54,6 +55,8 @@ export interface GraphDiff {
   requalifiedEdges: RequalifiedEdge[];
   rewordedEdges: EdgeChange[];
   recitedEdges: EdgeChange[];
+  // Changes to the project's types and relationship rules, in words.
+  vocabulary: string[];
   // Evidence the draft cites that the graph does not hold yet; accepting copies it in.
   evidenceToCopy: string[];
   unchanged: boolean;
@@ -61,16 +64,51 @@ export interface GraphDiff {
 
 type Node = NodeChange & { record: Record<string, unknown> };
 
-function nodesOf(dataset: FamilyDataset): Map<string, Node> {
-  const entries: Node[] = [
-    ...dataset.people.map((p) => ({ id: p.id, kind: "person", name: p.name, record: p as unknown as Record<string, unknown> })),
-    ...(dataset.contextEntities || []).map((e) => ({ id: e.id, kind: e.kind as string, name: e.name, record: e as unknown as Record<string, unknown> })),
-  ];
+function nodesOf(dataset: GraphDataset): Map<string, Node> {
+  const entries: Node[] = dataset.nodes.map((n) => ({ id: n.id, kind: n.type, name: n.name, record: n as unknown as Record<string, unknown> }));
   return new Map(entries.map((n) => [n.id, n]));
 }
 
+// What changed in the project's vocabulary: types, their fields and looks, and
+// relationship rules. Each change is one sentence a person can read.
+function vocabularyChanges(before: GraphDataset, after: GraphDataset): string[] {
+  const changes: string[] = [];
+  const byName = <T extends { name: string }>(list: T[] | undefined) => new Map((list || []).map((item) => [normalizeName(item.name), item]));
+  const typesWere = byName(before.types);
+  const typesNow = byName(after.types);
+  for (const [key, type] of typesNow) {
+    const prior = typesWere.get(key);
+    if (!prior) {
+      const fields = type.fields.map((f) => readable(f.name).toLocaleLowerCase());
+      changes.push(`New type: ${type.name}${fields.length ? `, recording ${fields.join(", ")}` : ""}.`);
+      continue;
+    }
+    const fieldsWere = byName(prior.fields);
+    const fieldsNow = byName(type.fields);
+    for (const [name, field] of fieldsNow) {
+      const old = fieldsWere.get(name);
+      if (!old) changes.push(`The ${type.name} type records ${readable(field.name).toLocaleLowerCase()}.`);
+      else if (old.value !== field.value) changes.push(`The ${type.name} type records ${readable(field.name).toLocaleLowerCase()} as a ${field.value}, not a ${old.value}.`);
+    }
+    for (const [name, field] of fieldsWere) if (!fieldsNow.has(name)) changes.push(`The ${type.name} type no longer records ${readable(field.name).toLocaleLowerCase()}.`);
+    if (prior.color !== type.color || prior.shape !== type.shape) changes.push(`The ${type.name} type looks different.`);
+  }
+  for (const [key, type] of typesWere) if (!typesNow.has(key)) changes.push(`The ${type.name} type is gone.`);
+  const rulesWere = byName(before.relationships);
+  const rulesNow = byName(after.relationships);
+  const describe = (rule: RelationshipRule) =>
+    `${readable(rule.name)}${rule.reverse ? ` (read back as "${rule.reverse}")` : ""} ${rule.arrangement === "ranked" ? "is drawn in rows" : rule.arrangement === "paired" ? "is drawn side by side" : "is drawn freely"}`;
+  for (const [key, rule] of rulesNow) {
+    const prior = rulesWere.get(key);
+    if (!prior) changes.push(`New relationship: ${describe(rule)}.`);
+    else if (prior.arrangement !== rule.arrangement || (prior.reverse || "") !== (rule.reverse || "")) changes.push(`Changed relationship: ${describe(rule)}.`);
+  }
+  for (const [key, rule] of rulesWere) if (!rulesNow.has(key)) changes.push(`${readable(rule.name)} has no rule any more.`);
+  return changes;
+}
+
 const plain = ({ id, kind, name }: NodeChange): NodeChange => ({ id, kind, name });
-const edgesOf = (dataset: FamilyDataset) => new Map((dataset.claims || []).map((c) => [c.id, c]));
+const edgesOf = (dataset: GraphDataset) => new Map((dataset.claims || []).map((c) => [c.id, c]));
 const targetOf = (claim: ResearchClaim) => ("entityId" in claim.object ? claim.object.entityId : String(claim.object.value));
 const brief = (claim: ResearchClaim): EdgeChange => ({
   id: claim.id,
@@ -88,7 +126,7 @@ const citations = (claim: ResearchClaim) => ({
 });
 const ends = (claim: ResearchClaim) => [claim.subjectId, "entityId" in claim.object ? claim.object.entityId : undefined];
 
-export function diffGraphs(before: FamilyDataset, after: FamilyDataset): GraphDiff {
+export function diffGraphs(before: GraphDataset, after: GraphDataset): GraphDiff {
   const was = nodesOf(before);
   const now = nodesOf(after);
   const addedNodes: NodeChange[] = [];
@@ -161,6 +199,7 @@ export function diffGraphs(before: FamilyDataset, after: FamilyDataset): GraphDi
     requalifiedEdges,
     rewordedEdges,
     recitedEdges,
+    vocabulary: vocabularyChanges(before, after),
     evidenceToCopy: [...cited].filter((id) => !held.has(id)),
     unchanged: false,
   };
@@ -186,6 +225,7 @@ export function describeDiff(diff: GraphDiff): string {
   if (diff.requalifiedEdges.length) parts.push(`${counted(diff.requalifiedEdges.length, "edge")} requalified`);
   if (diff.recitedEdges.length) parts.push(`${counted(diff.recitedEdges.length, "edge")} with changed citations`);
   if (diff.removedEdges.length) parts.push(`${counted(diff.removedEdges.length, "edge")} removed`);
+  if (diff.vocabulary?.length) parts.push(counted(diff.vocabulary.length, "change to types and relationships", "changes to types and relationships"));
   if (diff.evidenceToCopy.length) parts.push(`${counted(diff.evidenceToCopy.length, "evidence record")} added from the research`);
   const line = parts.join(", ");
   return `${line.charAt(0).toUpperCase()}${line.slice(1)}.`;

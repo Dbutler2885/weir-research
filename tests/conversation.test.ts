@@ -10,7 +10,8 @@ import {
   repairClosedBatches,
   unassignedAnnotations,
 } from "../src/domain/conversation";
-import empty from "../src/data/empty.json";
+import { emptyGraph } from "../src/domain/graph-schema";
+const empty = emptyGraph();
 
 let state: ResearchState;
 function run(command: ResearchCommand): any {

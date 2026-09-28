@@ -1,24 +1,17 @@
-import ELK, {
-  type ElkEdgeSection,
-  type ElkExtendedEdge,
-  type ElkNode,
-  type ElkPoint,
-} from "elkjs/lib/elk.bundled.js";
-import { GenealogyModel } from "../domain/model";
+// Where every node and line of the graph goes.
+//
+// There is one layout for every graph. Relationships the project ranks, such as a
+// parent above a child, put their nodes in rows; paired ones, such as a couple, set
+// them side by side; everything else arranges itself freely around them. Ranked and
+// paired relationships are drawn as family-tree lines: a bar joining a couple, and a
+// line dropping from it to their children.
+import { GraphModel } from "../domain/model";
 import type { Confidence, Emphasis, FocusProjection } from "../domain/types";
-import { layoutNetwork } from "./network";
-import { CONTEXT_WIDTH, contextSize } from "./node-size";
-
-const PERSON_WIDTH = 224;
-const PERSON_HEIGHT = 104;
-const UNION_SIZE = 20;
+import { layoutNetwork, type StructureLink } from "./network";
+import { nodeSize } from "./node-size";
 
 export interface LayoutNode {
   id: string;
-  kind: "person" | "union" | "context";
-  personId?: string;
-  unionId?: string;
-  contextEntityId?: string;
   x: number;
   y: number;
   width: number;
@@ -26,19 +19,24 @@ export interface LayoutNode {
   emphasis: Emphasis;
 }
 
+export interface LayoutPoint {
+  x: number;
+  y: number;
+}
+
 export interface LayoutEdge {
-  curved?: boolean;
+  // The edge the line draws, so selecting it opens that statement.
   id: string;
   sourceId: string;
   targetId: string;
   confidence: Confidence;
-  kind: "family" | "context";
+  kind: "family" | "connection";
   label?: string;
-  points: ElkPoint[];
+  points: LayoutPoint[];
+  curved?: boolean;
 }
 
-export interface FamilyLayout {
-  mode?: "network";
+export interface GraphLayout {
   focusId: string;
   width: number;
   height: number;
@@ -46,358 +44,140 @@ export interface FamilyLayout {
   edges: LayoutEdge[];
 }
 
-interface EdgeMetadata {
-  sourceId: string;
-  targetId: string;
-  confidence: Confidence;
-  kind: "family" | "context";
-  label?: string;
-}
-
-const elk = new ELK();
-
-function unionEmphasis(
-  model: GenealogyModel,
-  projection: FocusProjection,
-  unionId: string,
-): Emphasis {
-  const union = model.getUnion(unionId);
-  const emphasisRank: Record<Emphasis, number> = {
-    focus: 0,
-    immediate: 1,
-    near: 2,
-    remote: 3,
-  };
-  let best: Emphasis = "remote";
-
-  for (const personId of [...union.partnerIds, ...(union.childIds ?? [])]) {
-    const emphasis = projection.people.get(personId)?.emphasis ?? "remote";
-    if (emphasisRank[emphasis] < emphasisRank[best]) {
-      best = emphasis;
-    }
+// Each node's row, for nodes joined by ranked or paired relationships. A node takes
+// the first row it is reached at, so a contradiction, such as a disputed parent, never
+// puts one node in two rows. Each group's top row is row zero.
+export function rowsOf(model: GraphModel): Map<string, number> {
+  const steps = new Map<string, { to: string; step: number }[]>();
+  const add = (from: string, to: string, step: number) => steps.set(from, [...(steps.get(from) ?? []), { to, step }]);
+  for (const c of model.connections) {
+    if (c.arrangement === "free") continue;
+    const step = c.arrangement === "ranked" ? 1 : 0;
+    add(c.fromId, c.toId, step);
+    add(c.toId, c.fromId, -step);
   }
-
-  return best;
-}
-
-function edgePoints(
-  section: ElkEdgeSection | undefined,
-  source: LayoutNode,
-  target: LayoutNode,
-): ElkPoint[] {
-  if (section) {
-    return [
-      section.startPoint,
-      ...(section.bendPoints ?? []),
-      section.endPoint,
-    ];
-  }
-
-  return [
-    { x: source.x + source.width / 2, y: source.y + source.height },
-    { x: target.x + target.width / 2, y: target.y },
-  ];
-}
-
-function unionPriority(
-  model: GenealogyModel,
-  projection: FocusProjection,
-  unionId: string,
-): number {
-  const union = model.getUnion(unionId);
-  return Math.min(
-    ...[...union.partnerIds, ...(union.childIds ?? [])].map(
-      (personId) =>
-        projection.people.get(personId)?.order ?? Number.MAX_SAFE_INTEGER,
-    ),
-  );
-}
-
-function otherContextEndpoint(
-  connection: { fromId: string; toId: string },
-  nodeId: string,
-): string {
-  return connection.fromId === nodeId ? connection.toId : connection.fromId;
-}
-
-function contextDistanceToFocus(
-  model: GenealogyModel,
-  focusId: string,
-  entityId: string,
-): number {
-  if (entityId === focusId) return 0;
-  const queue: Array<{ id: string; distance: number }> = [
-    { id: entityId, distance: 0 },
-  ];
-  const visited = new Set<string>([entityId]);
-
-  while (queue.length > 0) {
-    const current = queue.shift()!;
-    for (const connection of model.contextConnectionsFor(current.id)) {
-      const nextId = otherContextEndpoint(connection, current.id);
-      if (nextId === focusId) {
-        return current.distance + 1;
-      }
-      if (!visited.has(nextId) && model.contextEntitiesById.has(nextId)) {
-        visited.add(nextId);
-        queue.push({ id: nextId, distance: current.distance + 1 });
+  const rows = new Map<string, number>();
+  for (const start of [...steps.keys()].sort()) {
+    if (rows.has(start)) continue;
+    const group = [start];
+    rows.set(start, 0);
+    for (let i = 0; i < group.length; i++) {
+      const id = group[i]!;
+      for (const { to, step } of steps.get(id)!) {
+        if (rows.has(to)) continue;
+        rows.set(to, rows.get(id)! + step);
+        group.push(to);
       }
     }
+    const top = Math.min(...group.map((id) => rows.get(id)!));
+    for (const id of group) rows.set(id, rows.get(id)! - top);
   }
-
-  return Number.POSITIVE_INFINITY;
+  return rows;
 }
 
-function contextEmphasis(
-  model: GenealogyModel,
-  projection: FocusProjection,
-  entityId: string,
-): Emphasis {
-  const distance = contextDistanceToFocus(model, projection.focusId, entityId);
-  if (distance === 0) return "focus";
-  if (distance === 1) {
-    return "immediate";
-  }
-  if (distance === 2) {
-    return "near";
-  }
+const center = (node: LayoutNode) => ({ x: node.x + node.width / 2, y: node.y + node.height / 2 });
 
-  const connectedPersonEmphases = model
-    .contextConnectionsForEntity(entityId)
-    .flatMap((connection) => [connection.fromId, connection.toId])
-    .filter((nodeId) => model.peopleById.has(nodeId))
-    .map((personId) => projection.people.get(personId)?.emphasis ?? "remote");
-  if (connectedPersonEmphases.includes("focus")) {
-    return "immediate";
+type Child = { node: LayoutNode; edgeId: string; confidence: Confidence; parentId: string };
+
+// Lines from a point above a row of children down to each child. The first line
+// carries the trunk; the rest share the bar between the children without overlapping,
+// so no stretch of line is drawn twice.
+function drops(from: LayoutPoint, children: Child[]): LayoutEdge[] {
+  if (!children.length) return [];
+  const barY = Math.min(...children.map((c) => c.node.y)) - 28;
+  const sorted = [...children].sort((a, b) => center(a.node).x - center(b.node).x);
+  const left = sorted.filter((c) => center(c.node).x < from.x).reverse();
+  const right = sorted.filter((c) => center(c.node).x >= from.x);
+  const edges: LayoutEdge[] = [];
+  for (const side of [right, left]) {
+    let start = from.x;
+    for (const child of side) {
+      const x = center(child.node).x;
+      const trunk = edges.length ? [] : [{ x: from.x, y: from.y }];
+      edges.push({
+        id: child.edgeId,
+        sourceId: child.parentId,
+        targetId: child.node.id,
+        confidence: child.confidence,
+        kind: "family",
+        points: [...trunk, { x: start, y: barY }, { x, y: barY }, { x, y: child.node.y }],
+      });
+      start = x;
+    }
   }
-  if (connectedPersonEmphases.includes("immediate")) {
-    return "near";
-  }
-  return "remote";
+  return edges;
 }
 
-function contextPriority(
-  model: GenealogyModel,
-  projection: FocusProjection,
-  entityId: string,
-): number {
-  const focusDistance = contextDistanceToFocus(
-    model,
-    projection.focusId,
-    entityId,
-  );
-  if (Number.isFinite(focusDistance)) {
-    return focusDistance * 4;
-  }
-
-  return Math.min(
-    ...model
-      .contextConnectionsForEntity(entityId)
-      .flatMap((connection) => [connection.fromId, connection.toId])
-      .filter((nodeId) => model.peopleById.has(nodeId))
-      .map(
-        (personId) =>
-          (projection.people.get(personId)?.order ?? Number.MAX_SAFE_INTEGER) +
-          8,
-      ),
-    Number.MAX_SAFE_INTEGER,
-  );
-}
-
-export async function layoutFamily(
-  model: GenealogyModel,
-  projection: FocusProjection,
-): Promise<FamilyLayout> {
-  const personNodes: ElkNode[] = [...projection.people.values()]
-    .sort((a, b) => a.order - b.order)
-    .map((projected) => ({
-      id: projected.personId,
-      width: PERSON_WIDTH,
-      height: PERSON_HEIGHT,
-      layoutOptions:
-        projected.personId === projection.focusId
-          ? { "elk.priority": "1000" }
-          : { "elk.priority": String(Math.max(1, 100 - projected.order)) },
-    }));
-
-  const unionNodes: ElkNode[] = [...model.unionsById.values()]
-    .sort(
-      (a, b) =>
-        unionPriority(model, projection, a.id) -
-        unionPriority(model, projection, b.id),
-    )
-    .map((union) => ({
-      id: union.id,
-      width: UNION_SIZE,
-      height: UNION_SIZE,
-      layoutOptions: {
-        "elk.priority": String(
-          Math.max(1, 100 - unionPriority(model, projection, union.id)),
-        ),
-      },
-    }));
-
-  const contextNodes: ElkNode[] = [...model.contextEntitiesById.values()]
-    .sort(
-      (a, b) =>
-        contextPriority(model, projection, a.id) -
-        contextPriority(model, projection, b.id),
-    )
-    .map((entity) => ({
-      id: entity.id,
-      ...contextSize(entity.name),
-      layoutOptions: {
-        "elk.priority": String(
-          Math.max(1, 96 - contextPriority(model, projection, entity.id)),
-        ),
-      },
-    }));
-
-  const edgeMetadata = new Map<string, EdgeMetadata>();
-  const edges: ElkExtendedEdge[] = [];
-  const addEdge = (
-    id: string,
-    sourceId: string,
-    targetId: string,
-    confidence: Confidence,
-    kind: "family" | "context",
-    label?: string,
-  ): void => {
-    edges.push({ id, sources: [sourceId], targets: [targetId] });
-    edgeMetadata.set(id, { sourceId, targetId, confidence, kind, label });
-  };
-
+function familyLines(model: GraphModel, byId: Map<string, LayoutNode>): LayoutEdge[] {
+  const edges: LayoutEdge[] = [];
   for (const union of model.unionsById.values()) {
-    const confidence = union.confidence ?? "established";
-    for (const partnerId of union.partnerIds) {
-      addEdge(
-        `${union.id}:partner:${partnerId}`,
-        partnerId,
-        union.id,
-        confidence,
-        "family",
-        union.label,
-      );
-    }
-    for (const childId of union.childIds ?? []) {
-      addEdge(
-        `${union.id}:child:${childId}`,
-        union.id,
-        childId,
-        confidence,
-        "family",
-      );
-    }
+    const [a, b] = union.partnerIds.map((id) => byId.get(id)!).sort((p, q) => p.x - q.x);
+    if (!a || !b) continue;
+    const ya = center(a).y;
+    const yb = center(b).y;
+    const start = { x: a.x + a.width, y: ya };
+    const end = { x: b.x, y: yb };
+    const middle = (start.x + end.x) / 2;
+    edges.push({
+      id: union.id,
+      sourceId: a.id,
+      targetId: b.id,
+      confidence: union.confidence ?? "established",
+      kind: "family",
+      points: ya === yb ? [start, end] : [start, { x: middle, y: ya }, { x: middle, y: yb }, end],
+    });
+    const children = (union.childIds ?? []).flatMap((childId): Child[] => {
+      const link = model.parentsOf(childId).find((l) => l.unionId === union.id);
+      const node = byId.get(childId);
+      return link && node ? [{ node, edgeId: link.id, confidence: link.confidence, parentId: link.parentId }] : [];
+    });
+    edges.push(...drops({ x: middle, y: (ya + yb) / 2 }, children));
   }
-
-  for (const link of model.directParentLinks) {
-    addEdge(
-      link.id,
-      link.parentId,
-      link.childId,
-      link.confidence ?? "established",
-      "family",
-      link.label,
-    );
+  const byParent = new Map<string, (typeof model.parentLinks)[number][]>();
+  for (const link of model.directParentLinks) byParent.set(link.parentId, [...(byParent.get(link.parentId) ?? []), link]);
+  for (const [parentId, links] of byParent) {
+    const parent = byId.get(parentId)!;
+    const children = links.map((link) => ({ node: byId.get(link.childId)!, edgeId: link.id, confidence: link.confidence, parentId }));
+    edges.push(...drops({ x: center(parent).x, y: parent.y + parent.height }, children));
   }
+  return edges;
+}
 
-  for (const connection of model.contextConnections) {
-    addEdge(
-      connection.id,
-      connection.fromId,
-      connection.toId,
-      connection.confidence ?? "established",
-      "context",
-      connection.label,
-    );
-  }
-
-  if (model.contextConnections.length > 0) {
-    const nodes: LayoutNode[] = [...personNodes, ...unionNodes, ...contextNodes].map(node => ({
-      id: node.id,
-      kind: model.peopleById.has(node.id) ? "person" : model.unionsById.has(node.id) ? "union" : "context",
-      personId: model.peopleById.has(node.id) ? node.id : undefined,
-      unionId: model.unionsById.has(node.id) ? node.id : undefined,
-      contextEntityId: model.contextEntitiesById.has(node.id) ? node.id : undefined,
-      x: 0, y: 0, width: node.width!, height: node.height!, emphasis: "remote",
+export function layoutGraph(model: GraphModel, projection: FocusProjection): GraphLayout {
+  const nodes: LayoutNode[] = model.dataset.nodes.map((node) => ({
+    id: node.id,
+    x: 0,
+    y: 0,
+    ...nodeSize(node.name),
+    emphasis: projection.nodes.get(node.id)?.emphasis ?? "remote",
+  }));
+  const free: LayoutEdge[] = model.connections
+    .filter((c) => c.arrangement === "free")
+    .map((c) => ({
+      id: c.id,
+      sourceId: c.fromId,
+      targetId: c.toId,
+      confidence: c.confidence,
+      kind: "connection",
+      label: c.claim.predicate.replaceAll("_", " "),
+      points: [],
     }));
-    return layoutNetwork(projection.focusId, nodes, [...edgeMetadata].map(([id, metadata]) => ({id, ...metadata, points: []})));
-  }
-
-  const graph: ElkNode = {
-    id: "family",
-    children: [...personNodes, ...unionNodes, ...contextNodes],
-    edges,
-    layoutOptions: {
-      "elk.algorithm": "layered",
-      "elk.direction": "DOWN",
-      "elk.edgeRouting": "ORTHOGONAL",
-      "elk.spacing.nodeNode": "36",
-      "elk.layered.spacing.nodeNodeBetweenLayers": "86",
-      "elk.layered.spacing.edgeNodeBetweenLayers": "28",
-      "elk.layered.considerModelOrder.strategy": "NODES_AND_EDGES",
-      "elk.layered.crossingMinimization.forceNodeModelOrder": "true",
-      "elk.layered.nodePlacement.strategy": "BRANDES_KOEPF",
-      "elk.padding": "[top=56,left=56,bottom=56,right=56]",
-    },
-  };
-
-  const result = await elk.layout(graph);
-  const nodes: LayoutNode[] = (result.children ?? []).map((node) => {
-    const isPerson = model.peopleById.has(node.id);
-    const isUnion = model.unionsById.has(node.id);
-    const isContext = model.contextEntitiesById.has(node.id);
-    return {
-      id: node.id,
-      kind: isPerson ? "person" : isUnion ? "union" : "context",
-      personId: isPerson ? node.id : undefined,
-      unionId: isUnion ? node.id : undefined,
-      contextEntityId: isContext ? node.id : undefined,
-      x: node.x ?? 0,
-      y: node.y ?? 0,
-      width:
-        node.width ??
-        (isPerson ? PERSON_WIDTH : isUnion ? UNION_SIZE : CONTEXT_WIDTH),
-      height:
-        node.height ??
-        (isPerson
-          ? PERSON_HEIGHT
-          : isUnion
-            ? UNION_SIZE
-            : contextSize(model.contextEntitiesById.get(node.id)!.name).height),
-      emphasis: isPerson
-        ? (projection.people.get(node.id)?.emphasis ?? "remote")
-        : isUnion
-          ? unionEmphasis(model, projection, node.id)
-          : contextEmphasis(model, projection, node.id),
-    };
-  });
-  const nodesById = new Map(nodes.map((node) => [node.id, node]));
-  const laidOutEdges: LayoutEdge[] = (result.edges ?? []).flatMap((edge) => {
-    const metadata = edgeMetadata.get(edge.id);
-    if (!metadata) {
-      return [];
-    }
-    const source = nodesById.get(metadata.sourceId);
-    const target = nodesById.get(metadata.targetId);
-    if (!source || !target) {
-      return [];
-    }
-
-    return [
-      {
-        id: edge.id,
-        ...metadata,
-        points: edgePoints(edge.sections?.[0], source, target),
-      },
-    ];
-  });
-
+  const links: StructureLink[] = model.connections
+    .filter((c) => c.arrangement !== "free")
+    .map((c) => ({ source: c.fromId, target: c.toId, arrangement: c.arrangement as StructureLink["arrangement"] }));
+  const layout = layoutNetwork(projection.focusId, nodes, free, { rows: rowsOf(model), links });
+  const lines = familyLines(model, new Map(layout.nodes.map((node) => [node.id, node])));
+  const edges = [...lines, ...layout.edges];
+  // Family lines stay among the cards they join, but a contradiction can send one outside.
+  const points = edges.flatMap((edge) => edge.points);
+  const shiftX = Math.max(0, 32 - Math.min(Infinity, ...points.map((p) => p.x)));
+  const shiftY = Math.max(0, 32 - Math.min(Infinity, ...points.map((p) => p.y)));
+  for (const node of layout.nodes) { node.x += shiftX; node.y += shiftY; }
+  for (const point of points) { point.x += shiftX; point.y += shiftY; }
   return {
-    focusId: projection.focusId,
-    width: result.width ?? 0,
-    height: result.height ?? 0,
-    nodes,
-    edges: laidOutEdges,
+    ...layout,
+    edges,
+    width: Math.max(layout.width + shiftX, ...points.map((p) => p.x + 32)),
+    height: Math.max(layout.height + shiftY, ...points.map((p) => p.y + 32)),
   };
 }

@@ -1,76 +1,7 @@
 {
-  "version": 2,
+  "version": 3,
   "title": "Fictional workshop fixture",
   "initialFocusId": "alex",
-  "people": [
-    {
-      "id": "alex",
-      "name": "Alex Example",
-      "biography": "Fictional test record.",
-      "sourceIds": [
-        "register"
-      ],
-      "alternateNames": [
-        "Lex"
-      ],
-      "descriptor": "Tool maker"
-    },
-    {
-      "id": "blair",
-      "name": "Blair Example",
-      "biography": "Fictional test record.",
-      "sourceIds": [
-        "register"
-      ]
-    },
-    {
-      "id": "casey",
-      "name": "Casey Example",
-      "biography": "Fictional test record.",
-      "sourceIds": [
-        "register"
-      ]
-    },
-    {
-      "id": "drew",
-      "name": "Drew Example",
-      "biography": "Fictional test record.",
-      "sourceIds": [
-        "register"
-      ]
-    },
-    {
-      "id": "erin",
-      "name": "Erin Example",
-      "biography": "Fictional test record.",
-      "sourceIds": [
-        "register"
-      ]
-    },
-    {
-      "id": "fran",
-      "name": "Fran Example",
-      "biography": "Fictional test record.",
-      "sourceIds": [
-        "register"
-      ]
-    }
-  ],
-  "contextEntities": [
-    {
-      "id": "workshop",
-      "name": "Example Workshop",
-      "kind": "organization",
-      "sourceIds": [
-        "register"
-      ]
-    },
-    {
-      "id": "town",
-      "name": "Example Town",
-      "kind": "place"
-    }
-  ],
   "sources": [
     {
       "id": "register",
@@ -223,6 +154,156 @@
       "sourceIds": [
         "register"
       ]
+    },
+    {
+      "id": "alex-also_known_as",
+      "subjectId": "alex",
+      "predicate": "also_known_as",
+      "object": {
+        "value": "Lex"
+      },
+      "qualification": "reported",
+      "time": null,
+      "reasoning": "Carried over from the node's earlier record, which kept it without evidence.",
+      "evidence": []
+    }
+  ],
+  "nodes": [
+    {
+      "id": "alex",
+      "name": "Alex Example",
+      "type": "person",
+      "summary": "Tool maker.\n\nFictional test record.",
+      "sourceIds": [
+        "register"
+      ]
+    },
+    {
+      "id": "blair",
+      "name": "Blair Example",
+      "type": "person",
+      "summary": "Fictional test record.",
+      "sourceIds": [
+        "register"
+      ]
+    },
+    {
+      "id": "casey",
+      "name": "Casey Example",
+      "type": "person",
+      "summary": "Fictional test record.",
+      "sourceIds": [
+        "register"
+      ]
+    },
+    {
+      "id": "drew",
+      "name": "Drew Example",
+      "type": "person",
+      "summary": "Fictional test record.",
+      "sourceIds": [
+        "register"
+      ]
+    },
+    {
+      "id": "erin",
+      "name": "Erin Example",
+      "type": "person",
+      "summary": "Fictional test record.",
+      "sourceIds": [
+        "register"
+      ]
+    },
+    {
+      "id": "fran",
+      "name": "Fran Example",
+      "type": "person",
+      "summary": "Fictional test record.",
+      "sourceIds": [
+        "register"
+      ]
+    },
+    {
+      "id": "workshop",
+      "name": "Example Workshop",
+      "type": "organization",
+      "sourceIds": [
+        "register"
+      ]
+    },
+    {
+      "id": "town",
+      "name": "Example Town",
+      "type": "place"
+    }
+  ],
+  "types": [
+    {
+      "name": "person",
+      "color": "sea",
+      "shape": "rounded",
+      "fields": [
+        {
+          "name": "born",
+          "value": "date"
+        },
+        {
+          "name": "died",
+          "value": "date"
+        },
+        {
+          "name": "also_known_as",
+          "value": "text"
+        }
+      ]
+    },
+    {
+      "name": "organization",
+      "color": "rust",
+      "shape": "square",
+      "fields": []
+    },
+    {
+      "name": "place",
+      "color": "moss",
+      "shape": "round",
+      "fields": []
+    }
+  ],
+  "relationships": [
+    {
+      "name": "parent_of",
+      "reverse": "child of",
+      "arrangement": "ranked"
+    },
+    {
+      "name": "father_of",
+      "reverse": "child of",
+      "arrangement": "ranked"
+    },
+    {
+      "name": "mother_of",
+      "reverse": "child of",
+      "arrangement": "ranked"
+    },
+    {
+      "name": "married_to",
+      "arrangement": "paired"
+    },
+    {
+      "name": "spouse_of",
+      "reverse": "married to",
+      "arrangement": "paired"
+    },
+    {
+      "name": "wife_of",
+      "reverse": "married to",
+      "arrangement": "paired"
+    },
+    {
+      "name": "husband_of",
+      "reverse": "married to",
+      "arrangement": "paired"
     }
   ]
 }

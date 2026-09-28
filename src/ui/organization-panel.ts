@@ -24,19 +24,20 @@ export function mountOrganizationPanel(
   function show() {
     previewId = undefined;
     const state = getState();
-    const nodes = [
-      ...state.dataset.people.map((p) => ({ ...p, kind: "person" })),
-      ...(state.dataset.contextEntities || []),
-    ];
+    const nodes = state.dataset.nodes;
+    // The project's own types first, then a few common ones.
+    const suggestions = [...new Set([...state.dataset.types.map((t) => t.name), "person", "place", "organization", "family", "event"])];
     const last = state.organization?.history.at(-1);
     dialog.innerHTML = `<div class="dialog-heading"><span class="eyebrow">Your research workspace</span><button type="button" data-close-organization aria-label="Close organization">×</button></div>
       <h2>${nodes.length ? "Organize the graph" : "Add a starting point"}</h2>
       <p>Starting points identify what to investigate. They do not add researched claims.</p>
       <form id="organization-form">
-      ${nodes.length ? `<fieldset class="organization-nodes"><legend>Keep these nodes</legend><div class="organization-selection"><button type="button" data-select-nodes="all">Select all</button><button type="button" data-select-nodes="none">Clear selection</button></div>${nodes.map((n) => `<label><input type="checkbox" name="keep" value="${escape(n.id)}" checked><span>${escape(n.name)}<small>${escape(n.kind)}</small></span></label>`).join("")}</fieldset>` : ""}
+      ${nodes.length ? `<fieldset class="organization-nodes"><legend>Keep these nodes</legend><div class="organization-selection"><button type="button" data-select-nodes="all">Select all</button><button type="button" data-select-nodes="none">Clear selection</button></div>${nodes.map((n) => `<label><input type="checkbox" name="keep" value="${escape(n.id)}" checked><span>${escape(n.name)}<small>${escape(n.type)}</small></span></label>`).join("")}</fieldset>` : ""}
       <label for="starting-name">${nodes.length ? "Add a starting point (optional)" : "Name"}</label>
       <input id="starting-name" name="name" maxlength="200" placeholder="For example, Lubec, Maine" ${nodes.length ? "" : "required"}>
-      <label for="starting-kind">Type</label><select id="starting-kind" name="kind"><option value="place">Place</option><option value="organization">Organization</option><option value="person">Person</option><option value="family">Family</option><option value="event">Event</option><option value="vessel">Vessel</option></select>
+      <label for="starting-type">Type</label>
+      <input id="starting-type" name="type" maxlength="200" list="starting-types" placeholder="For example, place, person or ship">
+      <datalist id="starting-types">${suggestions.map((t) => `<option value="${escape(t)}"></option>`).join("")}</datalist>
       <p class="muted">Sources, annotations, investigation history, and coordinator notes stay saved. Active work will pause so its references can be checked.</p>
       <button class="primary" type="submit">Preview changes</button></form>
       <div id="organization-preview" hidden></div>
@@ -53,7 +54,7 @@ export function mountOrganizationPanel(
           const preview = await request("/api/organization", {
             action: "organization-preview",
             keepIds: form.getAll("keep"),
-            ...(name ? { seed: { name, kind: form.get("kind") } } : {}),
+            ...(name ? { seed: { name, type: String(form.get("type") || "").trim() } } : {}),
             reason: nodes.length
               ? "Keep selected research nodes"
               : `Add starting point: ${name}`,

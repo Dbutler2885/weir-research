@@ -1,26 +1,30 @@
 import { describe, expect, it } from "vitest";
 import { diffGraphs, describeDiff } from "../src/domain/graph-diff.ts";
 import { graphFromTables, graphToTables } from "../src/domain/graph-csv.ts";
-import type { FamilyDataset, ResearchClaim } from "../src/domain/types";
+import type { GraphDataset, ResearchClaim } from "../src/domain/types";
 
 // Explicitly fictional: an invented bay and three made-up works.
 const edge = (id: string, from: string, name: string, object: ResearchClaim["object"], qualification: ResearchClaim["qualification"] = "supported"): ResearchClaim => ({
   id, subjectId: from, predicate: name, object, qualification, time: null, reasoning: "From the invented ledger.", evidence: [],
 });
 
-function graph(): FamilyDataset {
+function graph(): GraphDataset {
   return {
-    version: 2,
+    version: 3,
     title: "Example Bay",
     initialFocusId: "works-north",
-    people: [],
-    contextEntities: [
-      { id: "place-bay", name: "Example Bay", kind: "place" },
-      { id: "street-water", name: "Water Street", kind: "place" },
-      { id: "works-north", name: "North Works", kind: "facility" },
-      { id: "works-south", name: "South Works", kind: "facility" },
-      { id: "works-old", name: "The Old Works", kind: "facility" },
+    nodes: [
+      { id: "place-bay", name: "Example Bay", type: "place", summary: "An invented bay." },
+      { id: "street-water", name: "Water Street", type: "place", summary: "An invented street." },
+      { id: "works-north", name: "North Works", type: "facility", summary: "An invented works." },
+      { id: "works-south", name: "South Works", type: "facility", summary: "Another invented works." },
+      { id: "works-old", name: "The Old Works", type: "facility", summary: "An old invented works." },
     ],
+    types: [
+      { name: "place", color: "moss", fields: [] },
+      { name: "facility", fields: [{ name: "built", value: "number" }] },
+    ],
+    relationships: [{ name: "located_in", reverse: "site of", arrangement: "free" }],
     sources: [{ id: "src-ledger", title: "Invented ledger" }],
     evidence: [{ id: "ev-1", sourceId: "src-ledger", quote: "", context: "", locator: "p. 1", interpretation: "" }],
     claims: [
@@ -33,9 +37,9 @@ function graph(): FamilyDataset {
 }
 
 // The old works turns out to be North Works: its row goes and its edges move.
-function merged(): FamilyDataset {
+function merged(): GraphDataset {
   const after = graph();
-  after.contextEntities = after.contextEntities!.filter((e) => e.id !== "works-old");
+  after.nodes = after.nodes.filter((n) => n.id !== "works-old");
   after.claims = after.claims!
     .filter((c) => c.id !== "c-old-same")
     .map((c) => (c.subjectId === "works-old" ? { ...c, subjectId: "works-north" } : c));
@@ -63,7 +67,7 @@ describe("what a draft changes", () => {
 
   it("reports a node whose edges went to two places once, as a removal naming both", () => {
     const after = graph();
-    after.contextEntities = after.contextEntities!.filter((e) => e.id !== "works-old");
+    after.nodes = after.nodes.filter((n) => n.id !== "works-old");
     after.claims = [
       edge("c-north-in-bay", "works-north", "located_in", { entityId: "place-bay" }),
       edge("c-old-in-bay", "works-south", "located_in", { entityId: "place-bay" }),
@@ -79,7 +83,7 @@ describe("what a draft changes", () => {
 
   it("reports a genuine deletion as a removal with nowhere to go", () => {
     const after = graph();
-    after.contextEntities = after.contextEntities!.filter((e) => e.id !== "works-old");
+    after.nodes = after.nodes.filter((n) => n.id !== "works-old");
     after.claims = after.claims!.filter((c) => c.subjectId !== "works-old");
     const diff = diffGraphs(graph(), after);
     expect(diff.removedNodes).toEqual([{ id: "works-old", kind: "facility", name: "The Old Works", edgesMovedTo: [] }]);
@@ -88,14 +92,14 @@ describe("what a draft changes", () => {
 
   it("separates renames, node edits, rewordings, requalifications and citation changes", () => {
     const after = graph();
-    after.contextEntities![2]!.name = "North Works, Example Bay";
-    after.contextEntities![3]!.descriptor = "A cannery";
+    after.nodes[2]!.name = "North Works, Example Bay";
+    after.nodes[3]!.summary = "A cannery";
     after.claims![0]!.reasoning = "Reworded after a second reading.";
     after.claims![1]!.qualification = "reported";
     after.claims![2]!.evidence = [{ ref: "ev-1", role: "supports" }];
     const diff = diffGraphs(graph(), after);
     expect(diff.renamedNodes.map((n) => [n.id, n.wasName])).toEqual([["works-north", "North Works"]]);
-    expect(diff.editedNodes.map((n) => [n.id, n.fields])).toEqual([["works-south", ["descriptor"]]]);
+    expect(diff.editedNodes.map((n) => [n.id, n.fields])).toEqual([["works-south", ["summary"]]]);
     expect(diff.rewordedEdges.map((e) => e.id)).toEqual(["c-north-in-bay"]);
     expect(diff.requalifiedEdges.map((e) => [e.id, e.wasQualification])).toEqual([["c-old-in-bay", "supported"]]);
     expect(diff.recitedEdges.map((e) => e.id)).toEqual(["c-old-built"]);
@@ -111,10 +115,10 @@ describe("what a draft changes", () => {
 
   it("never calls a draft unchanged when any editable cell changed", () => {
     const base = graphToTables(graph());
-    // One edit per editable column: a node's name, descriptor, biography, dates and
+    // One edit per editable column: a node's type, name, dates, summary, notes and
     // sources, and every column of an edge after its id.
     const node = base["nodes.csv"].split("\n")[3]!.split(",");
-    const nodeEdits: Record<number, string> = { 2: "Renamed", 3: "A descriptor", 4: "A biography", 5: "1880-1900", 10: "src-ledger" };
+    const nodeEdits: Record<number, string> = { 1: "place", 2: "Renamed", 3: "1880-1900", 4: "A summary", 5: "A note", 6: "src-ledger" };
     const edgeRow = base["edges.csv"].split("\n")[1]!.split(",");
     const edgeEdits: Record<number, string> = { 1: "works-south", 2: "renamed", 4: "street-water", 5: "reported", 6: "1890", 7: "Other reasoning.", 8: "ev-1", 9: "ev-1", 10: "ev-1", 11: "src-ledger" };
     const drafts = [
@@ -122,5 +126,27 @@ describe("what a draft changes", () => {
       ...Object.entries(edgeEdits).map(([column, value]) => ({ ...base, "edges.csv": base["edges.csv"].replace(edgeRow.join(","), edgeRow.map((cell, i) => (i === Number(column) ? value : cell)).join(",")) })),
     ];
     for (const files of drafts) expect(diffGraphs(graph(), graphFromTables(files, graph())).unchanged).toBe(false);
+  });
+
+  it("says in words how the project's types and relationships changed", () => {
+    const after = graph();
+    after.types.push({ name: "ship", fields: [{ name: "tonnage", value: "number" }, { name: "home_port", value: "text" }] });
+    after.types[1]!.fields = [{ name: "built", value: "date" }, { name: "workers", value: "number" }];
+    after.types[0]!.color = "sky";
+    after.relationships = [{ name: "located_in", reverse: "site of", arrangement: "ranked" }, { name: "owned", arrangement: "free" }];
+    const diff = diffGraphs(graph(), after);
+    expect(diff.vocabulary).toEqual([
+      "The place type looks different.",
+      "The facility type records built as a date, not a number.",
+      "The facility type records workers.",
+      "New type: ship, recording tonnage, home port.",
+      'Changed relationship: Located in (read back as "site of") is drawn in rows.',
+      "New relationship: Owned is drawn freely.",
+    ]);
+    expect(describeDiff(diff)).toBe("6 changes to types and relationships.");
+    const removed = graph();
+    removed.types = removed.types.slice(0, 1);
+    removed.relationships = [];
+    expect(diffGraphs(graph(), removed).vocabulary).toEqual(["The facility type is gone.", "Located in has no rule any more."]);
   });
 });

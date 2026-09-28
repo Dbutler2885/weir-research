@@ -3,19 +3,21 @@ import { afterEach, describe, it, expect } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { GenealogyModel } from "../src/domain/model";
+import { GraphModel } from "../src/domain/model";
 import { projectAround } from "../src/domain/projection";
-import { layoutFamily } from "../src/layout/layout";
+import { layoutGraph } from "../src/layout/layout";
 import { initialState, transition } from "../src/domain/research";
 import { WorkspaceStore } from "../server/store.mjs";
 import { organize } from "../server/organization.mjs";
-import type { FamilyDataset, ResearchClaim } from "../src/domain/types";
-const empty = (): FamilyDataset => ({
-  version: 2,
+import type { GraphDataset, ResearchClaim } from "../src/domain/types";
+// Explicitly fictional: an invented harbor town and its industries.
+const empty = (): GraphDataset => ({
+  version: 3,
   title: "Industrial history",
   initialFocusId: null,
-  people: [],
-  contextEntities: [],
+  nodes: [],
+  types: [],
+  relationships: [],
   claims: [],
   sources: [],
 });
@@ -33,10 +35,10 @@ function storeFor(data = empty()) {
   directories.push(path);
   return new WorkspaceStore(path, data);
 }
-function add(store: any, name: string, kind: string) {
+function add(store: any, name: string, type: string) {
   const p = organize(store, {
     action: "organization-preview",
-    seed: { name, kind },
+    seed: { name, type },
   }) as any;
   organize(store, { action: "organization-apply", previewId: p.id });
   return p.added[0].id;
@@ -44,7 +46,7 @@ function add(store: any, name: string, kind: string) {
 describe("topic-first research projects", () => {
   it("allows a truly empty project and its first topic annotation", () => {
     const s = initialState(empty());
-    expect(new GenealogyModel(s.dataset).initialFocus).toBeUndefined();
+    expect(new GraphModel(s.dataset).initialFocus).toBeUndefined();
     const result = transition(s, {
       type: "annotate",
       target: { label: s.dataset.title },
@@ -52,40 +54,50 @@ describe("topic-first research projects", () => {
       dispatch: true,
     });
     expect(result.state.investigations[0]!.status).toBe("queued");
-    expect(result.state.dataset.people).toHaveLength(0);
+    expect(result.state.dataset.nodes).toHaveLength(0);
   });
   it("focuses a place in an organization graph without inserting a person", async () => {
     const d = empty();
-    d.initialFocusId = "lubec";
-    d.contextEntities = [
-      { id: "lubec", name: "Lubec, Maine", kind: "place" },
-      { id: "mill", name: "Mill", kind: "organization" },
+    d.initialFocusId = "harbor";
+    d.nodes = [
+      { id: "harbor", name: "Example Harbor", type: "place" },
+      { id: "mill", name: "Mill", type: "organization" },
     ];
-    d.claims = [edge("location", "mill", "location_under_investigation", "lubec", "unresolved")];
-    const m = new GenealogyModel(d);
-    const projection = projectAround(m, "lubec");
-    const layout = await layoutFamily(m, projection);
-    expect(m.initialFocus?.id).toBe("lubec");
-    expect(projection.people.size).toBe(0);
+    d.claims = [edge("location", "mill", "location_under_investigation", "harbor", "unresolved")];
+    const m = new GraphModel(d);
+    const projection = projectAround(m, "harbor");
+    const layout = layoutGraph(m, projection);
+    expect(m.initialFocus?.id).toBe("harbor");
     expect(layout.nodes).toHaveLength(2);
-    expect(layout.nodes.find((n) => n.id === "lubec")!.emphasis).toBe("focus");
+    expect(layout.nodes.find((n) => n.id === "harbor")!.emphasis).toBe("focus");
     expect(layout.edges).toHaveLength(1);
   });
   it("renders people connected to a place without claiming family relationships to the place", async () => {
     const d = empty();
-    d.people = [{ id: "person", name: "A person" }];
-    d.contextEntities = [{ id: "place", name: "A place", kind: "place" }];
+    d.nodes = [
+      { id: "person", name: "A person", type: "person" },
+      { id: "place", name: "A place", type: "place" },
+    ];
     d.claims = [edge("c", "person", "research_connection", "place")];
     d.initialFocusId = "place";
-    const m = new GenealogyModel(d);
+    const m = new GraphModel(d);
     const projection = projectAround(m, "place");
-    expect(projection.people.get("person")!.distance).toBe(1);
-    const layout = await layoutFamily(m, projection);
+    expect(projection.nodes.get("person")!.distance).toBe(1);
+    const layout = layoutGraph(m, projection);
     expect(layout.nodes).toHaveLength(2);
+    expect(layout.edges.map((e) => e.kind)).toEqual(["connection"]);
+  });
+  it("adds a starting point of any type, using the project's own spelling of a type it has", () => {
+    const store = storeFor();
+    add(store, "The Invented", "Schooner");
+    add(store, "The Other", "schooner");
+    expect(store.state.dataset.types).toEqual([{ name: "Schooner", fields: [] }]);
+    expect(store.state.dataset.nodes.map((n: any) => n.type)).toEqual(["Schooner", "Schooner"]);
+    expect(() => organize(store, { action: "organization-preview", seed: { name: "Unnamed type", type: " " } })).toThrow("needs a name and a type");
   });
   it("previews before changing, preserves history and sources, and fences running research", () => {
     const store = storeFor();
-    const place = add(store, "Lubec, Maine", "place");
+    const place = add(store, "Example Harbor", "place");
     add(store, "Unwanted scaffold", "organization");
     store.update((s: any) => {
       s.dataset.sources.push({ id: "original", title: "Preserved source" });
@@ -116,8 +128,7 @@ describe("topic-first research projects", () => {
       action: "organization-apply",
       previewId: preview.id,
     }) as any;
-    expect(store.state.dataset.people).toHaveLength(0);
-    expect(store.state.dataset.contextEntities).toHaveLength(1);
+    expect(store.state.dataset.nodes.map((n: any) => n.type)).toEqual(["place"]);
     expect(store.state.dataset.initialFocusId).toBe(place);
     expect(store.state.dataset.sources).toHaveLength(1);
     expect(store.state.investigations[0]!.annotations).toHaveLength(1);
@@ -143,7 +154,7 @@ describe("topic-first research projects", () => {
   });
   it("rejects stale previews and keeps private undo datasets out of browser payloads", () => {
     const store = storeFor();
-    add(store, "Lubec", "place");
+    add(store, "Example Harbor", "place");
     const preview = organize(store, {
       action: "organization-preview",
       keepIds: [],
@@ -160,8 +171,10 @@ describe("topic-first research projects", () => {
   });
   it("trims dangling relationships and permits an empty result", () => {
     const d = empty();
-    d.people = [{ id: "p", name: "Person" }];
-    d.contextEntities = [{ id: "l", name: "Lubec", kind: "place" }];
+    d.nodes = [
+      { id: "p", name: "Person", type: "person" },
+      { id: "l", name: "Example Harbor", type: "place" },
+    ];
     d.claims = [edge("c", "p", "connection", "l")];
     d.initialFocusId = "p";
     const store = storeFor(d);
@@ -177,7 +190,7 @@ describe("topic-first research projects", () => {
     }) as any;
     organize(store, { action: "organization-apply", previewId: blank.id });
     expect(
-      new GenealogyModel(store.state.dataset).initialFocus,
+      new GraphModel(store.state.dataset).initialFocus,
     ).toBeUndefined();
   });
 });

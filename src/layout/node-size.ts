@@ -1,7 +1,7 @@
-// Place, organization, and event cards grow to show their full names.
-export const CONTEXT_WIDTH = 236;
-const NAME_WIDTH = CONTEXT_WIDTH - 28;
-// Must match .context-name in styles.css; the weight alone changes widths by a tenth.
+// Node cards grow to show their full names.
+export const NODE_WIDTH = 236;
+const NAME_WIDTH = NODE_WIDTH - 28;
+// Must match .node-name in styles.css; the weight alone changes widths by a tenth.
 const NAME_FAMILY = '13.5px "Iowan Old Style", "Palatino Linotype", Palatino, serif';
 const LINE_HEIGHT = 13.5 * 1.08;
 // Beyond this the card clamps the name; the full name stays in the record.
@@ -37,10 +37,10 @@ function nameLines(name: string): number {
   return Math.min(MAX_NAME_LINES, Math.max(2, lines));
 }
 
-// The name box below the kind label, and the card around it with its descriptor line.
-export function contextNameHeight(lines: number): number {
+// The name box below the type label, and the card around it with its dates line.
+export function nodeNameHeight(lines: number): number {
   return Math.ceil(lines * LINE_HEIGHT) + 5;
 }
-export function contextSize(name: string): { width: number; height: number } {
-  return { width: CONTEXT_WIDTH, height: contextNameHeight(nameLines(name)) + 48 };
+export function nodeSize(name: string): { width: number; height: number } {
+  return { width: NODE_WIDTH, height: nodeNameHeight(nameLines(name)) + 48 };
 }

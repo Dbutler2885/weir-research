@@ -1,6 +1,6 @@
-import { GenealogyModel } from './model.ts';
+import { GraphModel } from './model.ts';
 import { canonical } from './changes.ts';
-import type { FamilyDataset, SourceRecord, ResearchEvidence } from './types';
+import type { GraphDataset, SourceRecord, ResearchEvidence } from './types';
 import { diffGraphs, describeDiff } from './graph-diff.ts';
 
 // The proposal format builders wrote before they edited the graph as tables. Only the
@@ -22,17 +22,15 @@ export interface LegacyGraphProposal {
 }
 type GraphDraft = LegacyGraphProposal;
 
-const confidence = {supported: 'established', reported: 'unknown', inferred: 'probable', disputed: 'disputed', unresolved: 'unknown'} as const;
-const types = {located_in: 'location', built_at: 'location', established: 'founding', built: 'founding', operated: 'management', partner_in: 'partnership'} as const;
 
-export function materializeGraph(dataset: FamilyDataset, graph: GraphDraft, evidence: Record<string, ResearchEvidence>, sources: SourceRecord[], ids = graph.groups.map(g => g.id)): FamilyDataset {
+export function materializeGraph(dataset: GraphDataset, graph: GraphDraft, evidence: Record<string, ResearchEvidence>, sources: SourceRecord[], ids = graph.groups.map(g => g.id)): GraphDataset {
   const data = structuredClone(dataset);
   const groups = graph.groups.filter(g => ids.includes(g.id));
   const nodeIds = new Set(groups.flatMap(g => g.nodeIds));
   const claimIds = new Set(groups.flatMap(g => g.claimIds));
   const aliases = new Map(graph.nodes.map(n => [n.id, n.existingId || n.id]));
   const mapped = (id: string) => aliases.get(id) || id;
-  const existing = new Map([...data.people.map(n => ({...n, kind: 'person'})), ...(data.contextEntities || [])].map(n => [n.id, n]));
+  const existing = new Map(data.nodes.map(n => [n.id, n]));
   const sourceMap = new Map((data.sources || []).map(s => [s.id, s]));
   const evidenceMap = new Map((data.evidence || []).map(e => [e.id, e]));
   const availableSources = new Map(sources.map(s => [s.id, s]));
@@ -52,18 +50,17 @@ export function materializeGraph(dataset: FamilyDataset, graph: GraphDraft, evid
     }
     return [...sourceIds];
   };
-  data.contextEntities ||= [];
   for (const node of graph.nodes.filter(n => nodeIds.has(n.id))) {
     if (node.existingId) {
       const prior = existing.get(node.existingId);
-      if (!prior || prior.kind !== node.kind) throw new Error(`Reused node is missing or has a different type: ${node.existingId}`);
+      if (!prior || prior.type !== node.kind) throw new Error(`Reused node is missing or has a different type: ${node.existingId}`);
       continue;
     }
     if (existing.has(node.id)) throw new Error(`Node already exists; record an explicit reuse decision: ${node.id}`);
-    const record = {id: node.id, name: node.label, sourceIds: addEvidence(node.evidenceRefs)};
-    if (node.kind === 'person') data.people.push(record);
-    else data.contextEntities.push({...record, kind: node.kind as NonNullable<FamilyDataset['contextEntities']>[number]['kind']});
-    existing.set(node.id, {...record, kind: node.kind});
+    const record = {id: node.id, name: node.label, type: node.kind, sourceIds: addEvidence(node.evidenceRefs)};
+    data.nodes.push(record);
+    if (!data.types.some(t => t.name === node.kind)) data.types.push({name: node.kind, fields: []});
+    existing.set(node.id, record);
   }
   data.claims ||= [];
   const taken = new Set(data.claims.map(c => c.id));
@@ -77,8 +74,8 @@ export function materializeGraph(dataset: FamilyDataset, graph: GraphDraft, evid
   }
   data.sources = [...sourceMap.values()];
   data.evidence = [...evidenceMap.values()];
-  data.initialFocusId ||= [...data.people, ...data.contextEntities][0]?.id || null;
-  new GenealogyModel(data);
+  data.initialFocusId ||= data.nodes[0]?.id || null;
+  new GraphModel(data);
   return data;
 }
 
@@ -88,10 +85,10 @@ export function materializeGraph(dataset: FamilyDataset, graph: GraphDraft, evid
 // so its draft matches the graph as it stands.
 type LegacyReview = {
   id: string; format?: string; status: string; graph?: GraphDraft; tour?: {steps: {id: string; focusNodeIds: string[]; focusClaimIds: string[]}[]};
-  evidence?: Record<string, ResearchEvidence>; sources?: SourceRecord[]; baseDataset: FamilyDataset;
+  evidence?: Record<string, ResearchEvidence>; sources?: SourceRecord[]; baseDataset: GraphDataset;
   appliedGroupIds?: string[]; rejectedGroupIds?: string[]; graphSha256?: string; [key: string]: unknown;
 };
-type LegacyJob = {candidate?: {graph?: GraphDraft; packet?: {evidence: Record<string, ResearchEvidence>; sources: SourceRecord[]}; [key: string]: unknown}; baseDataset?: FamilyDataset; issues?: unknown; submissions?: {graph?: GraphDraft; packet?: unknown; submissionDirectory?: string; [key: string]: unknown}[]; [key: string]: unknown};
+type LegacyJob = {candidate?: {graph?: GraphDraft; packet?: {evidence: Record<string, ResearchEvidence>; sources: SourceRecord[]}; [key: string]: unknown}; baseDataset?: GraphDataset; issues?: unknown; submissions?: {graph?: GraphDraft; packet?: unknown; submissionDirectory?: string; [key: string]: unknown}[]; [key: string]: unknown};
 type LegacyState = {investigations?: {annotations?: {target?: Record<string, unknown>; references?: Record<string, unknown>[]}[]; reviewFlow?: {jobs?: LegacyJob[]; graphReviews?: LegacyReview[]}}[]; queue?: {target?: Record<string, unknown>; references?: Record<string, unknown>[]}[]};
 
 export function hasLegacyReviews(state: LegacyState): boolean {
@@ -99,7 +96,7 @@ export function hasLegacyReviews(state: LegacyState): boolean {
     (i.reviewFlow?.graphReviews || []).some((r) => r.graph && r.format !== 'draft') || (i.reviewFlow?.jobs || []).some((j) => j.candidate?.graph));
 }
 
-function draftFrom(base: FamilyDataset, graph: GraphDraft, evidence: Record<string, ResearchEvidence>, sources: SourceRecord[], groupIds: string[]) {
+function draftFrom(base: GraphDataset, graph: GraphDraft, evidence: Record<string, ResearchEvidence>, sources: SourceRecord[], groupIds: string[]) {
   const applied = materializeGraph(base, graph, evidence, sources, groupIds);
   const held = {evidence: new Set((base.evidence || []).map((e) => e.id)), sources: new Set((base.sources || []).map((s) => s.id))};
   const cited = {
@@ -107,7 +104,7 @@ function draftFrom(base: FamilyDataset, graph: GraphDraft, evidence: Record<stri
     sources: (applied.sources || []).filter((s) => !held.sources.has(s.id)),
   };
   // Research records reach the graph only on acceptance, as for any draft.
-  const draft: FamilyDataset = {...applied, evidence: structuredClone(base.evidence || []), sources: structuredClone(base.sources || []), initialFocusId: base.initialFocusId};
+  const draft: GraphDataset = {...applied, evidence: structuredClone(base.evidence || []), sources: structuredClone(base.sources || []), initialFocusId: base.initialFocusId};
   if (!draft.evidence!.length && !base.evidence) delete draft.evidence;
   if (!draft.sources!.length && !base.sources) delete draft.sources;
   const diff = diffGraphs(base, draft);

@@ -35,7 +35,7 @@ The Coordinator button opens the sidebar where you talk with the coordinator; it
 The Annotate switch, or Command/Control + I, lets you select elements or passages on any surface, and opens the sidebar's Annotations tab with the note you are writing.
 You can also write an annotation there with no selection.
 The sidebar docks beside the surface, preserves drafts when closed, and supports editing queued annotations before you send them together.
-Only research objects can be annotated: people, places and connections on the graph, batches and their questions, reports, findings, walkthroughs and sources.
+Only research objects can be annotated: nodes and connections on the graph, and the gaps in a node's details, batches and their questions, reports, findings, walkthroughs and sources.
 Each reference reaches the coordinator as that object, with its ids and the screen it was picked from, never as page structure.
 Developer mode, in Research settings, is for work on Weir itself and applies to every project.
 With it on, any part of the app can be annotated, and Interface feedback records product observations separately from historical research.

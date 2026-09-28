@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { initialState, type Investigation, type ResearchState } from "../src/domain/research";
 import { nextAction } from "../src/domain/next-action";
-import empty from "../src/data/empty.json";
+import { emptyGraph } from "../src/domain/graph-schema";
+const empty = emptyGraph();
 
 function batch(extra: Partial<Investigation> = {}): Investigation {
   return {

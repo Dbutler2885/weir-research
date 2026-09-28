@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { emptyGraph } from "../src/domain/graph-schema";
 import { describe, it, expect, afterEach } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -20,7 +21,7 @@ describe("the sample project", () => {
     const directory = folder();
     buildSample(directory);
     // Read back as the app reads it on opening.
-    const state: any = new WorkspaceStore(directory, { version: 2, title: "", initialFocusId: null, people: [] }).state;
+    const state: any = new WorkspaceStore(directory, emptyGraph("")).state;
     const batch = state.investigations[0];
     expect(state.sample).toBe(true);
     expect(batch.number).toBe(1);
@@ -31,7 +32,11 @@ describe("the sample project", () => {
     expect(batch.reviewFlow.walkthroughs).toHaveLength(1);
     const review = batch.reviewFlow.graphReviews[0];
     expect(review.status).toBe("pending");
-    expect(review.summary).toBe("4 new nodes, 6 new edges, 4 evidence records added from the research.");
+    expect(review.summary).toBe("4 new nodes, 8 new edges, 4 changes to types and relationships, 4 evidence records added from the research.");
+    // It shows what the graph can hold: summaries, a new type, and facts under fields.
+    expect(review.draft.nodes.every((n: any) => n.summary)).toBe(true);
+    expect(review.diff.vocabulary).toContain("New type: place.");
+    expect(review.draft.claims.find((c: any) => c.id === "thomas-trade")).toMatchObject({ predicate: "occupation", object: { value: "Net maker" } });
     expect(review.tour.steps).toHaveLength(2);
   });
   it("is explicitly fictional", () => {

@@ -250,7 +250,7 @@ export class Coordinator {
       const { session, ...change } = data;
       return { dispatch: this.dispatch.change(change, "coordinator") };
     }
-    if (["assign-walkthrough", "publish-walkthrough", "inspect-flow", "assign-graph", "graph-update", "request-graph-resume", "publish-graph-review", "answer-draft-feedback"].includes(data.action)) return flowCommand(this.store, data);
+    if (["assign-walkthrough", "publish-walkthrough", "inspect-flow", "assign-graph", "graph-update", "request-graph-resume", "publish-graph-review", "answer-draft-feedback", "reorganize-graph"].includes(data.action)) return flowCommand(this.store, data);
     if (data.action?.startsWith("organization-"))
       return organize(this.store, data);
     if (coordinatorConversationCommands.has(data.action)) {
