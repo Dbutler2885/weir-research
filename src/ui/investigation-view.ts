@@ -59,8 +59,9 @@ export function coordinatorStatus(coordinator: ResearchState["coordinator"]): { 
 
 export function settingsView(state: ResearchState, i?: Investigation): string {
   const coordinator = state.coordinator;
-  // A fresh start waits for a running coordinator to finish its turn; a stopped one starts at once.
-  const freshAllowed = Boolean(coordinator?.listening || !coordinator?.connected);
+  // A fresh start waits for active work to finish. A coordinator held by its usage
+  // limit is idle and can be replaced without disturbing any workers.
+  const freshAllowed = Boolean(coordinator?.listening || coordinator?.paused || !coordinator?.connected);
   const execution = i?.executions?.at(-1);
   const minutes = state.researchSettings?.timeLimitMinutes ?? null;
   const timeLimit = `<section><h2>Time limit</h2><form id="time-limit-form"><label for="research-time-limit-mode">Per research pass</label><div class="setting-control"><select id="research-time-limit-mode"><option value="none" ${minutes === null ? "selected" : ""}>No time limit</option><option value="limited" ${minutes !== null ? "selected" : ""}>Set a limit</option></select><label class="time-limit-value" ${minutes === null ? "hidden" : ""}><input id="research-time-limit" type="number" min="1" step="1" required ${minutes === null ? "disabled" : ""} value="${minutes ?? 30}" aria-label="Time limit in minutes"> minutes</label><button>Save time limit</button></div><p class="page-context">Applies to new research and graph-building passes in this project. Running passes keep their current limit.</p></form></section>`;

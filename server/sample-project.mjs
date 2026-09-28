@@ -13,11 +13,61 @@ const graph = {
   version: 3,
   title: 'Sample: the fictional Marrow family of Tidewell',
   initialFocusId: 'edith',
-  nodes: [{id: 'edith', name: 'Edith Marrow', type: 'person', summary: 'An invented person in the sample project, whose family the research sets out to find.'}],
-  types: [{name: 'person', color: 'sea', shape: 'rounded', fields: [{name: 'born', value: 'date'}, {name: 'occupation', value: 'text'}]}],
-  relationships: defaultRelationships(),
-  claims: [],
-  sources: [],
+  nodes: [
+    {id: 'edith', name: 'Edith Marrow', type: 'person', dates: '1872-1954', summary: 'A net finisher who lived on Harbour Row and worked at Tidewell Net Works.', sourceIds: ['works-ledger']},
+    {id: 'ruth', name: 'Ruth Bell', type: 'person', dates: '1869-1938', summary: 'A twine spinner recorded alongside Edith at Tidewell Net Works.', sourceIds: ['works-ledger']},
+    {id: 'isaac', name: 'Isaac Shaw', type: 'person', dates: '1858-1901', summary: 'The Tidewell mariner recorded as master of the Morning Star.', sourceIds: ['harbour-register']},
+    {id: 'net-works', name: 'Tidewell Net Works', type: 'organization', dates: 'founded 1864', summary: 'A small waterfront works that made and repaired fishing nets for Tidewell vessels.', sourceIds: ['works-ledger', 'gazette-shipping']},
+    {id: 'morning-star', name: 'Morning Star', type: 'vessel', dates: '1887-1901', summary: 'A two-masted fishing schooner registered at Tidewell and lost at North Shoal.', sourceIds: ['harbour-register', 'warden-report']},
+    {id: 'tidewell', name: 'Tidewell', type: 'place', summary: 'A fictional harbour town whose net works and fishing fleet connect the people in this sample.', sourceIds: ['works-ledger', 'harbour-register']},
+    {id: 'north-shoal', name: 'North Shoal', type: 'place', summary: 'A fictional shoal outside Tidewell harbour where the Morning Star was lost in 1901.', sourceIds: ['warden-report']},
+  ],
+  types: [
+    {name: 'person', color: 'sea', shape: 'rounded', fields: [{name: 'born', value: 'date'}, {name: 'occupation', value: 'text'}]},
+    {name: 'organization', color: 'rust', shape: 'square', fields: [{name: 'founded', value: 'date'}]},
+    {name: 'vessel', color: 'gold', shape: 'rounded', fields: [{name: 'launched', value: 'date'}, {name: 'registry_number', value: 'text'}]},
+    {name: 'place', color: 'moss', shape: 'round', fields: []},
+  ],
+  relationships: [
+    ...defaultRelationships(),
+    {name: 'worked_at', reverse: 'employed', arrangement: 'free'},
+    {name: 'lived_in', reverse: 'home of', arrangement: 'free'},
+    {name: 'located_in', reverse: 'location of', arrangement: 'free'},
+    {name: 'supplied', reverse: 'supplied by', arrangement: 'free'},
+    {name: 'home_port', reverse: 'home port of', arrangement: 'free'},
+    {name: 'captained', reverse: 'captained by', arrangement: 'free'},
+    {name: 'wrecked_at', reverse: 'wreck site of', arrangement: 'free'},
+  ],
+  claims: [
+    {id: 'edith-trade', subjectId: 'edith', predicate: 'occupation', object: {value: 'Net finisher'}, qualification: 'supported', time: '1890', reasoning: 'The employment ledger names Edith and her job.', evidence: [{ref: 'accepted/edith-ledger', role: 'supports'}], sourceIds: ['works-ledger']},
+    {id: 'edith-work', subjectId: 'edith', predicate: 'worked_at', object: {entityId: 'net-works'}, qualification: 'supported', time: '1890', reasoning: 'The employment ledger records Edith at the works.', evidence: [{ref: 'accepted/edith-ledger', role: 'supports'}], sourceIds: ['works-ledger']},
+    {id: 'edith-home', subjectId: 'edith', predicate: 'lived_in', object: {entityId: 'tidewell'}, qualification: 'supported', time: '1890', reasoning: 'The ledger gives Edith an address on Harbour Row in Tidewell.', evidence: [{ref: 'accepted/edith-ledger', role: 'supports'}], sourceIds: ['works-ledger']},
+    {id: 'ruth-trade', subjectId: 'ruth', predicate: 'occupation', object: {value: 'Twine spinner'}, qualification: 'supported', time: '1890', reasoning: 'The employment ledger names Ruth and her job.', evidence: [{ref: 'accepted/ruth-ledger', role: 'supports'}], sourceIds: ['works-ledger']},
+    {id: 'ruth-work', subjectId: 'ruth', predicate: 'worked_at', object: {entityId: 'net-works'}, qualification: 'supported', time: '1890', reasoning: 'The employment ledger records Ruth at the works.', evidence: [{ref: 'accepted/ruth-ledger', role: 'supports'}], sourceIds: ['works-ledger']},
+    {id: 'works-founded', subjectId: 'net-works', predicate: 'founded', object: {value: '1864'}, qualification: 'reported', time: '1864', reasoning: 'The surviving ledger labels itself volume 14 and says the works opened in 1864.', evidence: [{ref: 'accepted/works-heading', role: 'supports'}], sourceIds: ['works-ledger']},
+    {id: 'works-place', subjectId: 'net-works', predicate: 'located_in', object: {entityId: 'tidewell'}, qualification: 'supported', time: null, reasoning: 'The ledger identifies the works as standing at East Wharf, Tidewell.', evidence: [{ref: 'accepted/works-heading', role: 'supports'}], sourceIds: ['works-ledger']},
+    {id: 'works-supplied-ship', subjectId: 'net-works', predicate: 'supplied', object: {entityId: 'morning-star'}, qualification: 'reported', time: '1896', reasoning: 'A shipping notice records new nets supplied to the schooner.', evidence: [{ref: 'accepted/supply-notice', role: 'supports'}], sourceIds: ['gazette-shipping']},
+    {id: 'ship-port', subjectId: 'morning-star', predicate: 'home_port', object: {entityId: 'tidewell'}, qualification: 'supported', time: '1896', reasoning: 'The harbour register lists Tidewell as the vessel\'s port.', evidence: [{ref: 'accepted/vessel-register', role: 'supports'}], sourceIds: ['harbour-register']},
+    {id: 'ship-launched', subjectId: 'morning-star', predicate: 'launched', object: {value: '1887'}, qualification: 'supported', time: '1887', reasoning: 'The harbour register gives the vessel\'s launch year.', evidence: [{ref: 'accepted/vessel-register', role: 'supports'}], sourceIds: ['harbour-register']},
+    {id: 'ship-number', subjectId: 'morning-star', predicate: 'registry_number', object: {value: 'TW-184'}, qualification: 'supported', time: null, reasoning: 'The harbour register gives the vessel\'s registry number.', evidence: [{ref: 'accepted/vessel-register', role: 'supports'}], sourceIds: ['harbour-register']},
+    {id: 'isaac-captain', subjectId: 'isaac', predicate: 'captained', object: {entityId: 'morning-star'}, qualification: 'supported', time: '1896', reasoning: 'The harbour register names Isaac Shaw as master.', evidence: [{ref: 'accepted/vessel-register', role: 'supports'}], sourceIds: ['harbour-register']},
+    {id: 'isaac-home', subjectId: 'isaac', predicate: 'lived_in', object: {entityId: 'tidewell'}, qualification: 'reported', time: '1896', reasoning: 'The register describes Isaac as being of Tidewell.', evidence: [{ref: 'accepted/vessel-register', role: 'supports'}], sourceIds: ['harbour-register']},
+    {id: 'ship-wreck', subjectId: 'morning-star', predicate: 'wrecked_at', object: {entityId: 'north-shoal'}, qualification: 'supported', time: '1901', reasoning: 'The coast warden\'s report places the loss at North Shoal.', evidence: [{ref: 'accepted/wreck-report', role: 'supports'}], sourceIds: ['warden-report']},
+  ],
+  evidence: [
+    {id: 'accepted/edith-ledger', sourceId: 'works-ledger', quote: 'Edith Marrow, finisher, Harbour Row; entered 4 March 1890.', context: 'An invented employee entry for the sample.', locator: 'Page 22, line 8', interpretation: 'Records Edith\'s occupation, employer and Tidewell address.'},
+    {id: 'accepted/ruth-ledger', sourceId: 'works-ledger', quote: 'Ruth Bell, twine spinner; entered 17 January 1888.', context: 'An invented employee entry for the sample.', locator: 'Page 19, line 3', interpretation: 'Records Ruth\'s occupation and employer.'},
+    {id: 'accepted/works-heading', sourceId: 'works-ledger', quote: 'Tidewell Net Works, East Wharf. Established 1864. Employment ledger, volume 14.', context: 'An invented ledger heading for the sample.', locator: 'Front leaf', interpretation: 'Names the works, its location and its reported founding year.'},
+    {id: 'accepted/supply-notice', sourceId: 'gazette-shipping', quote: 'The schooner Morning Star has taken aboard new herring nets from the Tidewell Net Works.', context: 'An invented shipping notice for the sample.', locator: 'Issue of 18 April 1896, page 2', interpretation: 'Connects the works to the vessel.'},
+    {id: 'accepted/vessel-register', sourceId: 'harbour-register', quote: 'TW-184 Morning Star, two-masted schooner, launched 1887; port Tidewell; master Isaac Shaw of Tidewell.', context: 'An invented harbour register entry for the sample.', locator: '1896 register, folio 31', interpretation: 'Records the vessel, its home port, launch year and captain.'},
+    {id: 'accepted/wreck-report', sourceId: 'warden-report', quote: 'Morning Star, Isaac Shaw master, lost on North Shoal during the gale of 6 February 1901.', context: 'An invented coast warden entry for the sample.', locator: '1901 losses, entry 4', interpretation: 'Places the vessel\'s loss at North Shoal.'},
+  ],
+  sources: [
+    {id: 'works-ledger', title: 'Tidewell Net Works employment ledger (fictional)', access: 'full-text'},
+    {id: 'harbour-register', title: 'Tidewell harbour register, 1896 (fictional)', access: 'full-text'},
+    {id: 'gazette-shipping', title: 'The Tidewell Gazette, shipping notices (fictional)', access: 'full-text'},
+    {id: 'warden-report', title: 'Tidewell coast warden annual report, 1901 (fictional)', access: 'full-text'},
+  ],
 };
 
 const QUESTION = 'Who were Edith Marrow\'s parents, and where did they come from?';
@@ -50,7 +100,6 @@ function draftFiles(job) {
   const nodes = [
     'thomas,person,Thomas Marrow,,"Edith\'s father, a net maker on Harbour Row in Tidewell. The household lists disagree about where he was born.",,register;census',
     'ann,person,Ann Marrow,,"Edith\'s mother, born Ann Holt in Saltmere, who married Thomas there.",,census;gazette',
-    'tidewell,place,Tidewell,,"A fictional harbour town, where the Marrow family lived.",,census',
     'saltmere,place,Saltmere,,"A fictional village, Ann\'s home parish and where she married Thomas.",,gazette',
   ];
   const edges = [
@@ -66,9 +115,9 @@ function draftFiles(job) {
   return {
     'nodes.csv': `${tables['nodes.csv']}${nodes.join('\n')}\n`,
     'edges.csv': `${tables['edges.csv']}${edges.join('\n')}\n`,
-    'types.csv': `${tables['types.csv']}place,moss,round\n`,
+    'types.csv': tables['types.csv'],
     'fields.csv': `${tables['fields.csv']}person,also_known_as,text\n`,
-    'relationships.csv': `${tables['relationships.csv']}born_in,birthplace of,free\nlived_in,home of,free\n`,
+    'relationships.csv': `${tables['relationships.csv']}born_in,birthplace of,free\n`,
     'questions.csv': 'id,question,nodeIds,edgeIds,provisionalTreatment,requestedResearch\nthomas-birthplace,Where was Thomas Marrow born?,thomas,thomas-born,Kept as disputed with both lists cited.,Look for Thomas\'s own baptism in both parishes.\n',
     'submission.txt': 'done 0\n',
   };
