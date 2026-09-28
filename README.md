@@ -41,6 +41,9 @@ Where the evidence is thin, you ask for more right there.
 
 ## Run it
 
+Weir runs on macOS.
+It has not been tested on Linux, and Windows is not supported yet.
+
 You need Git, Node.js 24 or later, and Claude Code or Codex installed.
 
 ```sh
@@ -54,9 +57,13 @@ There you connect your Claude or Codex account, then either say what you want to
 After that, `npm start` reopens your last project, and **Close project** in the app takes you back to your list of projects.
 Your research stays on your computer in `.research/`, outside version control.
 
-## Example
+The agents run on your own Claude or Codex account and count against its usage limits.
+A batch can run several researchers at once, so heavy research uses your quota quickly.
+
+## Why I built it
 
 I built Weir to research local history, but it works for any subject where you want to know who and what was involved and how they connect.
+The graph is one output of the research; other outputs can be built on the same findings.
 
 ## How it's built
 
@@ -74,5 +81,9 @@ The [guide](docs/guide.md) covers settings, sources, reading PDFs, and the workf
 
 ## Contributing
 
+Issues and pull requests are welcome.
+Run `npm run check` before opening a pull request.
+
+## License
+
 Weir is open source under the [MIT license](LICENSE).
-The graph is one output of the research; other outputs can be built on the same findings.
