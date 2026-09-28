@@ -4,6 +4,9 @@
   "license": "MIT",
   "version": "0.1.0",
   "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "setup:pdf": "node scripts/setup-docling.mjs",
     "test:pdf": "node scripts/test-docling.mjs",
