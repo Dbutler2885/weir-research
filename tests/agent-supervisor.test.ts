@@ -157,6 +157,10 @@ describe("isolation", () => {
     expect(agentCli("/usr/local/bin/codex exec hi")).toBe(true);
     expect(agentCli("node /home/u/.nvm/bin/claude -p hi")).toBe(true);
     expect(agentCli("/bin/sh /tmp/x/claude")).toBe(true);
+    for (const mode of ["--codex-run-as-fs-helper", "--codex-run-as-apply-patch", "--codex-run-as-arg0-exec-helper"]) {
+      expect(agentCli(`/home/u/vendor/bin/codex ${mode}`)).toBe(false);
+      expect(agentCli(`node /home/u/bin/codex ${mode}`)).toBe(false);
+    }
     expect(agentCli("grep claude notes.txt")).toBe(false);
     expect(agentCli("/usr/bin/codex-linux-sandbox --x")).toBe(false);
   });
@@ -182,10 +186,15 @@ describe("isolation", () => {
       // The program part-way through starting a command: a copy with its command line.
       { pid: 12, ppid: 11, command: `/home/u/vendor/bin/codex ${args}` },
       { pid: 13, ppid: 11, command: "/bin/zsh -lc sips -Z 1400 page.jpg" },
+      // Codex runs its own filesystem, patching and command helpers through the
+      // native binary. They are part of this agent, not agents of their own.
+      { pid: 14, ppid: 11, command: "/home/u/vendor/bin/codex --codex-run-as-fs-helper" },
+      { pid: 15, ppid: 11, command: "/home/u/vendor/bin/codex --codex-run-as-apply-patch" },
+      { pid: 16, ppid: 11, command: "/home/u/vendor/bin/codex --codex-run-as-arg0-exec-helper" },
       // A second agent started from its shell.
-      { pid: 14, ppid: 13, command: "/usr/local/bin/claude -p find the census" },
+      { pid: 17, ppid: 13, command: "/usr/local/bin/claude -p find the census" },
     ];
-    expect(agentsBeneath(processes, 10).map((p: any) => p.pid)).toEqual([14]);
+    expect(agentsBeneath(processes, 10).map((p: any) => p.pid)).toEqual([17]);
     expect(agentsBeneath(processes.slice(0, 4), 10)).toEqual([]);
   });
   it("leaves alone the program an agent CLI's own launcher starts", async () => {

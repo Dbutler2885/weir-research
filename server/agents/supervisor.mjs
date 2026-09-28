@@ -33,9 +33,17 @@ function listProcesses() {
 }
 // An agent CLI, whether run directly or as a script by an interpreter such as node.
 const INTERPRETERS = /^(node|bun|deno|sh|bash|zsh|dash|env|python3?)$/;
+const CODEX_INTERNAL_MODE = /^--codex-run-as-[a-z0-9-]+$/i;
 export function agentCli(command) {
-  const [first = "", second] = command.split(/\s+/);
-  return [first, INTERPRETERS.test(basename(first)) ? second : null].some((part) => part && AGENT_CLIS.has(basename(part)));
+  const parts = command.split(/\s+/);
+  const [first = "", second] = parts;
+  const at = [first, INTERPRETERS.test(basename(first)) ? second : null].findIndex((part) => part && AGENT_CLIS.has(basename(part)));
+  if (at < 0) return false;
+  const cliAt = at === 0 ? 0 : 1;
+  // Codex runs its filesystem, patch and command helpers through its own native
+  // executable. These private modes are part of the current agent, not new agents.
+  if (basename(parts[cliAt]) === "codex" && parts.slice(cliAt + 1).some((part) => CODEX_INTERNAL_MODE.test(part))) return false;
+  return true;
 }
 
 // What an agent CLI was asked to do: its command line after the CLI itself.
