@@ -20,21 +20,57 @@ export interface SourceRecord {
   originalSourceId?: string;
 }
 
-export interface PersonRecord {
+// A node is anything the research is about. Its type is the project's own word for
+// what kind of thing it is; everything known beyond its summary is an edge.
+export interface GraphNode {
   id: string;
   name: string;
-  alternateNames?: string[];
-  lifespan?: string;
-  born?: string;
-  died?: string;
-  descriptor?: string;
-  biography?: string;
-  researchNotes?: string[];
+  type: string;
+  // What is known about it and why it is on the graph.
+  summary?: string;
+  // A lifespan or active dates, shown on its card.
+  dates?: string;
+  // What to look into next.
+  notes?: string[];
   sourceIds?: string[];
 }
 
-// Couples and parents are ordinary edges ("married_to", "parent_of"). The model
-// groups them into these shapes for the family layout; they are never stored.
+export const LOOK_COLORS = ["slate", "rust", "sea", "gold", "moss", "plum", "sky", "clay"] as const;
+export type LookColor = (typeof LOOK_COLORS)[number];
+export const LOOK_SHAPES = ["rounded", "square", "round"] as const;
+export type LookShape = (typeof LOOK_SHAPES)[number];
+
+export const VALUE_KINDS = ["text", "date", "number"] as const;
+export type ValueKind = (typeof VALUE_KINDS)[number];
+
+// A fact a node of some type is expected to have, recorded as edges of this name.
+export interface FieldDefinition {
+  name: string;
+  value: ValueKind;
+}
+
+// A kind of node, defined once for the project.
+export interface NodeType {
+  name: string;
+  color?: LookColor;
+  shape?: LookShape;
+  fields: FieldDefinition[];
+}
+
+// Ranked relationships put their target a row below their source, such as a parent
+// above a child; paired ones place both ends side by side; free ones neither.
+export const ARRANGEMENTS = ["ranked", "paired", "free"] as const;
+export type Arrangement = (typeof ARRANGEMENTS)[number];
+
+export interface RelationshipRule {
+  name: string;
+  // How the relationship reads from its target, such as "founded by" for "established".
+  reverse?: string;
+  arrangement: Arrangement;
+}
+
+// Couples and parents are ordinary edges named by ranked and paired rules. The model
+// groups them into these shapes for the family-tree lines; they are never stored.
 export interface UnionRecord {
   id: string;
   partnerIds: string[];
@@ -46,62 +82,6 @@ export interface UnionRecord {
   confidence?: Confidence;
   sourceIds?: string[];
   notes?: string[];
-}
-
-export interface DirectParentageRecord {
-  id: string;
-  parentId: string;
-  childId: string;
-  type?: ParentageType;
-  confidence?: Confidence;
-  label?: string;
-  sourceIds?: string[];
-}
-
-export type ContextEntityKind =
-  | "facility"
-  | "observation"
-  | "organization"
-  | "family"
-  | "place"
-  | "vessel"
-  | "event";
-
-export interface ContextEntityRecord {
-  id: string;
-  name: string;
-  kind: ContextEntityKind;
-  descriptor?: string;
-  biography?: string;
-  activeDates?: string;
-  sourceIds?: string[];
-}
-
-export type ContextConnectionType =
-  | "ownership"
-  | "management"
-  | "employment"
-  | "leadership"
-  | "partnership"
-  | "membership"
-  | "founding"
-  | "association"
-  | "competition"
-  | "location"
-  | "leasing"
-  | "succession";
-
-export interface ContextConnectionRecord {
-  id: string;
-  fromId: string;
-  toId: string;
-  type: ContextConnectionType;
-  label: string;
-  date?: string;
-  confidence?: Confidence;
-  sourceIds?: string[];
-  notes?: string[];
-  qualification?: ResearchClaim["qualification"];
 }
 
 export interface ResearchEvidence {
@@ -126,25 +106,18 @@ export interface ResearchClaim {
   sourceIds?: string[];
 }
 
-// The graph is nodes and edges. People and context entities are the nodes;
-// claims are the edges, from a node to another node or to a value.
-export interface FamilyDataset {
-  version: 2;
+// The graph is nodes and edges, with the project's types and relationship rules.
+// Claims are the edges, from a node to another node or to a value.
+export interface GraphDataset {
+  version: 3;
   title: string;
   initialFocusId: string | null;
-  people: PersonRecord[];
-  contextEntities?: ContextEntityRecord[];
+  nodes: GraphNode[];
+  types: NodeType[];
+  relationships: RelationshipRule[];
   claims?: ResearchClaim[];
   evidence?: ResearchEvidence[];
   sources?: SourceRecord[];
-}
-
-// The stored shape before the graph was reduced to nodes and edges.
-export interface LegacyDataset extends Omit<FamilyDataset, "version"> {
-  version: number;
-  unions?: UnionRecord[];
-  directParentage?: DirectParentageRecord[];
-  contextConnections?: ContextConnectionRecord[];
 }
 
 export interface ParentLink {
@@ -159,37 +132,16 @@ export interface ParentLink {
   sourceIds: string[];
 }
 
-export interface RelationshipNeighbor {
-  personId: string;
-  kind: "parent" | "child" | "spouse" | "sibling";
-  confidence: Confidence;
-  throughId?: string;
-}
-
-export type FocusRole =
-  | "focus"
-  | "parent"
-  | "child"
-  | "spouse"
-  | "sibling"
-  | "ancestor"
-  | "descendant"
-  | "collateral"
-  | "remote"
-  | "disconnected";
-
 export type Emphasis = "focus" | "immediate" | "near" | "remote";
 
-export interface ProjectedPerson {
-  personId: string;
+export interface ProjectedNode {
+  nodeId: string;
   distance: number;
-  generation: number;
-  role: FocusRole;
   emphasis: Emphasis;
   order: number;
 }
 
 export interface FocusProjection {
   focusId: string;
-  people: Map<string, ProjectedPerson>;
+  nodes: Map<string, ProjectedNode>;
 }

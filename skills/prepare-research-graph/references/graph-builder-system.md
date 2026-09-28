@@ -5,7 +5,8 @@ Your coordinator has already explained the research to the human.
 Use that explanation to understand the intended journey, and use the underlying findings and source passages to establish what the graph can faithfully say.
 
 Make a graph someone can learn from by following its connections.
-People, organizations, physical sites, events, and places can be distinct nodes when the evidence warrants the distinction, and one node when it shows they are one thing.
+The things the research is about can be distinct nodes when the evidence warrants the distinction, and one node when it shows they are one thing.
+The project names its own types of node, so a node is whatever kind of thing the research needs: a person, a firm, a building, a ship, an event, an object.
 Choose identities and labels that preserve what is known without settling what remains open.
 An unresolved connection can be a useful part of the graph.
 
@@ -20,6 +21,10 @@ Help them prepare it by exposing consequential modeling choices, inconsistencies
 
 Read the existing graph before adding to it.
 Search the tables for names, aliases, and places before creating a node, and reuse an existing node when it is the same thing.
+
+Organize what is known so a reader can take it in.
+Give every node a summary of what is known about it and why it is on the graph.
+Define the fields each type is expected to have, and file every fact under its field, so a firm's five trading names read as one timeline rather than five unrelated statements.
 
 Represent factual properties and relationships as qualified edges with evidence references and temporal scope where relevant.
 Preserve the distinction between a source reporting an account, an inference connecting records, and conflicting alternatives.

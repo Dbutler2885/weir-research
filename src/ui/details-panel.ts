@@ -1,486 +1,250 @@
-import { GenealogyModel } from "../domain/model";
-import type {
-  Confidence,
-  ContextConnectionRecord,
-  PersonRecord,
-  SourceRecord,
-  ResearchClaim,
-} from "../domain/types";
+// The side panel: a node, or one statement with its evidence.
+//
+// Both are drawn from views that have already organized the research, so this only
+// lays them out. Every row opens its statement; an empty field is a gap that can be
+// selected to ask for research on it.
+import type { NodeView, StatementRow, StatementView } from "../domain/node-view";
+import type { SourceRecord } from "../domain/types";
 
 export interface DetailsPanelHandlers {
   onClose: () => void;
-  onNavigate: (personId: string) => void;
-  onOpenContextEntity: (entityId: string) => void;
+  // Show a node: focus it and open its panel.
+  onOpenNode: (nodeId: string) => void;
+  onOpenStatement: (claimId: string) => void;
 }
 
-function createElement<K extends keyof HTMLElementTagNameMap>(
-  tagName: K,
-  className?: string,
-  text?: string,
-): HTMLElementTagNameMap[K] {
-  const element = document.createElement(tagName);
-  if (className) {
-    element.className = className;
-  }
-  if (text) {
-    element.textContent = text;
-  }
-  return element;
+function element<K extends keyof HTMLElementTagNameMap>(tagName: K, className?: string, text?: string): HTMLElementTagNameMap[K] {
+  const created = document.createElement(tagName);
+  if (className) created.className = className;
+  if (text) created.textContent = text;
+  return created;
 }
 
-function appendRelationshipGroup(
-  container: HTMLElement,
-  title: string,
-  people: PersonRecord[],
-  onNavigate: (personId: string) => void,
-): void {
-  if (people.length === 0) {
-    return;
+const target = (value: object) => JSON.stringify(value);
+
+function header(kicker: string, onClose: () => void, back?: { name: string; open: () => void }): HTMLElement {
+  const head = element("header", "detail-header");
+  if (back) {
+    const link = element("button", "detail-back", `‹ ${back.name}`);
+    link.type = "button";
+    link.addEventListener("click", back.open);
+    head.append(link);
   }
-
-  const section = createElement(
-    "section",
-    "detail-section relationship-section",
-  );
-  section.append(createElement("h3", "detail-kicker", title));
-  const list = createElement("div", "relationship-list");
-
-  for (const person of people) {
-    const button = createElement("button", "relationship-button");
-    button.type = "button";
-    button.dataset.lavishAction = "true";
-    button.addEventListener("click", () => onNavigate(person.id));
-
-    const identity = createElement("span", "relationship-identity");
-    identity.append(createElement("strong", "", person.name));
-    if (person.lifespan) {
-      identity.append(createElement("small", "", person.lifespan));
-    }
-    button.append(identity, createElement("span", "relationship-arrow", "→"));
-    list.append(button);
-  }
-
-  section.append(list);
-  container.append(section);
+  head.append(element("span", "eyebrow", kicker));
+  const close = element("button", "icon-button detail-close", "×");
+  close.type = "button";
+  close.ariaLabel = "Close details";
+  close.dataset.lavishAction = "true";
+  close.addEventListener("click", onClose);
+  head.append(close);
+  return head;
 }
 
-function confidenceLabel(confidence: Confidence): string {
-  return {
-    established: "Established",
-    probable: "Probable",
-    disputed: "Disputed",
-    unknown: "Unknown",
-  }[confidence];
+function section(kicker: string): HTMLElement {
+  const block = element("section", "detail-section");
+  block.append(element("h3", "detail-kicker", kicker));
+  return block;
 }
 
-function appendClaimEvidence(container: HTMLElement, model: GenealogyModel, claim: ResearchClaim): void {
-  const detail = createElement("details", "claim-evidence");
-  detail.append(createElement("summary", "", "Evidence and explanation"));
-  detail.append(createElement("p", "claim-explanation", claim.reasoning));
-  for (const link of claim.evidence) {
-    const evidence = model.dataset.evidence?.find(e => e.id === link.ref);
-    if (!evidence) continue;
-    const source = model.getSource(evidence.sourceId);
-    const passage = createElement("section", "claim-passage");
-    passage.append(createElement("small", "", `${link.role} · ${source.title}`));
-    passage.append(createElement("blockquote", "", evidence.quote));
-    passage.append(createElement("p", "source-meta", evidence.locator));
-    if (evidence.context) {
-      const context = createElement("details");
-      context.append(createElement("summary", "", "Passage context"), createElement("p", "claim-explanation", evidence.context));
-      passage.append(context);
-    }
-    const inspect = createElement("button", "source-inspect-button", "Inspect source");
-    inspect.dataset.inspectSource = source.id;
-    passage.append(inspect);
-    detail.append(passage);
-  }
-  container.append(detail);
+// A row: its label, its value with date and any qualification, opening its statement.
+function statementRow(row: StatementRow, continued: boolean, handlers: DetailsPanelHandlers): HTMLElement {
+  const button = element("button", `statement-row${continued ? " is-continued" : ""}`);
+  button.type = "button";
+  button.dataset.claimId = row.claimId;
+  button.dataset.researchTarget = target({ table: "claims", recordId: row.claimId, label: `${row.label}: ${row.value}` });
+  button.append(element("span", "statement-label", row.label));
+  const value = element("span", "statement-value", row.value);
+  if (row.when) value.append(" ", element("span", "statement-when", row.when));
+  if (row.qualification) value.append(" ", element("span", "statement-qualification", row.qualification));
+  button.append(value, element("span", "statement-go", "›"));
+  button.addEventListener("click", () => handlers.onOpenStatement(row.claimId));
+  return button;
 }
 
-function appendResearchClaims(container: HTMLElement, model: GenealogyModel, nodeId: string): void {
-  const claims = (model.dataset.claims || []).filter(c => c.subjectId === nodeId && "value" in c.object);
-  if (!claims.length) return;
-  const section = createElement("section", "detail-section research-claims");
-  section.append(createElement("h3", "detail-kicker", "What the research says"));
-  for (const claim of claims) {
-    const row = createElement("article", "research-claim");
-    row.dataset.claimId = claim.id;
-    row.dataset.researchTarget = JSON.stringify({ table: model.peopleById.has(nodeId) ? "people" : "contextEntities", recordId: nodeId, label: claim.predicate.replaceAll("_", " ") });
-    row.append(createElement("h4", "", claim.predicate.replaceAll("_", " ")));
-    row.append(createElement("p", "claim-value", String("value" in claim.object ? claim.object.value : "")));
-    row.append(createElement("small", "claim-qualification", [claim.qualification, claim.time].filter(Boolean).join(" · ")));
-    appendClaimEvidence(row, model, claim);
-    section.append(row);
-  }
-  container.append(section);
+function rows(list: StatementRow[], handlers: DetailsPanelHandlers): HTMLElement {
+  const container = element("div", "statement-rows");
+  list.forEach((row, index) => container.append(statementRow(row, index > 0 && list[index - 1]!.label === row.label, handlers)));
+  return container;
 }
 
-function appendSources(container: HTMLElement, sources: SourceRecord[]): void {
-  if (sources.length === 0) {
-    return;
-  }
+// Something not yet known about a node, which the human can ask to have researched.
+function gap(label: string, nodeId: string, nodeName: string, what: string): HTMLElement {
+  const button = element("button", "statement-row is-gap");
+  button.type = "button";
+  const reference = { table: "nodes", recordId: nodeId, label: `${nodeName}: ${what}`, text: `${what} is not yet found` };
+  button.dataset.researchTarget = target(reference);
+  button.append(element("span", "statement-label", label), element("span", "statement-value", "Not yet found"), element("span", "statement-go", "›"));
+  button.title = "Ask for research on this";
+  button.addEventListener("click", () => window.dispatchEvent(new CustomEvent("research:ask", { detail: reference })));
+  return button;
+}
 
-  const section = createElement("section", "detail-section sources-section");
-  section.append(createElement("h3", "detail-kicker", "Sources"));
-  const list = createElement("ol", "source-list");
-
+function sourceList(sources: SourceRecord[]): HTMLElement {
+  const details = element("details", "detail-section detail-sources");
+  details.append(element("summary", "detail-kicker", `Sources · ${sources.length}`));
+  const list = element("ol", "detail-source-list");
   for (const source of sources) {
-    const item = createElement("li", "source-item");
-    item.dataset.researchTarget = JSON.stringify({
-      table: "sources",
-      recordId: source.id,
-      label: source.title,
-    });
-    const title = source.url
-      ? createElement("a", "source-link", source.title)
-      : createElement("strong", "source-title", source.title);
-
-    if (title instanceof HTMLAnchorElement && source.url) {
-      title.href = source.url;
-      title.target = "_blank";
-      title.rel = "noreferrer";
-      title.dataset.lavishAction = "true";
-    }
-
-    item.append(title);
-    const inspect = createElement(
-      "button",
-      "source-inspect-button",
-      "Inspect source and findings",
-    );
-    inspect.dataset.inspectSource = source.id;
-    item.append(inspect);
-    const metadata = [source.repository, source.date]
-      .filter(Boolean)
-      .join(" · ");
-    if (metadata) {
-      item.append(createElement("span", "source-meta", metadata));
-    }
-    if (source.note) {
-      item.append(createElement("p", "source-note", source.note));
-    }
+    const item = element("li");
+    const button = element("button", "detail-source", source.title);
+    button.type = "button";
+    button.dataset.inspectSource = source.id;
+    button.dataset.researchTarget = target({ table: "sources", recordId: source.id, label: source.title });
+    item.append(button);
     list.append(item);
   }
-
-  section.append(list);
-  container.append(section);
+  details.append(list);
+  return details;
 }
 
-function uniquePeople(people: PersonRecord[]): PersonRecord[] {
-  return [
-    ...new Map(people.map((person) => [person.id, person])).values(),
-  ].sort((a, b) => a.name.localeCompare(b.name));
-}
+export function renderNodePanel(container: HTMLElement, view: NodeView, handlers: DetailsPanelHandlers): void {
+  container.replaceChildren();
+  container.dataset.nodeId = view.id;
+  delete container.dataset.claimId;
+  const head = header(view.type, handlers.onClose);
+  head.classList.add(`look-${view.look.color}`);
+  const title = element("h2", "detail-title", view.name);
+  title.dataset.researchTarget = target({ table: "nodes", recordId: view.id, label: view.name });
+  head.append(title);
+  if (view.dates) head.append(element("p", "detail-lifespan", view.dates));
+  container.append(head);
 
-function otherConnectionEndpoint(
-  connection: ContextConnectionRecord,
-  nodeId: string,
-): string {
-  return connection.fromId === nodeId ? connection.toId : connection.fromId;
-}
-
-function appendContextConnections(
-  container: HTMLElement,
-  model: GenealogyModel,
-  nodeId: string,
-  connections: readonly ContextConnectionRecord[],
-  handlers: DetailsPanelHandlers,
-): void {
-  if (connections.length === 0) {
-    return;
+  if (view.summary) {
+    const summary = element("div", "detail-summary");
+    for (const paragraph of view.summary.split(/\n\s*\n/)) summary.append(element("p", "", paragraph.trim()));
+    container.append(summary);
+  } else {
+    const missing = element("div", "detail-summary");
+    missing.append(gap("Summary", view.id, view.name, "a summary"));
+    container.append(missing);
   }
 
-  const section = createElement(
-    "section",
-    "detail-section relationship-section",
-  );
-  section.append(
-    createElement("h3", "detail-kicker", "Historical connections"),
-  );
-  const list = createElement(
-    "div",
-    "relationship-list context-relationship-list",
-  );
+  if (view.fields.length) {
+    const block = section("Details");
+    const list = element("div", "statement-rows");
+    for (const field of view.fields) {
+      if (!field.rows.length) list.append(gap(field.label, view.id, view.name, field.label.toLocaleLowerCase()));
+      else field.rows.forEach((row, index) => list.append(statementRow(row, index > 0, handlers)));
+    }
+    block.append(list);
+    container.append(block);
+  }
 
-  for (const connection of connections) {
-    const relatedId = otherConnectionEndpoint(connection, nodeId);
-    const relatedPerson = model.peopleById.get(relatedId);
-    const relatedEntity = model.contextEntitiesById.get(relatedId);
-    const button = createElement(
-      "button",
-      "relationship-button context-relationship",
-    );
-    button.dataset.connectionId = connection.id;
+  if (view.connections.length) {
+    const block = section("Connections");
+    block.append(rows(view.connections, handlers));
+    container.append(block);
+  }
+
+  if (view.other.length) {
+    const block = section(view.fields.length ? "Also recorded" : "Details");
+    block.append(rows(view.other, handlers));
+    container.append(block);
+  }
+
+  if (view.notes.length) {
+    const block = section("Research notes");
+    const list = element("ul", "detail-notes");
+    for (const note of view.notes) list.append(element("li", "", note));
+    block.append(list);
+    container.append(block);
+  }
+
+  if (view.sources.length) container.append(sourceList(view.sources));
+}
+
+const qualificationNames: Record<string, string> = {
+  supported: "Supported",
+  reported: "Reported",
+  inferred: "Inferred",
+  disputed: "Disputed",
+  unresolved: "Unresolved",
+};
+
+export function renderStatementPanel(
+  container: HTMLElement,
+  view: StatementView,
+  handlers: DetailsPanelHandlers,
+  from?: { id: string; name: string },
+): void {
+  container.replaceChildren();
+  container.dataset.claimId = view.claimId;
+  delete container.dataset.nodeId;
+  const back = from ?? view.subject;
+  const head = header(view.heading, handlers.onClose, { name: back.name, open: () => handlers.onOpenNode(back.id) });
+  const title = element("h2", "detail-title statement-title");
+  title.dataset.researchTarget = target({ table: "claims", recordId: view.claimId, label: view.heading });
+  const link = (node: { id: string; name: string }) => {
+    const button = element("button", "statement-node", node.name);
     button.type = "button";
-    button.dataset.lavishAction = "true";
-    button.addEventListener("click", () => {
-      if (relatedPerson) {
-        handlers.onNavigate(relatedId);
-      } else if (relatedEntity) {
-        handlers.onOpenContextEntity(relatedId);
-      }
-    });
+    button.addEventListener("click", () => handlers.onOpenNode(node.id));
+    return button;
+  };
+  if ("id" in view.object) title.append(link(view.subject), ` ${view.verb} `, link(view.object));
+  else title.append(link(view.subject), ` ${view.verb}: `, view.object.value);
+  head.append(title);
+  head.append(element("p", "detail-lifespan", [view.when, qualificationNames[view.qualification]].filter(Boolean).join(" · ")));
+  container.append(head);
 
-    const identity = createElement("span", "relationship-identity");
-    identity.append(
-      createElement("strong", "", model.contextNodeName(relatedId)),
-      createElement(
-        "small",
-        "",
-        `${connection.label} · ${connection.qualification ?? confidenceLabel(connection.confidence ?? "established")}${connection.date ? ` · ${connection.date}` : ""}`,
-      ),
-    );
-    button.append(identity, createElement("span", "relationship-arrow", "→"));
-    list.append(button);
-    const claim = model.dataset.claims?.find(c => c.id === connection.id);
-    if (claim) appendClaimEvidence(list, model, claim);
-    for (const note of connection.notes ?? []) {
-      const paragraph = createElement("p", "connection-note", note);
-      paragraph.dataset.researchTarget = JSON.stringify({
-        table: "claims",
-        recordId: connection.id,
-        label: connection.label,
+  if (view.reasoning.trim()) {
+    const why = element("div", "statement-why");
+    const lead = view.qualification === "supported" ? "" : `Why ${view.qualification}. `;
+    view.reasoning
+      .trim()
+      .split(/\n\s*\n/)
+      .forEach((paragraph, index) => {
+        const p = element("p");
+        if (index === 0 && lead) p.append(element("strong", "", lead));
+        p.append(paragraph.trim());
+        why.append(p);
       });
-      list.append(paragraph);
+    container.append(why);
+  }
+
+  for (const evidence of view.evidence) {
+    const item = element("section", "statement-evidence");
+    item.dataset.researchTarget = target({ table: "claims", recordId: view.claimId, label: evidence.source?.title || evidence.role, text: evidence.quote });
+    item.append(element("p", "evidence-role", evidence.role));
+    if (evidence.source) item.append(element("p", "evidence-source", evidence.source.title));
+    item.append(element("blockquote", "", evidence.quote));
+    const meta = element("p", "evidence-meta");
+    if (evidence.locator) meta.append(evidence.locator);
+    const context = element("p", "evidence-context", evidence.context);
+    context.hidden = true;
+    if (evidence.context) {
+      const toggle = element("button", "evidence-link", "Context");
+      toggle.type = "button";
+      toggle.ariaExpanded = "false";
+      toggle.addEventListener("click", () => {
+        context.hidden = !context.hidden;
+        toggle.ariaExpanded = String(!context.hidden);
+      });
+      if (meta.childNodes.length) meta.append(" · ");
+      meta.append(toggle);
     }
-  }
-
-  section.append(list);
-  container.append(section);
-}
-
-export function renderDetailsPanel(
-  container: HTMLElement,
-  model: GenealogyModel,
-  personId: string,
-  handlers: DetailsPanelHandlers,
-): void {
-  const person = model.getPerson(personId);
-  container.replaceChildren();
-  container.dataset.personId = personId;
-  delete container.dataset.contextEntityId;
-
-  const header = createElement("header", "detail-header");
-  const headingWrap = createElement("div");
-  headingWrap.append(
-    createElement("span", "eyebrow", "Person record"),
-    createElement("h2", "detail-title", person.name),
-  );
-  if (person.lifespan) {
-    headingWrap.append(createElement("p", "detail-lifespan", person.lifespan));
-  }
-
-  const closeButton = createElement("button", "icon-button detail-close", "×");
-  closeButton.type = "button";
-  closeButton.ariaLabel = "Close biography";
-  closeButton.dataset.lavishAction = "true";
-  closeButton.addEventListener("click", handlers.onClose);
-  header.append(headingWrap, closeButton);
-  container.append(header);
-
-  if (person.descriptor) {
-    container.append(
-      createElement("p", "detail-descriptor", person.descriptor),
-    );
-  }
-
-  const facts = [
-    person.born ? ["Born", person.born] : undefined,
-    person.died ? ["Died", person.died] : undefined,
-  ].filter((fact): fact is string[] => Boolean(fact));
-
-  if (facts.length > 0) {
-    const factGrid = createElement("dl", "fact-grid");
-    for (const [label, value] of facts) {
-      factGrid.append(
-        createElement("dt", "", label),
-        createElement("dd", "", value),
-      );
+    if (evidence.source) {
+      const open = element("button", "evidence-link", "Open source");
+      open.type = "button";
+      open.dataset.inspectSource = evidence.source.id;
+      open.dataset.inspectQuote = evidence.quote;
+      if (meta.childNodes.length) meta.append(" · ");
+      meta.append(open);
     }
-    container.append(factGrid);
+    item.append(meta, context);
+    container.append(item);
   }
 
-  const biographySection = createElement("section", "detail-section");
-  biographySection.append(
-    createElement("h3", "detail-kicker", "Biography"),
-    createElement(
-      "p",
-      "biography-copy",
-      person.biography ?? "No narrative biography has been added yet.",
-    ),
-  );
-  if (person.biography || !model.dataset.claims?.some(c => c.subjectId === personId)) container.append(biographySection);
-  appendResearchClaims(container, model, personId);
-
-  const parents = uniquePeople(
-    model.parentsOf(personId).map((link) => model.getPerson(link.parentId)),
-  );
-  const spouses = uniquePeople(model.spousesOf(personId));
-  const children = uniquePeople(
-    model.childrenOf(personId).map((link) => model.getPerson(link.childId)),
-  );
-  const siblings = uniquePeople(model.siblingsOf(personId));
-
-  appendRelationshipGroup(container, "Parents", parents, handlers.onNavigate);
-  appendRelationshipGroup(
-    container,
-    "Spouses and partners",
-    spouses,
-    handlers.onNavigate,
-  );
-  appendRelationshipGroup(container, "Children", children, handlers.onNavigate);
-  appendRelationshipGroup(container, "Siblings", siblings, handlers.onNavigate);
-  appendContextConnections(
-    container,
-    model,
-    personId,
-    model.contextConnectionsForPerson(personId),
-    handlers,
-  );
-
-  const qualifiedRelationships = [
-    ...model
-      .parentsOf(personId)
-      .filter((link) => link.confidence !== "established"),
-    ...model
-      .childrenOf(personId)
-      .filter((link) => link.confidence !== "established"),
-  ];
-  if (qualifiedRelationships.length > 0) {
-    const section = createElement("section", "detail-section");
-    section.append(createElement("h3", "detail-kicker", "Relationship status"));
-    for (const relationship of qualifiedRelationships) {
-      const relatedId =
-        relationship.childId === personId
-          ? relationship.parentId
-          : relationship.childId;
-      const row = createElement("div", "confidence-row");
-      const badge = createElement(
-        "span",
-        `confidence-badge confidence-${relationship.confidence}`,
-        confidenceLabel(relationship.confidence),
-      );
-      row.append(
-        badge,
-        createElement(
-          "span",
-          "",
-          `${model.getPerson(relatedId).name}${
-            relationship.label ? `: ${relationship.label}` : ""
-          }`,
-        ),
-      );
-      section.append(row);
+  if (view.sources.length) {
+    const block = section(view.evidence.length ? "Also cited" : "Cited");
+    const list = element("ol", "detail-source-list");
+    for (const source of view.sources) {
+      const button = element("button", "detail-source", source.title);
+      button.type = "button";
+      button.dataset.inspectSource = source.id;
+      const item = element("li");
+      item.append(button);
+      list.append(item);
     }
-    container.append(section);
+    block.append(list);
+    container.append(block);
   }
-
-  if (person.researchNotes && person.researchNotes.length > 0) {
-    const notesSection = createElement(
-      "section",
-      "detail-section research-notes",
-    );
-    notesSection.append(createElement("h3", "detail-kicker", "Research notes"));
-    const notes = createElement("ul");
-    for (const note of person.researchNotes) {
-      notes.append(createElement("li", "", note));
-    }
-    notesSection.append(notes);
-    container.append(notesSection);
-  }
-
-  const sourceIds = new Set(person.sourceIds ?? []);
-  for (const relationship of [
-    ...model.parentsOf(personId),
-    ...model.childrenOf(personId),
-  ]) {
-    for (const sourceId of relationship.sourceIds) {
-      sourceIds.add(sourceId);
-    }
-  }
-  for (const union of model.unionsForPerson(personId)) {
-    for (const sourceId of union.sourceIds ?? []) {
-      sourceIds.add(sourceId);
-    }
-  }
-  for (const connection of model.contextConnectionsForPerson(personId)) {
-    for (const sourceId of connection.sourceIds ?? []) {
-      sourceIds.add(sourceId);
-    }
-  }
-  appendSources(
-    container,
-    [...sourceIds].map((sourceId) => model.getSource(sourceId)),
-  );
-}
-
-export function renderContextDetailsPanel(
-  container: HTMLElement,
-  model: GenealogyModel,
-  entityId: string,
-  handlers: DetailsPanelHandlers,
-): void {
-  const entity = model.getContextEntity(entityId);
-  container.replaceChildren();
-  delete container.dataset.personId;
-  container.dataset.contextEntityId = entityId;
-
-  const header = createElement("header", "detail-header");
-  const headingWrap = createElement("div");
-  headingWrap.append(
-    createElement(
-      "span",
-      "eyebrow",
-      entity.kind === "family"
-        ? "Family network"
-        : entity.kind[0]!.toUpperCase() + entity.kind.slice(1),
-    ),
-    createElement("h2", "detail-title", entity.name),
-  );
-  if (entity.activeDates) {
-    headingWrap.append(
-      createElement("p", "detail-lifespan", entity.activeDates),
-    );
-  }
-
-  const closeButton = createElement("button", "icon-button detail-close", "×");
-  closeButton.type = "button";
-  closeButton.ariaLabel = "Close historical context";
-  closeButton.dataset.lavishAction = "true";
-  closeButton.addEventListener("click", handlers.onClose);
-  header.append(headingWrap, closeButton);
-  container.append(header);
-
-  if (entity.descriptor) {
-    container.append(
-      createElement("p", "detail-descriptor", entity.descriptor),
-    );
-  }
-
-  const biographySection = createElement("section", "detail-section");
-  biographySection.append(
-    createElement("h3", "detail-kicker", "Historical context"),
-    createElement(
-      "p",
-      "biography-copy",
-      entity.biography ?? "No narrative context has been added yet.",
-    ),
-  );
-  if (entity.biography || !model.dataset.claims?.some(c => c.subjectId === entityId)) container.append(biographySection);
-  appendResearchClaims(container, model, entityId);
-
-  const connections = model.contextConnectionsForEntity(entityId);
-  appendContextConnections(container, model, entityId, connections, handlers);
-
-  const sourceIds = new Set(entity.sourceIds ?? []);
-  for (const connection of connections) {
-    for (const sourceId of connection.sourceIds ?? []) {
-      sourceIds.add(sourceId);
-    }
-  }
-  appendSources(
-    container,
-    [...sourceIds].map((sourceId) => model.getSource(sourceId)),
-  );
 }

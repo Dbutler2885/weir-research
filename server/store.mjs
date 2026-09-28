@@ -26,10 +26,10 @@ export class WorkspaceStore {
         "Unsupported or corrupt workspace. Original state has been preserved.",
       );
     if (!existsSync(this.path)) this.save(this.state);
-    // A graph stored before it was reduced to nodes and edges is converted once,
-    // keeping the original beside it.
+    // A graph stored in an earlier shape is converted once, keeping the original beside
+    // it: before it was reduced to nodes and edges, or before nodes had project types.
     if (needsGraphUpgrade(this.state)) {
-      const backup = join(directory, "workspace.before-nodes-edges.json");
+      const backup = join(directory, this.state.dataset.version === 2 ? "workspace.before-types.json" : "workspace.before-nodes-edges.json");
       if (!existsSync(backup)) writeFileSync(backup, readFileSync(this.path), { mode: 0o600 });
       this.save(upgradeGraphState(this.state));
     }

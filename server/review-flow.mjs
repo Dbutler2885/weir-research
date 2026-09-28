@@ -56,6 +56,9 @@ export function graphPacket(state, investigation, walkthrough, updates = []) {
   };
 }
 export { graphBlocker };
+
+// What a reorganization asks of its builder, before the human's own words.
+const REORGANIZATION = 'Reorganize the graph as it stands; there is no new research to add. Define the project\'s types and the fields each records, file every existing fact under its field, give each relationship the human sees from both ends a reverse reading, and write a summary for every node. Rewrite reasoning that mentions ids, tables or earlier versions of the graph so a reader can follow it. Keep every citation, qualification and time; do not add, remove or merge anything the research does not warrant.';
 export function flowCommand(store, command, actor = 'coordinator') {
   const i = store.state.investigations.find(i => i.id === command.investigationId);
   fail(i, 'Unknown investigation.');
@@ -190,6 +193,25 @@ export function flowCommand(store, command, actor = 'coordinator') {
       const inv = next.investigations.find(x => x.id === i.id), flow = flowFor(inv), w = flow.walkthroughs.at(-1);
       flow.jobs.push({id: jobId, format: 'tables', ...(w ? {walkthroughId: w.id} : {}), status: 'queued', engine, model: choice?.model ?? null, effort: choice?.effort ?? null, progress: engine === 'manual' ? 'Waiting for the coordinator to assign a graph builder.' : 'Graph preparation is queued.', createdAt: at, attempt: 0, updates: [], consumedUpdateSequence: 0, packet: graphPacket(next, inv, w), baseDataset: structuredClone(next.dataset)});
       inv.events.push({at, message: 'Graph update requested.'});
+    });
+    return {jobId};
+  }
+  if (action === 'reorganize-graph') {
+    // A reorganization represents no new research: a builder organizes the graph as it
+    // stands, in the project's own types, with a summary for every node. The human
+    // asked for it, and decides on the draft like any other.
+    fail(!i.closedAt, 'This batch is closed.');
+    fail(!(i.reviewFlow?.jobs || []).length, 'This batch already has graph work; open a new batch for the reorganization.');
+    fail(text(command.message), 'Say what the human asked the reorganization to do.');
+    const blocker = graphBlocker(store.state);
+    fail(!blocker, blocker);
+    const choice = pick(store.state, 'graph-builder');
+    const jobId = randomUUID(), at = new Date().toISOString(), engine = choice?.agent || 'manual';
+    store.update(next => {
+      const inv = next.investigations.find(x => x.id === i.id), flow = flowFor(inv);
+      const updates = [{id: randomUUID(), sequence: 1, message: `${REORGANIZATION}\n\n${command.message}`, annotationIds: [], at}];
+      flow.jobs.push({id: jobId, format: 'tables', reorganization: true, status: 'queued', engine, model: choice?.model ?? null, effort: choice?.effort ?? null, progress: engine === 'manual' ? 'Waiting for the coordinator to assign a graph builder.' : 'Graph reorganization is queued.', createdAt: at, attempt: 0, updates, consumedUpdateSequence: 0, packet: graphPacket(next, inv, undefined, updates), baseDataset: structuredClone(next.dataset)});
+      inv.events.push({at, message: 'Graph reorganization requested.'});
     });
     return {jobId};
   }

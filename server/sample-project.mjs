@@ -2,6 +2,7 @@ import { WorkspaceStore } from './store.mjs';
 import { flowCommand, receiveDraft } from './review-flow.mjs';
 import { graphToTables } from '../src/domain/graph-csv.ts';
 import { readDelivery } from '../src/domain/graph-delivery.ts';
+import { defaultRelationships } from '../src/domain/graph-schema.ts';
 
 // The sample project a visitor can open from setup: a finished batch of research
 // on an invented family in an invented town, with its findings, a walkthrough and
@@ -9,11 +10,12 @@ import { readDelivery } from '../src/domain/graph-delivery.ts';
 // through the app's own commands, so it always matches what the app makes.
 
 const graph = {
-  version: 2,
+  version: 3,
   title: 'Sample: the fictional Marrow family of Tidewell',
   initialFocusId: 'edith',
-  people: [{id: 'edith', name: 'Edith Marrow', descriptor: 'Fictional sample person', biography: 'An invented person in the sample project.', sourceIds: []}],
-  contextEntities: [],
+  nodes: [{id: 'edith', name: 'Edith Marrow', type: 'person', summary: 'An invented person in the sample project, whose family the research sets out to find.'}],
+  types: [{name: 'person', color: 'sea', shape: 'rounded', fields: [{name: 'born', value: 'date'}, {name: 'occupation', value: 'text'}]}],
+  relationships: defaultRelationships(),
   claims: [],
   sources: [],
 };
@@ -46,10 +48,10 @@ function draftFiles(job) {
   const ref = (id) => Object.keys(job.packet.evidence).find((key) => key.endsWith(`/${id}`));
   const tables = graphToTables(job.baseDataset);
   const nodes = [
-    'thomas,person,Thomas Marrow,Net maker (fictional),,,,,,,register;census',
-    'ann,person,Ann Marrow,Fictional sample person,,,,,Ann Holt,,census;gazette',
-    'tidewell,place,Tidewell,A fictional harbour town,,,,,,,census',
-    'saltmere,place,Saltmere,A fictional village,,,,,,,gazette',
+    'thomas,person,Thomas Marrow,,"Edith\'s father, a net maker on Harbour Row in Tidewell. The household lists disagree about where he was born.",,register;census',
+    'ann,person,Ann Marrow,,"Edith\'s mother, born Ann Holt in Saltmere, who married Thomas there.",,census;gazette',
+    'tidewell,place,Tidewell,,"A fictional harbour town, where the Marrow family lived.",,census',
+    'saltmere,place,Saltmere,,"A fictional village, Ann\'s home parish and where she married Thomas.",,gazette',
   ];
   const edges = [
     `thomas-parent,thomas,parent_of,node,edith,supported,,The baptism names Thomas as Edith's father.,${ref('baptism')};${ref('household')},,,register;census`,
@@ -58,10 +60,15 @@ function draftFiles(job) {
     `ann-born,ann,born_in,node,saltmere,reported,,The marriage notice and the household list both give Saltmere.,${ref('notice')};${ref('household')},,,gazette;census`,
     `thomas-born,thomas,born_in,node,tidewell,disputed,,One household list gives Tidewell and a later one Saltmere.,${ref('household')},${ref('second-list')},,census`,
     `family-home,thomas,lived_in,node,tidewell,supported,,The household list places the family on Harbour Row.,${ref('household')},,,census`,
+    `thomas-trade,thomas,occupation,text,Net maker,supported,,The baptism and the household list give the same trade.,${ref('baptism')};${ref('household')},,,register;census`,
+    `ann-maiden-name,ann,also_known_as,text,Ann Holt,reported,,The marriage notice gives her maiden name.,${ref('notice')},,,gazette`,
   ];
   return {
     'nodes.csv': `${tables['nodes.csv']}${nodes.join('\n')}\n`,
     'edges.csv': `${tables['edges.csv']}${edges.join('\n')}\n`,
+    'types.csv': `${tables['types.csv']}place,moss,round\n`,
+    'fields.csv': `${tables['fields.csv']}person,also_known_as,text\n`,
+    'relationships.csv': `${tables['relationships.csv']}born_in,birthplace of,free\nlived_in,home of,free\n`,
     'questions.csv': 'id,question,nodeIds,edgeIds,provisionalTreatment,requestedResearch\nthomas-birthplace,Where was Thomas Marrow born?,thomas,thomas-born,Kept as disputed with both lists cited.,Look for Thomas\'s own baptism in both parishes.\n',
     'submission.txt': 'done 0\n',
   };
@@ -72,7 +79,7 @@ function draftFiles(job) {
 export function buildSample(directory) {
   const store = new WorkspaceStore(directory, graph);
   // The visitor's question, as it would have come in, and the coordinator's batch for it.
-  store.command({type: 'send', text: 'I\'d like to know more about Edith\'s family.', annotation: {question: QUESTION, references: [{table: 'people', recordId: 'edith', label: 'Edith Marrow'}]}});
+  store.command({type: 'send', text: 'I\'d like to know more about Edith\'s family.', annotation: {question: QUESTION, references: [{table: 'nodes', recordId: 'edith', label: 'Edith Marrow'}]}});
   const annotationId = store.state.conversation.at(-1).annotations[0].id;
   store.command({type: 'reply', text: 'I\'ll look for Edith\'s baptism first, then follow her parents through the household lists and any marriage notice.', references: []});
   const {investigationId} = store.command({type: 'open-batch', title: 'Edith\'s parents', brief: {purpose: 'Find who Edith Marrow\'s parents were and where they came from.', scope: 'Her parents and their birthplaces, not earlier generations.', direction: 'Start with the Tidewell baptisms.'}, questions: [{title: QUESTION, annotationIds: [annotationId]}]});

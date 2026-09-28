@@ -10,7 +10,7 @@ import {
 } from "./ui/investigation-view";
 import { evidenceCard } from "./ui/finding-review";
 import { sourceLibrary } from "./domain/findings";
-import { connectionsFromClaims } from "./domain/model";
+import { claimSourceIds } from "./domain/model";
 import { GuidedReview } from "./ui/guided-review";
 import { AnnotationsDrawer, type DrawerTab } from "./ui/annotations-drawer";
 import type { Message } from "./domain/conversation";
@@ -20,7 +20,6 @@ import "./review.css";
 import "./findings.css";
 import "./annotations-drawer.css";
 import "./guided-review.css";
-import { mountOrganizationPanel } from "./ui/organization-panel";
 import { livePanel, running, runningSummary, tickerEntries } from "./ui/live-panel";
 import type {
   AnnotationTarget,
@@ -29,7 +28,7 @@ import type {
   ResearchCommand,
   ResearchState,
 } from "./domain/research";
-import type { FamilyDataset } from "./domain/types";
+import type { GraphDataset } from "./domain/types";
 import {
   createArtifactSdk,
   deriveLavishQueueKey,
@@ -61,7 +60,7 @@ const targetAttribute = (target: AnnotationTarget): string =>
 
 export function mountResearchWorkspace(
   initial: ResearchState,
-  onDataset: (dataset: FamilyDataset) => void,
+  onDataset: (dataset: GraphDataset) => void,
 ): void {
   let state = initial;
   const destination = new URLSearchParams(location.search);
@@ -96,7 +95,7 @@ export function mountResearchWorkspace(
     )
     .join(
       "",
-    )}</div><div class="workspace-actions"><button type="button" data-view="feedback" class="feedback-destination">Feedback <span data-count="feedback"></span></button><button type="button" class="running-indicator" data-running popovertarget="live-panel" hidden></button><span class="local-indicator" title="Saved on this computer">Saved</span><button type="button" data-organize-project>Organize</button><button type="button" data-open-coordinator aria-expanded="false" aria-controls="notes-sidebar">Coordinator <span data-count="unread" title="Unread messages"></span></button><button type="button" data-annotate role="switch" aria-checked="false"><span class="annotation-switch" aria-hidden="true"></span>Annotate</button><button type="button" data-view="settings" class="settings-destination" aria-label="Research settings" title="Research settings"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button><button type="button" data-quit-app>Close project</button></div>`;
+    )}</div><div class="workspace-actions"><button type="button" data-view="feedback" class="feedback-destination">Feedback <span data-count="feedback"></span></button><button type="button" class="running-indicator" data-running popovertarget="live-panel" hidden></button><span class="local-indicator" title="Saved on this computer">Saved</span><button type="button" data-open-coordinator aria-expanded="false" aria-controls="notes-sidebar">Coordinator <span data-count="unread" title="Unread messages"></span></button><button type="button" data-annotate role="switch" aria-checked="false"><span class="annotation-switch" aria-hidden="true"></span>Annotate</button><button type="button" data-view="settings" class="settings-destination" aria-label="Research settings" title="Research settings"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button><button type="button" data-quit-app>Close project</button></div>`;
   shell.insertBefore(nav, graph);
   const surface = document.createElement("section");
   surface.className = "research-surface";
@@ -390,7 +389,7 @@ export function mountResearchWorkspace(
     if (dialog.open && drawer?.currentTab === "queue") drawer.render();
   }
   // What can be annotated: anything the app marks as a research object, and the graph's nodes and edges.
-  const researchObjects = "[data-research-target], [data-person-id], [data-context-entity-id], [data-union-id], [data-connection-id]";
+  const researchObjects = "[data-research-target], [data-node-id], [data-connection-id]";
   function pageContext(element: Element) {
     const name = element.tagName.toLowerCase() + [...element.classList].slice(0, 3).map((c) => `.${c}`).join("");
     // The headings above it, nearest last, as a reader of the page would see them.
@@ -416,14 +415,10 @@ export function mountResearchWorkspace(
     let target: AnnotationTarget = semantic
       ? JSON.parse(semantic.getAttribute("data-research-target")!)
       : { label: context.text || "Selected research" };
-    const node = element?.closest(
-      "[data-person-id], [data-context-entity-id], [data-union-id], [data-connection-id]",
-    );
+    const node = element?.closest("[data-node-id], [data-connection-id]");
     if (!semantic && node) {
       const names: [string, AnnotationTarget["table"]][] = [
-        ["data-person-id", "people"],
-        ["data-context-entity-id", "contextEntities"],
-        ["data-union-id", "claims"],
+        ["data-node-id", "nodes"],
         ["data-connection-id", "claims"],
       ];
       for (const [attr, table] of names)
@@ -1034,9 +1029,11 @@ export function mountResearchWorkspace(
       "[data-inspect-source],[data-related-review]",
     );
     if (b?.dataset.inspectSource)
-      showSource(undefined, undefined, b.dataset.inspectSource);
+      showSource(undefined, b.dataset.inspectQuote, b.dataset.inspectSource);
     if (b?.dataset.relatedReview) openReport(b.dataset.relatedProposal);
   });
+  // A gap selected in a node's panel starts a note asking for research on it.
+  window.addEventListener("research:ask", (event) => openDrawer("queue", (event as CustomEvent).detail));
   window.addEventListener("research:inspect", (event) => {
     const id = (event as CustomEvent).detail.id;
     nodeInspector?.querySelector(".related-findings")?.remove();
@@ -1132,12 +1129,19 @@ export function mountResearchWorkspace(
           .map((f) => ({ i, p, f })),
       ),
     );
+    // Graph records that cite this source: nodes, and the edges its passages back.
+    const nodeName = (id: string) => state.dataset.nodes.find((n) => n.id === id)?.name || id;
     const subjects = [
-      ...state.dataset.people,
-      ...(state.dataset.contextEntities || []),
-      ...connectionsFromClaims(state.dataset),
-    ].filter((r) => r.sourceIds?.includes(sourceId || ""));
-    surface.innerHTML = `<button data-source-list>Back to source library</button>${currentInvestigation()?.reviewFlow?.walkthroughs.length ? '<button data-open-review>Return to your walkthrough</button>' : ""}<article class="source-inspector" ${targetAttribute({ table: "sources", recordId: sourceId || documentId, label: String(source?.title || doc?.name || "Source") })}><span class="eyebrow">Source record</span><h1>${escape(source?.title || doc?.name || "Source")}</h1><p>${[source?.repository, source?.access || "Access not recorded"].filter(Boolean).map(escape).join(" · ")}</p><p class="preserve-lines">${escape(source?.note)}</p>${doc ? `<p>Preserved ${date(doc.importedAt)}</p><a href="/api/documents/${doc.id}" target="_blank" rel="noopener">Open preserved original</a><div data-reading-note="${escape(doc.id)}" data-state="${escape(doc.reading?.state || "")}">${readingNote(doc, state.pdfReading)}</div>` : ""}<section class="source-content">${body}</section><h2>Findings from this source</h2>${related.map(({ i, p, f }) => `<section class="source-finding" data-investigation-id="${i.id}" ${targetAttribute({ label: f.statement, proposalId: p.id, findingId: f.id })}><span class="status-badge">${escape(f.status)} · ${escape(f.qualification)}</span><h3>${escape(f.statement)}</h3><p class="preserve-lines">${escape(f.explanation)}</p><button data-source-review="${i.id}" data-source-proposal="${p.id}">Open finding review</button></section>`).join("") || '<p class="muted">No structured findings recorded yet.</p>'}<h2>Accepted graph connections</h2>${subjects.map((r) => `<p ${targetAttribute({ label: "name" in r ? r.name : r.label || r.id, recordId: r.id })}>${escape("name" in r ? r.name : r.label || r.id)}</p>`).join("") || '<p class="muted">No accepted graph records cite this source yet.</p>'}<details><summary>Recorded passages and review history (${passages.length})</summary>${passages.map(({ i, p, e }) => `<section data-investigation-id="${i.id}"><p class="muted">Revision ${p.revision} · ${escape(p.status)}</p>${evidenceCard(state, p, e)}</section>`).join("")}</details></article>`;
+      ...state.dataset.nodes.filter((n) => n.sourceIds?.includes(sourceId || "")).map((n) => ({ table: "nodes", id: n.id, label: n.name })),
+      ...(state.dataset.claims || [])
+        .filter((c) => claimSourceIds(state.dataset, c).includes(sourceId || ""))
+        .map((c) => ({
+          table: "claims",
+          id: c.id,
+          label: `${nodeName(c.subjectId)} ${c.predicate.replaceAll("_", " ")} ${"entityId" in c.object ? nodeName(c.object.entityId) : c.object.value}`,
+        })),
+    ];
+    surface.innerHTML = `<button data-source-list>Back to source library</button>${currentInvestigation()?.reviewFlow?.walkthroughs.length ? '<button data-open-review>Return to your walkthrough</button>' : ""}<article class="source-inspector" ${targetAttribute({ table: "sources", recordId: sourceId || documentId, label: String(source?.title || doc?.name || "Source") })}><span class="eyebrow">Source record</span><h1>${escape(source?.title || doc?.name || "Source")}</h1><p>${[source?.repository, source?.access || "Access not recorded"].filter(Boolean).map(escape).join(" · ")}</p><p class="preserve-lines">${escape(source?.note)}</p>${doc ? `<p>Preserved ${date(doc.importedAt)}</p><a href="/api/documents/${doc.id}" target="_blank" rel="noopener">Open preserved original</a><div data-reading-note="${escape(doc.id)}" data-state="${escape(doc.reading?.state || "")}">${readingNote(doc, state.pdfReading)}</div>` : ""}<section class="source-content">${body}</section><h2>Findings from this source</h2>${related.map(({ i, p, f }) => `<section class="source-finding" data-investigation-id="${i.id}" ${targetAttribute({ label: f.statement, proposalId: p.id, findingId: f.id })}><span class="status-badge">${escape(f.status)} · ${escape(f.qualification)}</span><h3>${escape(f.statement)}</h3><p class="preserve-lines">${escape(f.explanation)}</p><button data-source-review="${i.id}" data-source-proposal="${p.id}">Open finding review</button></section>`).join("") || '<p class="muted">No structured findings recorded yet.</p>'}<h2>Accepted graph connections</h2>${subjects.map((r) => `<p ${targetAttribute({ table: r.table as AnnotationTarget["table"], label: r.label, recordId: r.id })}>${escape(r.label)}</p>`).join("") || '<p class="muted">No accepted graph records cite this source yet.</p>'}<details><summary>Recorded passages and review history (${passages.length})</summary>${passages.map(({ i, p, e }) => `<section data-investigation-id="${i.id}"><p class="muted">Revision ${p.revision} · ${escape(p.status)}</p>${evidenceCard(state, p, e)}</section>`).join("")}</details></article>`;
     surface.querySelectorAll("[data-evidence]").forEach((b) => b.remove());
     surface.querySelector("mark")?.scrollIntoView({ block: "center" });
   }
@@ -1372,12 +1376,6 @@ export function mountResearchWorkspace(
       polling = false;
     }
   }, 2500);
-  mountOrganizationPanel(
-    () => state,
-    request,
-    () => refresh(),
-    message,
-  );
   document
     .querySelector("[data-ask-topic]")
     ?.addEventListener("click", () =>

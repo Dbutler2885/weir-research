@@ -1,17 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { GenealogyModel } from "../src/domain/model.ts";
-const nodes = (d) => [...d.people, ...(d.contextEntities || [])];
+import { GraphModel } from "../src/domain/model.ts";
 function summary(plan) {
   return {
     id: plan.id,
     reason: plan.reason,
     removed: plan.removed,
     added: plan.added,
-    remaining: nodes(plan.dataset).map((n) => ({
-      id: n.id,
-      name: n.name,
-      kind: n.kind || "person",
-    })),
+    remaining: plan.dataset.nodes.map((n) => ({ id: n.id, name: n.name, type: n.type })),
     focusId: plan.dataset.initialFocusId,
     message:
       "Sources, annotations, investigation history, and coordinator notes are retained. Active work will pause. A saved snapshot allows undo.",
@@ -37,7 +32,7 @@ function invalidate(next) {
 export function organize(store, command) {
   if (command.action === "organization-preview") {
     const data = structuredClone(store.state.dataset);
-    const original = nodes(data);
+    const original = data.nodes;
     const keep = command.keepIds ?? original.map((n) => n.id);
     if (
       !Array.isArray(keep) ||
@@ -45,44 +40,27 @@ export function organize(store, command) {
     )
       throw new Error("Choose existing nodes to keep.");
     const kept = new Set(keep);
-    data.people = data.people.filter((n) => kept.has(n.id));
-    data.contextEntities = (data.contextEntities || []).filter((n) =>
-      kept.has(n.id),
-    );
+    data.nodes = data.nodes.filter((n) => kept.has(n.id));
     data.claims = (data.claims || []).filter(c => kept.has(c.subjectId) && (!c.object.entityId || kept.has(c.object.entityId)));
     const added = [];
     if (command.seed) {
-      const { name, kind } = command.seed;
-      if (
-        typeof name !== "string" ||
-        !name.trim() ||
-        name.length > 200 ||
-        ![
-          "person",
-          "place",
-          "organization",
-          "family",
-          "event",
-          "vessel",
-        ].includes(kind)
-      )
-        throw new Error("A name and supported node kind are required.");
-      const node = {
-        id: randomUUID(),
-        name: name.trim(),
-        ...(kind === "person" ? {} : { kind }),
-      };
-      if (kind === "person") data.people.push(node);
-      else data.contextEntities.push(node);
-      added.push({ id: node.id, name: node.name, kind });
+      const { name, type } = command.seed;
+      const valid = (text) => typeof text === "string" && text.trim() && text.length <= 200;
+      if (!valid(name) || !valid(type)) throw new Error("A starting point needs a name and a type.");
+      // The project's own spelling of an existing type, or a new type with the default look.
+      const known = data.types.find((t) => t.name.trim().toLowerCase() === type.trim().toLowerCase());
+      if (!known) data.types.push({ name: type.trim(), fields: [] });
+      const node = { id: randomUUID(), name: name.trim(), type: known?.name || type.trim() };
+      data.nodes.push(node);
+      added.push({ id: node.id, name: node.name, type: node.type });
     }
-    const available = nodes(data);
+    const available = data.nodes;
     data.initialFocusId =
       command.focusId ??
       (available.some((n) => n.id === data.initialFocusId)
         ? data.initialFocusId
         : (available[0]?.id ?? null));
-    new GenealogyModel(data);
+    new GraphModel(data);
     const reason =
       typeof command.reason === "string" && command.reason.trim()
         ? command.reason.slice(0, 1000)
@@ -150,7 +128,7 @@ export function organize(store, command) {
             ),
           ).values(),
         ];
-      new GenealogyModel(restored);
+      new GraphModel(restored);
       next.organization.history.push({
         id,
         at: new Date().toISOString(),

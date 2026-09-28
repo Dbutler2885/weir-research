@@ -1,13 +1,13 @@
 ---
 name: prepare-research-graph
-description: Supervise a graph builder that edits the research graph as two tables, sign off or send back its draft against the human's instructions, and write the coordinator-owned tour of what the draft changes. Use for research graph updates.
+description: Supervise a graph builder that edits the research graph and the project's types as tables, sign off or send back its draft against the human's instructions, and write the coordinator-owned tour of what the draft changes. Use for research graph updates.
 ---
 
 # Prepare a research graph
 
 Help the builder turn the research into a useful, evidence-linked graph that the human can explore.
-The graph is nodes and edges.
-A builder edits a copy of it as two tables, and the application works out what changed.
+The graph is nodes and edges, with the project's own types of node and rules for its relationships.
+A builder edits a copy of it as tables, and the application works out what changed.
 The human accepts or sets aside the whole draft; reading the tour is separate from that decision.
 
 ## How a graph job runs
@@ -16,7 +16,7 @@ A graph job is queued when the human requests a batch's graph update from Review
 It represents all of the batch's findings, with its latest walkthrough when one exists.
 Only one graph update runs at a time across the project, and a pending review blocks the next.
 
-When the job starts, the application writes the accepted graph into the builder's working directory as `nodes.csv` and `edges.csv`, with an untouched copy under `start/`.
+When the job starts, the application writes the accepted graph into the builder's working directory as `nodes.csv`, `edges.csv`, `types.csv`, `fields.csv` and `relationships.csv`, with an untouched copy under `start/`.
 Beside them it writes `packet.json` with the research: the question, the walkthrough, the findings, the evidence registry, and the source library.
 [The builder contract](references/contract.md) describes the tables, and [the builder system prompt](references/graph-builder-system.md) is its standing instruction.
 
@@ -26,6 +26,14 @@ For a job waiting for a builder, send `assign-graph` with investigationId, jobId
 When the builder finishes, the application reads the tables back.
 A draft that does not hold together goes straight back to the builder with every problem listed, up to three times.
 A draft that holds together becomes the job's candidate, with the computed difference and a one-line summary.
+
+## Reorganizing the graph
+
+A graph made before the project defined its own types has nodes without summaries and facts scattered under names invented one at a time.
+When the human asks for the graph to be reorganized, open a batch for it and send `reorganize-graph` with investigationId and `message`, the human's own request in your words.
+The builder then organizes the graph as it stands, adding no new research: it defines the types and their fields, files every fact under its field, gives relationships their reverse readings, and writes a summary for every node.
+The draft is signed off and reviewed like any other; check that nothing was added, removed or merged without a reason in its notes.
+Offer a reorganization when many nodes lack a summary, rather than starting one unasked.
 
 ## Pass the human's instructions as context
 
@@ -40,6 +48,7 @@ Editing this skill or its references changes the rules for every builder in ever
 Use `inspect-flow` with the batch's investigation ID to read the candidate: `draft`, `diff`, `summary`, `questions`, and `notes`.
 Check the difference against the human's instructions for this job and against the findings.
 Check that the draft expresses relationships as well as entities, preserves qualifications, and cites the evidence it actually uses.
+Check that every summary it writes says what the node is and why it is on the graph, that facts are filed under the fields its types define, and that any new type or rule in `diff.vocabulary` is one the human would recognise.
 Removals and merges deserve the closest reading, because the human is asked to accept records disappearing.
 
 If the draft does not yet do what was asked, send it back with `graph-update`, naming what is missing.

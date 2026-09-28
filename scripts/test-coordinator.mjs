@@ -99,7 +99,8 @@ try {
   ]);
   sessionFile = attached.sessionFile;
   assert.equal(attached.project.title, "Fictional workshop fixture");
-  assert.equal(attached.project.counts.people, 6);
+  assert.equal(attached.project.counts.nodes, 8);
+  assert.deepEqual(attached.project.types, ["person", "organization", "place"]);
   await assert.rejects(
     run("coordinator", [
       "attach",
@@ -115,7 +116,7 @@ try {
       "Local protocol test: inspect this identity without adding historical claims.",
     target: {
       label: "Alex Example",
-      table: "people",
+      table: "nodes",
       recordId: "alex",
     },
     dispatch: true,
@@ -131,7 +132,7 @@ try {
   const entity = await command({
     action: "inspect",
     kind: "entity",
-    table: "people",
+    table: "nodes",
     id: "alex",
   });
   assert.equal(entity.record.id, "alex");
@@ -152,7 +153,7 @@ try {
   await command({
     action: "map",
     notes:
-      "Purpose: local workflow verification. Relevant entity people/alex; no new historical research.",
+      "Purpose: local workflow verification. Relevant entity nodes/alex; no new historical research.",
   });
   await command({
     action: "handoff",

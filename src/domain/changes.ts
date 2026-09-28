@@ -1,5 +1,5 @@
-import { GenealogyModel } from "./model.ts";
-import type { FamilyDataset } from "./types.ts";
+import { GraphModel } from "./model.ts";
+import type { GraphDataset } from "./types.ts";
 import type { Change, Table } from "./research.ts";
 
 function requireThat(condition: unknown, message: string): asserts condition {
@@ -23,12 +23,12 @@ export function canonical(value: unknown): string {
   return JSON.stringify(value);
 }
 export function applyChanges(
-  dataset: FamilyDataset,
+  dataset: GraphDataset,
   changes: Change[],
-): FamilyDataset {
+): GraphDataset {
   const next = structuredClone(dataset);
   const touched = new Set<string>();
-  const tables: Table[] = ["people", "contextEntities", "claims", "sources"];
+  const tables: Table[] = ["nodes", "claims", "sources"];
   requireThat(Array.isArray(changes), "Changes must be a list.");
   for (const change of changes) {
     requireThat(tables.includes(change.table), "Unknown record collection.");
@@ -66,11 +66,9 @@ export function applyChanges(
   }
   if (
     next.initialFocusId &&
-    ![...next.people, ...(next.contextEntities ?? [])].some(
-      (n) => n.id === next.initialFocusId,
-    )
+    !next.nodes.some((n) => n.id === next.initialFocusId)
   )
     next.initialFocusId = null;
-  new GenealogyModel(next);
+  new GraphModel(next);
   return next;
 }

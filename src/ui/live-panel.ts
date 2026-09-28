@@ -90,7 +90,7 @@ export function liveRows(state: ResearchState): LiveRow[] {
       since: c.listening ? undefined : c.since || c.latest?.at,
     });
   } else if (c?.waiting)
-    rows.push({ group: "waiting", who: "Coordinator", stage: "Starts when you write to it; this sample spends nothing until then." });
+    rows.push({ group: "waiting", who: "Coordinator", stage: "Starts when you write to it or annotate." });
   else if (c?.problem)
     rows.push({ group: "attention", who: "Coordinator", stage: c.problem });
   else if (waiting)

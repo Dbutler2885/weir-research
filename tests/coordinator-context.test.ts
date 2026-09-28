@@ -3,7 +3,8 @@ import { describe, expect, it } from "vitest";
 import { initialState, referenceText, transition, type ResearchCommand, type ResearchState } from "../src/domain/research";
 import { buildCoordinatorContext, layerBudgets } from "../src/domain/coordinator-context";
 import { inspectContext } from "../server/research-context.mjs";
-import empty from "../src/data/empty.json";
+import { emptyGraph } from "../src/domain/graph-schema";
+const empty = emptyGraph();
 
 const brief = {
   purpose: "Find who built the fictional Harbour Mill.",

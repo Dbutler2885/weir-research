@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import dataset from "./fixtures/workshop.json";
-import type { FamilyDataset } from "../src/domain/types";
+import type { GraphDataset } from "../src/domain/types";
 import {
   initialState,
   transition,
@@ -14,7 +14,7 @@ import {
 import { WorkspaceStore } from "../server/store.mjs";
 
 function fixture() {
-  let state = initialState(dataset as FamilyDataset);
+  let state = initialState(dataset as GraphDataset);
   const run = (command: ResearchCommand) => {
     const output = transition(state, command);
     state = output.state;
@@ -24,9 +24,9 @@ function fixture() {
     type: "annotate",
     question: "Verify this name",
     target: {
-      table: "people",
-      recordId: dataset.people[0]!.id,
-      label: dataset.people[0]!.name,
+      table: "nodes",
+      recordId: dataset.nodes[0]!.id,
+      label: dataset.nodes[0]!.name,
     },
     dispatch: true,
   });
@@ -39,10 +39,10 @@ function fixture() {
     ambiguity: "Identity remains provisional.",
     changes: [
       {
-        table: "people",
-        recordId: state.dataset.people[0]!.id,
-        before: state.dataset.people[0],
-        after: { ...state.dataset.people[0], name: "Fixture corrected name" },
+        table: "nodes",
+        recordId: state.dataset.nodes[0]!.id,
+        before: state.dataset.nodes[0],
+        after: { ...state.dataset.nodes[0], name: "Fixture corrected name" },
         reason: "Test fixture",
         evidenceIds: ["e1"],
       },
@@ -88,7 +88,7 @@ describe("research lifecycle", () => {
       });
     expect(f.state.investigations).toHaveLength(1);
     expect(f.state.investigations[0]!.annotations).toHaveLength(4);
-    expect(f.state.dataset.people[0]!.name).toBe(dataset.people[0]!.name);
+    expect(f.state.dataset.nodes[0]!.name).toBe(dataset.nodes[0]!.name);
     expect(() =>
       f.run({ type: "accept", investigationId: f.investigationId, proposalId }),
     ).toThrow("newer feedback");
@@ -106,7 +106,7 @@ describe("research lifecycle", () => {
       investigationId: f.investigationId,
       proposalId: revised.proposalId,
     });
-    expect(f.state.dataset.people[0]!.name).toBe("Fixture corrected name");
+    expect(f.state.dataset.nodes[0]!.name).toBe("Fixture corrected name");
     expect(f.state.investigations[0]!.proposals.map((p) => p.status)).toEqual([
       "superseded",
       "accepted",

@@ -1,5 +1,5 @@
 import { sourceLibrary } from "../src/domain/findings.ts";
-const tables = ["people", "contextEntities", "claims", "sources"];
+const tables = ["nodes", "claims", "sources"];
 const label = (record) =>
   record.name || record.title || record.label || record.id;
 const clip = (value, limit = 500) => String(value || "").slice(0, limit);
@@ -21,15 +21,9 @@ export function projectIndex(state) {
         }
       : null,
     startingEntity: state.dataset.initialFocusId
-      ? {
-          table: state.dataset.people.some(
-            (p) => p.id === state.dataset.initialFocusId,
-          )
-            ? "people"
-            : "contextEntities",
-          id: state.dataset.initialFocusId,
-        }
+      ? { table: "nodes", id: state.dataset.initialFocusId }
       : null,
+    types: state.dataset.types.map((t) => t.name),
     counts: Object.fromEntries(
       tables.map((t) => [
         t,
@@ -160,6 +154,7 @@ export function inspectContext(state, request, candidates) {
             (v) =>
               v === request.id || (Array.isArray(v) && v.includes(request.id)),
           ) ||
+          r.object?.entityId === request.id ||
           references.includes(r.id)
         )
           neighbors.push({ table, id: r.id, label: label(r) });

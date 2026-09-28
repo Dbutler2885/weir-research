@@ -13,6 +13,8 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
 import { initialState } from "../src/domain/research.ts";
+import { emptyGraph } from "../src/domain/graph-schema.ts";
+import { codeStamp } from "../server/start-launcher.mjs";
 export const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const home = resolve(
   process.env.RESEARCH_HOME || join(root, ".research"),
@@ -95,16 +97,7 @@ export function createTopicProject(topic) {
   )
     id = `${base}-${number}`;
   const directory = join(home, "projects", id);
-  const state = initialState({
-    version: 2,
-    title: name,
-    initialFocusId: null,
-    people: [],
-    contextEntities: [],
-    claims: [],
-    evidence: [],
-    sources: [],
-  });
+  const state = initialState(emptyGraph(name));
   save(join(directory, "workspace.json"), state);
   const registry = read(join(home, "projects.json"), []);
   const created = { id, name, directory };
@@ -195,6 +188,12 @@ export async function openProject(p, { browser = true, build = true } = {}) {
       });
       const v = await r.json();
       live = r.ok && v.directory === p.directory && v.protocol === 2;
+      // A service started before the code changed, as one still running across an
+      // update is, would serve the new pages old data; it is replaced, keeping workers.
+      if (live && v.stamp !== codeStamp()) {
+        await stopProject(p, { keepWorkers: true });
+        live = false;
+      }
     } catch {
       /* Recover below. */
     }

@@ -29,8 +29,9 @@ import { DispatchRules } from "./dispatch.mjs";
 import { Helpers } from "./helpers.mjs";
 import { ResearchBrowser } from "./research-browser.mjs";
 import { setupRoutes } from "./setup-routes.mjs";
-import { startLauncher } from "./start-launcher.mjs";
+import { codeStamp, startLauncher } from "./start-launcher.mjs";
 import { validateChoice } from "../src/domain/dispatch.ts";
+import { emptyGraph } from "../src/domain/graph-schema.ts";
 import { LiveActivity } from "./live-activity.mjs";
 import { projectSkills } from "./skills.mjs";
 import { flowCommand } from "./review-flow.mjs";
@@ -43,6 +44,9 @@ const directory = resolve(
   process.env.RESEARCH_STATE_DIR || join(root, ".research"),
 );
 let port = Number(process.env.RESEARCH_PORT || 4318);
+// When the code this service runs last changed, so opening a project after an update
+// replaces a service still running the old code.
+const stamp = codeStamp();
 mkdirSync(directory, { recursive: true });
 const lock = join(directory, "server.lock");
 if (existsSync(lock)) {
@@ -78,10 +82,7 @@ function close() {
 }
 process.on("SIGTERM", close);
 process.on("SIGINT", close);
-const store = new WorkspaceStore(
-  directory,
-  JSON.parse(readFileSync(join(root, "src/data/empty.json"), "utf8")),
-);
+const store = new WorkspaceStore(directory, emptyGraph());
 const live = new LiveActivity();
 const coordinator = new Coordinator(store, { workers: () => live.list(), skills: projectSkills(root) });
 // One supervisor launches and reads every agent the app runs.
@@ -142,11 +143,13 @@ if (process.env.RESEARCH_COORDINATOR_AGENT === "prepare") {
   const prompt = coordinatorHost.prepare();
   writeFileSync(join(directory, "coordinator", "prepared.json"), JSON.stringify({ folder: coordinatorHost.folder, prompt }));
 } else if (process.env.RESEARCH_COORDINATOR_AGENT !== "0") {
-  // The sample project spends nothing until the visitor first sends something.
-  if (store.state.sample) coordinator.waiting = true;
+  // Reopening a project spends nothing: the coordinator starts when the human first
+  // writes to it, annotates, or decides something. A new project's topic is the
+  // human's first word, so it starts at once; the sample waits for its visitor.
+  if (existsSync(join(directory, "coordinator")) || store.state.sample) coordinator.waiting = true;
   else coordinatorHost.start();
 }
-// Starts the sample's coordinator on the visitor's first message to it.
+// Starts the coordinator on the human's first message, annotation or decision.
 function startWaitingCoordinator() {
   if (!coordinator.waiting) return;
   coordinator.waiting = false;
@@ -327,7 +330,7 @@ const server = createServer(async (req, res) => {
         error: "This credential is limited to worker commands.",
       });
     if (req.method === "GET" && url.pathname === "/api/project")
-      return json(res, 200, { directory, protocol: 2 });
+      return json(res, 200, { directory, protocol: 2, stamp });
     if (req.method === "GET" && url.pathname === "/api/state")
       return json(res, 200, {
         ...store.publicState(),
@@ -365,11 +368,13 @@ const server = createServer(async (req, res) => {
     }
     if (req.method === "POST" && url.pathname === "/api/review-flow") {
       const result = flowCommand(store, await body(req), "human");
+      startWaitingCoordinator();
       graphBuilders.pump();
       return json(res, 200, result);
     }
     if (req.method === "POST" && url.pathname === "/api/organization") {
       const result = organize(store, await body(req));
+      startWaitingCoordinator();
       researchers.pump();
       return json(res, 200, result);
     }

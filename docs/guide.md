@@ -35,7 +35,7 @@ The Coordinator button opens the sidebar where you talk with the coordinator; it
 The Annotate switch, or Command/Control + I, lets you select elements or passages on any surface, and opens the sidebar's Annotations tab with the note you are writing.
 You can also write an annotation there with no selection.
 The sidebar docks beside the surface, preserves drafts when closed, and supports editing queued annotations before you send them together.
-Only research objects can be annotated: people, places and connections on the graph, batches and their questions, reports, findings, walkthroughs and sources.
+Only research objects can be annotated: nodes and connections on the graph, and the gaps in a node's details, batches and their questions, reports, findings, walkthroughs and sources.
 Each reference reaches the coordinator as that object, with its ids and the screen it was picked from, never as page structure.
 Developer mode, in Research settings, is for work on Weir itself and applies to every project.
 With it on, any part of the app can be annotated, and Interface feedback records product observations separately from historical research.
@@ -50,8 +50,8 @@ Request a separate graph-construction pass from selected kept findings, then pre
 Older reviews remain available in their original format.
 The graph and source inspectors link back to the findings that inform them.
 An empty project provides Ask a research question and Add sources without requiring any nodes.
-You may also add a named starting point, such as a place or organization, without creating a person.
-Use Organize to preview which nodes to keep, apply the change in place, or undo the latest organization.
+You may also ask the coordinator to add a named starting point, such as a place or organization, or to trim the graph to the nodes you want to keep.
+The coordinator previews such a change before applying it, and you can undo the latest one.
 Organization preserves sources and research history, pauses active work, and prevents old results from being applied to the reorganized graph.
 
 ## Reading PDFs

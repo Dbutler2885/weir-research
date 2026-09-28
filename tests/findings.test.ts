@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { initialState, transition } from "../src/domain/research";
-import empty from "../src/data/empty.json";
+import { emptyGraph } from "../src/domain/graph-schema";
+const empty = emptyGraph();
 function setup() {
   let state = initialState(empty);
   let investigationId: string;
@@ -78,7 +79,7 @@ describe("finding and graph phases", () => {
       findingId: "f1",
       decision: "kept",
     });
-    expect(f.state().dataset.people).toHaveLength(0);
+    expect(f.state().dataset.nodes).toHaveLength(0);
     expect(f.state().datasetRevision).toBe(0);
     expect(
       f.state().investigations[0]!.proposals[0]!.findings!.map((x) => x.status),
@@ -110,18 +111,18 @@ describe("finding and graph phases", () => {
       evidence: f.proposal.evidence,
       changes: [
         {
-          table: "people",
+          table: "nodes",
           recordId: "alex",
           before: null,
-          after: { id: "alex", name: "Alex" },
+          after: { id: "alex", name: "Alex", type: "person" },
           reason: "Named worker",
           evidenceIds: ["e"],
         },
         {
-          table: "contextEntities",
+          table: "nodes",
           recordId: "shop",
           before: null,
-          after: { id: "shop", name: "Workshop", kind: "organization" },
+          after: { id: "shop", name: "Workshop", type: "organization" },
           reason: "Workplace",
           evidenceIds: ["e"],
         },
@@ -166,7 +167,7 @@ describe("finding and graph phases", () => {
       f.run({ type: "apply-groups", proposalId: p, groupIds: ["job"] }),
     ).toThrow("required groups");
     f.run({ type: "apply-groups", proposalId: p, groupIds: ["entities"] });
-    expect(f.state().dataset.people).toHaveLength(1);
+    expect(f.state().dataset.nodes.map((n) => n.type)).toEqual(["person", "organization"]);
     expect(f.state().dataset.claims).toHaveLength(0);
     f.run({ type: "apply-groups", proposalId: p, groupIds: ["job"] });
     expect(f.state().dataset.claims).toHaveLength(1);
@@ -350,5 +351,5 @@ it("records findings omitted from a graph without manufacturing graph changes", 
   }).proposalId;
   f.run({ type: "apply-groups", proposalId: p, groupIds: [] });
   expect(f.state().datasetRevision).toBe(0);
-  expect(f.state().dataset.people).toHaveLength(0);
+  expect(f.state().dataset.nodes).toHaveLength(0);
 });

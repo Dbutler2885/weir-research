@@ -42,7 +42,7 @@ Search returns bounded excerpts and stable references across entities, investiga
 Inspect the referenced records with commands:
 
 ```json
-{"action":"inspect","kind":"entity","table":"people","id":"alex"}
+{"action":"inspect","kind":"entity","table":"nodes","id":"alex"}
 ```
 
 Entity inspection returns that record, references to directly related records, and related investigations.
@@ -66,7 +66,7 @@ This is separate from evidence-backed research proposals.
 Send `{"action":"organization-preview","keepIds":["existing-node-id"],"reason":"Keep the requested starting point"}` through the coordinator command interface.
 The result lists exactly which nodes will remain, be added, and be removed.
 Check it against the request, then send `{"action":"organization-apply","previewId":"returned-id"}`.
-A preview can also include `"seed":{"name":"Example Town","kind":"place"}`; omit `keepIds` to retain all existing nodes.
+A preview can also include `"seed":{"name":"Example Town","type":"place"}`; omit `keepIds` to retain all existing nodes.
 The seed contains only a name and type, with no researched claims.
 The live service prunes dangling relationships and saves a prior-graph snapshot while retaining sources, annotations, investigations, research maps, and handoffs.
 Queued, running, and pending-review investigations pause; their prior leases and pending proposals are fenced or superseded.
@@ -74,7 +74,7 @@ Check their references and scope before resuming.
 The compact project index points to the latest organization action for recovery.
 Undo uses `{"action":"organization-undo","undoId":"returned-id"}` and is available until another graph change.
 Any intervening workspace revision invalidates an unapplied preview; prepare a new preview instead of forcing it.
-The browser Organize control exposes the same operations, and research workers cannot call them.
+Research workers cannot call these operations.
 Do not delete and recreate a project or edit its live state files to trim the graph.
 
 ## The conversation and batches
@@ -86,7 +86,7 @@ Answer every send in the conversation with your plan for it: a direct answer, re
 
 Send these through the command tool:
 
-- `{"action":"reply","text":"...","references":[{"label":"...","table":"contextEntities","recordId":"..."}]}` answers in the conversation; references become links the human can follow.
+- `{"action":"reply","text":"...","references":[{"label":"...","table":"nodes","recordId":"..."}]}` answers in the conversation; references become links the human can follow.
 - `{"action":"open-batch","title":"...","brief":{"purpose":"...","scope":"...","direction":"..."},"questions":[{"title":"Coordinator-written heading","annotationIds":["..."]}],"scope":["web","imports"]}` opens a numbered batch from sent annotations.
   A batch is research one walkthrough and one graph update can coherently explain.
   The brief is required: its purpose, what is in and out of the batch, and where the work is heading now.
@@ -225,7 +225,7 @@ If the app cannot use your change, it tells you why and puts the file back as it
 ## Guided research and graph review
 
 The standard presentation flow is documented in `skills/present-research/SKILL.md` and its runtime reference.
-The graph builder, which edits the graph as two tables, and the coordinator's sign-off and tour are documented in `skills/prepare-research-graph/SKILL.md`.
+The graph builder, which edits the graph and the project's types as tables, and the coordinator's sign-off and tour are documented in `skills/prepare-research-graph/SKILL.md`.
 Use those routes for new work; the kept-finding graph request described in older contracts remains supported for existing reviews.
 The snapshot exposes walkthrough revisions, graph job progress, and returned drafts awaiting your sign-off.
 `inspect-flow` retrieves the preserved explanation, job packet, the candidate draft with its computed difference, and graph reviews for one investigation.

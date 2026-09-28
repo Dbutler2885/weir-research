@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { emptyGraph } from "../src/domain/graph-schema";
 import { afterEach, describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -17,7 +18,7 @@ function sample() {
   const directory = mkdtempSync(join(tmpdir(), "fictional-references-"));
   cleanups.push(() => rmSync(directory, { recursive: true, force: true }));
   buildSample(directory);
-  const store = new WorkspaceStore(directory, { version: 2, title: "", initialFocusId: null, people: [] });
+  const store = new WorkspaceStore(directory, emptyGraph(""));
   const state = store.state;
   const batch = state.investigations[0];
   return {
@@ -33,21 +34,21 @@ function sample() {
 describe("a reference, as the coordinator reads it", () => {
   it("names a graph record, its id, and the screen it was picked from", () => {
     const s = sample();
-    const d = describeReference(s.state, { table: "people", recordId: "edith", label: "Edith Marrow", screen: { view: "research", focusId: "edith" } });
+    const d = describeReference(s.state, { table: "nodes", recordId: "edith", label: "Edith Marrow", screen: { view: "research", focusId: "edith" } });
     expect(d).toEqual({
       kind: "Graph · person",
       about: "the person “Edith Marrow” on the graph",
       seenOn: "the graph, centred on “Edith Marrow”",
-      ids: { record: "people/edith" },
+      ids: { record: "nodes/edith" },
     });
   });
 
   it("tells a record in a batch's draft graph from the accepted graph", () => {
     const s = sample();
-    const d = describeReference(s.state, { table: "people", recordId: "thomas", label: "Thomas Marrow", graphReviewId: s.review.id });
+    const d = describeReference(s.state, { table: "nodes", recordId: "thomas", label: "Thomas Marrow", graphReviewId: s.review.id });
     expect(d.kind).toBe("Batch 1 draft graph · person");
     expect(d.about).toBe("the person “Thomas Marrow” in batch 1's draft graph");
-    expect(d.ids).toEqual({ batch: s.batch.id, record: "people/thomas", graphReview: s.review.id });
+    expect(d.ids).toEqual({ batch: s.batch.id, record: "nodes/thomas", graphReview: s.review.id });
   });
 
   it("names findings, reports, batches and their questions by what they say", () => {
@@ -89,18 +90,18 @@ describe("a reference, as the coordinator reads it", () => {
 describe("a note sent on the graph", () => {
   it("reaches the coordinator as that record, where it was seen, and the id to inspect", () => {
     const s = sample();
-    const reference = { table: "people", recordId: "edith", label: "Edith Marrow", selector: "g.node:nth-of-type(1)", screen: { view: "research", focusId: "edith" } };
+    const reference = { table: "nodes", recordId: "edith", label: "Edith Marrow", selector: "g.node:nth-of-type(1)", screen: { view: "research", focusId: "edith" } };
     s.store.command({ type: "send", annotation: { question: "Is this the same Edith as in the 1881 list?", references: [reference] } });
     const coordinator = new Coordinator(s.store);
     const session = "fictional-coordinator-session-01";
     coordinator.attach("Test coordinator", session);
     const note = coordinator.snapshot(session).conversation.unassignedAnnotations.at(-1)!;
     expect(note.references).toEqual([
-      { about: "the person “Edith Marrow” on the graph", seenOn: "the graph, centred on “Edith Marrow”", ids: { record: "people/edith" } },
+      { about: "the person “Edith Marrow” on the graph", seenOn: "the graph, centred on “Edith Marrow”", ids: { record: "nodes/edith" } },
     ]);
     // Its startup context says the same, and never the page's structure.
     const attention = buildCoordinatorContext(s.store.state).layers.find((l) => l.id === "attention")!.text;
-    expect(attention).toContain("on the person “Edith Marrow” on the graph (record people/edith), seen on the graph, centred on “Edith Marrow”");
+    expect(attention).toContain("on the person “Edith Marrow” on the graph (record nodes/edith), seen on the graph, centred on “Edith Marrow”");
     expect(attention).not.toContain("nth-of-type");
   });
 });

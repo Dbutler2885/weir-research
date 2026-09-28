@@ -1,12 +1,12 @@
 // What a graph builder hands back, and what accepting it does to the graph.
 //
-// A builder edits nodes.csv and edges.csv and writes its commentary beside them:
+// A builder edits the graph's tables and writes its commentary beside them:
 // open questions and representation notes. The draft is read back and checked in
 // one pass, so every problem reaches the builder at once.
 import { DraftError, graphFromTables, parseCsv, type Citable, type DraftFiles } from "./graph-csv.ts";
 import { diffGraphs, describeDiff, type GraphDiff } from "./graph-diff.ts";
-import { GenealogyModel } from "./model.ts";
-import type { FamilyDataset, ResearchEvidence, SourceRecord } from "./types";
+import { GraphModel } from "./model.ts";
+import type { GraphDataset, ResearchEvidence, SourceRecord } from "./types";
 
 export interface DraftQuestion {
   id: string;
@@ -25,7 +25,7 @@ export interface DraftNote {
   reason: string;
 }
 export interface Delivery {
-  draft: FamilyDataset;
+  draft: GraphDataset;
   diff: GraphDiff;
   summary: string;
   questions: DraftQuestion[];
@@ -69,11 +69,11 @@ export function submissionSequence(text: string | undefined): number | null {
   return match ? Number(match[1] || 0) : null;
 }
 
-export function readDelivery(files: DeliveryFiles, base: FamilyDataset, citable: Citable = {}): Delivery {
+export function readDelivery(files: DeliveryFiles, base: GraphDataset, citable: Citable = {}): Delivery {
   const problems: string[] = [];
   const consumed = submissionSequence(files["submission.txt"]);
   if (consumed === null) problems.push('submission.txt must contain done, followed by the last update sequence you incorporated, such as "done 2".');
-  let draft: FamilyDataset | null = null;
+  let draft: GraphDataset | null = null;
   try {
     draft = graphFromTables(files, base, citable);
   } catch (error) {
@@ -82,8 +82,8 @@ export function readDelivery(files: DeliveryFiles, base: FamilyDataset, citable:
   }
   // Commentary can point at records the draft keeps or at ones it removed.
   const known = new Set([
-    ...[...(draft?.people || []), ...(draft?.contextEntities || []), ...(draft?.claims || [])].map((r) => r.id),
-    ...[...base.people, ...(base.contextEntities || []), ...(base.claims || [])].map((r) => r.id),
+    ...[...(draft?.nodes || []), ...(draft?.claims || [])].map((r) => r.id),
+    ...[...base.nodes, ...(base.claims || [])].map((r) => r.id),
   ]);
   const refer = (list: string[], where: string) => {
     if (draft) for (const id of list) if (!known.has(id)) problems.push(`${where} names a node or edge that is not in the graph: ${id}`);
@@ -127,7 +127,7 @@ export function readDelivery(files: DeliveryFiles, base: FamilyDataset, citable:
 
 // The research records a draft cites that the graph does not hold yet.
 export function citedResearch(
-  draft: FamilyDataset,
+  draft: GraphDataset,
   registry: Record<string, ResearchEvidence>,
   library: SourceRecord[],
 ): { evidence: ResearchEvidence[]; sources: SourceRecord[] } {
@@ -138,7 +138,7 @@ export function citedResearch(
     .map((id) => ({ ...structuredClone(registry[id]!), id }));
   const wanted = new Set([
     ...evidence.map((e) => e.sourceId),
-    ...[...draft.people, ...(draft.contextEntities || []), ...(draft.claims || [])].flatMap((r) => r.sourceIds || []),
+    ...[...draft.nodes, ...(draft.claims || [])].flatMap((r) => r.sourceIds || []),
   ]);
   const sources = library.filter((s) => wanted.has(s.id) && !heldSources.has(s.id));
   return { evidence, sources };
@@ -147,70 +147,72 @@ export function citedResearch(
 // Accepting replaces the graph with the draft. Evidence and sources are only ever
 // added: a draft cannot remove or alter a research record.
 export function acceptDraft(
-  current: FamilyDataset,
-  draft: FamilyDataset,
+  current: GraphDataset,
+  draft: GraphDataset,
   cited: { evidence: ResearchEvidence[]; sources: SourceRecord[] },
   diff: GraphDiff,
-): FamilyDataset {
+): GraphDataset {
   const merged = new Map(diff.merges.flatMap((m) => m.gone.map((g) => [g.id, m.into.id] as const)));
-  const nodes = new Set([...draft.people, ...(draft.contextEntities || [])].map((n) => n.id));
+  const nodes = new Set(draft.nodes.map((n) => n.id));
   const focus = current.initialFocusId && (nodes.has(current.initialFocusId) ? current.initialFocusId : merged.get(current.initialFocusId));
   const evidence = new Map([...(current.evidence || []), ...cited.evidence].map((e) => [e.id, e]));
   const sources = new Map([...(current.sources || []), ...cited.sources].map((s) => [s.id, s]));
-  const next: FamilyDataset = {
-    version: 2,
+  const next: GraphDataset = {
+    version: 3,
     title: current.title,
     initialFocusId: focus || null,
-    people: structuredClone(draft.people),
-    contextEntities: structuredClone(draft.contextEntities || []),
+    nodes: structuredClone(draft.nodes),
+    types: structuredClone(draft.types),
+    relationships: structuredClone(draft.relationships),
     claims: structuredClone(draft.claims || []),
     evidence: [...evidence.values()],
     sources: [...sources.values()],
   };
-  new GenealogyModel(next);
+  new GraphModel(next);
   return next;
 }
 
 // The graph a review draws: the draft, plus the records it removes as ghosts. Both
 // are laid out together, so turning the changes on and off moves nothing.
 export interface ReviewGraph {
-  dataset: FamilyDataset;
+  dataset: GraphDataset;
   focusId: string | null;
   ghostIds: Set<string>;
   addedIds: Set<string>;
   changedEdgeIds: Set<string>;
 }
 export function reviewGraph(review: {
-  draft: FamilyDataset;
-  baseDataset: FamilyDataset;
+  draft: GraphDataset;
+  baseDataset: GraphDataset;
   diff: GraphDiff;
   cited: { evidence: ResearchEvidence[]; sources: SourceRecord[] };
 }): ReviewGraph {
   const { draft, baseDataset: base, diff } = review;
-  const kept = new Set([...draft.people, ...(draft.contextEntities || [])].map((n) => n.id));
+  const kept = new Set(draft.nodes.map((n) => n.id));
   const keptEdges = new Set((draft.claims || []).map((c) => c.id));
-  const ghostPeople = base.people.filter((p) => !kept.has(p.id));
-  const ghostEntities = (base.contextEntities || []).filter((e) => !kept.has(e.id));
+  const ghostNodes = base.nodes.filter((n) => !kept.has(n.id));
   const ghostEdges = (base.claims || []).filter((c) => !keptEdges.has(c.id));
   const evidence = new Map([...(base.evidence || []), ...(draft.evidence || []), ...review.cited.evidence].map((e) => [e.id, e]));
   const sources = new Map([...(base.sources || []), ...(draft.sources || []), ...review.cited.sources].map((s) => [s.id, s]));
-  const dataset: FamilyDataset = {
-    version: 2,
+  const dataset: GraphDataset = {
+    version: 3,
     title: draft.title,
     initialFocusId: null,
-    people: [...draft.people, ...ghostPeople],
-    contextEntities: [...(draft.contextEntities || []), ...ghostEntities],
+    nodes: [...draft.nodes, ...ghostNodes],
+    // A removed node keeps the look its type had.
+    types: [...draft.types, ...base.types.filter((t) => !draft.types.some((d) => d.name === t.name))],
+    relationships: draft.relationships,
     claims: [...(draft.claims || []), ...ghostEdges],
     evidence: [...evidence.values()],
     sources: [...sources.values()],
   };
   const merged = new Map(diff.merges.flatMap((m) => m.gone.map((g) => [g.id, m.into.id] as const)));
   const start = base.initialFocusId && (kept.has(base.initialFocusId) ? base.initialFocusId : merged.get(base.initialFocusId));
-  const focusId = start || diff.addedNodes[0]?.id || [...draft.people, ...(draft.contextEntities || [])][0]?.id || null;
+  const focusId = start || diff.addedNodes[0]?.id || draft.nodes[0]?.id || null;
   return {
     dataset,
     focusId,
-    ghostIds: new Set([...ghostPeople, ...ghostEntities, ...ghostEdges].map((r) => r.id)),
+    ghostIds: new Set([...ghostNodes, ...ghostEdges].map((r) => r.id)),
     addedIds: new Set([...diff.addedNodes, ...diff.addedEdges].map((r) => r.id)),
     changedEdgeIds: new Set([...diff.movedEdges, ...diff.requalifiedEdges, ...diff.rewordedEdges, ...diff.recitedEdges].map((e) => e.id)),
   };

@@ -1,4 +1,4 @@
-import type { ResearchEvidence, SourceRecord, FamilyDataset } from './types';
+import type { ResearchEvidence, SourceRecord, GraphDataset } from './types';
 import type { GraphDiff } from './graph-diff.ts';
 import type { DraftNote, DraftQuestion } from './graph-delivery.ts';
 
@@ -30,7 +30,7 @@ export interface GraphTour {
 }
 // What a builder returned, read back and checked, awaiting the coordinator's sign-off.
 export interface DraftCandidate {
-  draft: FamilyDataset;
+  draft: GraphDataset;
   diff: GraphDiff;
   summary: string;
   questions: DraftQuestion[];
@@ -64,7 +64,7 @@ export interface GraphReview {
   revision: number;
   createdAt: string;
   format: 'draft';
-  draft: FamilyDataset;
+  draft: GraphDataset;
   diff: GraphDiff;
   summary: string;
   questions: DraftQuestion[];
@@ -75,7 +75,7 @@ export interface GraphReview {
   // Research records accepting will copy into the graph.
   cited: {evidence: ResearchEvidence[]; sources: SourceRecord[]};
   // The graph the draft was prepared against, which removed records are read from.
-  baseDataset: FamilyDataset;
+  baseDataset: GraphDataset;
   expectedGraphRevision: number;
   // A newer revision for the same batch replaces a pending one.
   status: 'pending' | 'applied' | 'set-aside' | 'superseded' | 'undone';
@@ -156,12 +156,12 @@ const nonempty = (value: unknown): value is string => typeof value === 'string' 
 
 // A tour explains a draft. Its steps can point at records the draft keeps and at
 // ones it removes, which the review shows as ghosts.
-export function validateDraftTour(tour: unknown, candidate: DraftCandidate, base: FamilyDataset): GraphTour {
+export function validateDraftTour(tour: unknown, candidate: DraftCandidate, base: GraphDataset): GraphTour {
   const problems: string[] = [];
   const t = tour as GraphTour;
   if (!t || !nonempty(t.introduction)) problems.push('The tour needs an introduction.');
   if (!Array.isArray(t?.steps) || !t.steps.length) problems.push('The tour needs at least one step.');
-  const nodes = new Set([...candidate.draft.people, ...(candidate.draft.contextEntities || []), ...base.people, ...(base.contextEntities || [])].map((n) => n.id));
+  const nodes = new Set([...candidate.draft.nodes, ...base.nodes].map((n) => n.id));
   const edges = new Set([...(candidate.draft.claims || []), ...(base.claims || [])].map((c) => c.id));
   const questions = new Set(candidate.questions.map((q) => q.id));
   const seen = new Set<string>();

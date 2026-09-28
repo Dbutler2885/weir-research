@@ -6,15 +6,18 @@ import {
   type ZoomBehavior,
   type ZoomTransform,
 } from "d3";
-import { GenealogyModel } from "../domain/model";
+import { GraphModel } from "../domain/model";
 import type { FocusProjection } from "../domain/types";
-import type { FamilyLayout, LayoutEdge, LayoutNode } from "../layout/layout";
+import type { GraphLayout, LayoutEdge, LayoutNode } from "../layout/layout";
 
 export interface GraphRendererHandlers {
-  onFocus: (personId: string) => void;
-  onOpenDetails: (personId: string) => void;
-  onOpenContextEntity: (entityId: string) => void;
+  // A node was selected: it becomes the focus and its panel opens.
+  onSelectNode: (nodeId: string) => void;
+  // A line was selected: the statement it draws opens.
+  onSelectEdge: (claimId: string) => void;
 }
+
+const corner = { rounded: 10, square: 3, round: 26 } as const;
 
 function pathFromPoints(edge: LayoutEdge): string {
   if (edge.curved) {
@@ -49,7 +52,7 @@ export class GraphRenderer {
   private readonly nodeLayer: Selection<SVGGElement, unknown, null, undefined>;
   private readonly zoomBehavior: ZoomBehavior<SVGSVGElement, unknown>;
   private readonly handlers: GraphRendererHandlers;
-  private currentLayout?: FamilyLayout;
+  private currentLayout?: GraphLayout;
   private currentTransform: ZoomTransform = zoomIdentity;
   private hasRendered = false;
   private selectedEdge?: string;
@@ -73,7 +76,7 @@ export class GraphRenderer {
       .attr("role", "graphics-document")
       .attr(
         "aria-label",
-        "Interactive research graph. Select a person, place, or organization to focus its relationships.",
+        "Interactive research graph. Select a node to focus it and read about it, or a line to see its evidence.",
       );
 
     const shadowId = `focus-shadow-${crypto.randomUUID()}`;
@@ -142,9 +145,9 @@ export class GraphRenderer {
   }
 
   render(
-    layout: FamilyLayout,
+    layout: GraphLayout,
     projection: FocusProjection,
-    model: GenealogyModel,
+    model: GraphModel,
   ): void {
     this.currentLayout = layout;
     this.selectedEdge = undefined;
@@ -173,31 +176,22 @@ export class GraphRenderer {
 
     edgeEnter
       .merge(edgeSelection)
-      .attr("data-connection-id", (edge) =>
-        edge.kind === "context" ? edge.id : null,
-      )
-      .attr("data-research-target", (edge) => {
-        // Every drawn line is an edge; a couple's lines point at its couple edge.
-        const union = [...model.unionsById.values()].find((item) =>
-          edge.id.startsWith(`${item.id}:`),
-        );
-        return JSON.stringify({
+      .attr("data-connection-id", (edge) => edge.id)
+      // Every drawn line is an edge of the graph.
+      .attr("data-research-target", (edge) =>
+        JSON.stringify({
           table: "claims",
-          recordId: union?.id ?? edge.id,
-          label: `${model.contextNodeName(edge.sourceId)} → ${model.contextNodeName(edge.targetId)}${edge.label ? `: ${edge.label}` : ""}`,
-        });
-      })
+          recordId: edge.id,
+          label: `${model.nodeName(edge.sourceId)} → ${model.nodeName(edge.targetId)}${edge.label ? `: ${edge.label}` : ""}`,
+        }),
+      )
       .attr(
         "class",
         (edge) => `graph-edge ${edge.kind}-edge confidence-${edge.confidence}`,
       )
       .attr(
         "data-lavish-label",
-        (edge) =>
-          edge.label ??
-          (edge.kind === "context"
-            ? "Historical connection"
-            : "Family relationship"),
+        (edge) => edge.label ?? "Family relationship",
       )
       .transition()
       .duration(duration)
@@ -218,22 +212,24 @@ export class GraphRenderer {
       .attr("d", pathFromPoints)
       .attr("tabindex", 0)
       .attr("role", "button")
-      .attr("aria-label", edge => `${model.contextNodeName(edge.sourceId)} → ${edge.label ?? "related to"} → ${model.contextNodeName(edge.targetId)}`)
-      .attr("data-connection-id", edge => edge.kind === "context" ? edge.id : null)
+      .attr("aria-label", edge => `${model.nodeName(edge.sourceId)} → ${edge.label ?? "related to"} → ${model.nodeName(edge.targetId)}. Open its evidence.`)
+      .attr("data-connection-id", edge => edge.id)
       .attr("data-research-target", edge => this.edgeLayer.selectAll<SVGPathElement, LayoutEdge>("path.graph-edge").filter(candidate => candidate.id === edge.id).attr("data-research-target"))
       .attr("data-lavish-label", edge => edge.label ?? "Relationship")
       .on("pointerenter focus", (_event, edge) => this.highlight(undefined, edge.id))
       .on("pointerleave blur", () => this.highlight(undefined, this.selectedEdge))
       .on("click", (event: MouseEvent, edge) => {
         event.stopPropagation();
-        this.selectedEdge = this.selectedEdge === edge.id ? undefined : edge.id;
+        this.selectedEdge = edge.id;
         this.highlight(undefined, this.selectedEdge);
+        this.handlers.onSelectEdge(edge.id);
       })
       .on("keydown", (event: KeyboardEvent, edge) => {
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
-          this.selectedEdge = this.selectedEdge === edge.id ? undefined : edge.id;
+          this.selectedEdge = edge.id;
           this.highlight(undefined, this.selectedEdge);
+          this.handlers.onSelectEdge(edge.id);
         } else if (event.key === "Escape") {
           this.selectedEdge = undefined;
           this.highlight();
@@ -291,31 +287,15 @@ export class GraphRenderer {
       .on("pointerleave focusout", () => this.highlight(undefined, this.selectedEdge))
       .attr("class", (node) => {
         const focusClass = node.id === projection.focusId ? " is-focus" : "";
-        return `graph-node ${node.kind}-node emphasis-${node.emphasis}${focusClass}`;
+        const look = model.schema.look(model.getNode(node.id));
+        return `graph-node look-${look.color} emphasis-${node.emphasis}${focusClass}`;
       })
-      .attr("data-person-id", (node) => node.personId ?? null)
-      .attr("data-union-id", (node) => node.unionId ?? null)
-      .attr("data-context-entity-id", (node) => node.contextEntityId ?? null)
-      .attr("data-lavish-label", (node) => {
-        if (node.personId) {
-          return model.getPerson(node.personId).name;
-        }
-        if (node.unionId) {
-          const union = model.getUnion(node.unionId);
-          return union.label ?? "Family union";
-        }
-        return model.getContextEntity(node.contextEntityId!).name;
-      })
+      .attr("data-node-id", (node) => node.id)
+      .attr("data-lavish-label", (node) => model.nodeName(node.id))
       .each((node, index, groups) => {
         const group = select<SVGGElement, LayoutNode>(groups[index]!);
         group.selectAll("*").remove();
-        if (node.kind === "person" && node.personId) {
-          this.renderPersonNode(group, node, model, projection);
-        } else if (node.unionId) {
-          this.renderUnionNode(group, node, model);
-        } else if (node.contextEntityId) {
-          this.renderContextNode(group, node, model);
-        }
+        this.renderNode(group, node, model);
       })
       .transition()
       .duration(duration)
@@ -460,146 +440,40 @@ export class GraphRenderer {
       .call(this.zoomBehavior.transform, transform);
   }
 
-  private renderPersonNode(
+  // A card: the node's type, its name, and its dates. Its look comes from its type.
+  private renderNode(
     group: Selection<SVGGElement, LayoutNode, null, undefined>,
     node: LayoutNode,
-    model: GenealogyModel,
-    projection: FocusProjection,
+    model: GraphModel,
   ): void {
-    const person = model.getPerson(node.personId!);
-    const projected = projection.people.get(person.id);
+    const record = model.getNode(node.id);
+    const look = model.schema.look(record);
+    const open = () => this.handlers.onSelectNode(record.id);
     group
       .attr("role", "button")
       .attr("tabindex", 0)
-      .attr(
-        "aria-label",
-        `${person.name}${person.lifespan ? `, ${person.lifespan}` : ""}. ${
-          projected?.role === "focus"
-            ? "Current focus."
-            : `Relationship: ${projected?.role ?? "remote"}.`
-        }`,
-      )
-      .on("click", () => this.handlers.onFocus(person.id))
+      .attr("aria-label", `${record.name}. ${record.type}${record.dates ? `, ${record.dates}` : ""}. Open its details.`)
+      .on("click", open)
       .on("keydown", (event: KeyboardEvent) => {
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
-          this.handlers.onFocus(person.id);
+          open();
         }
       });
 
     group
       .append("rect")
-      .attr("class", "person-card")
+      .attr("class", "node-card")
       .attr("width", node.width)
       .attr("height", node.height)
-      .attr("rx", 12);
-
-    group
-      .append("foreignObject")
-      .attr("class", "person-name-object")
-      .attr("x", 16)
-      .attr("y", 12)
-      .attr("width", node.width - 60)
-      .attr("height", 39)
-      .append("xhtml:div")
-      .attr("class", "person-name")
-      .text(person.name);
+      .attr("rx", corner[look.shape]);
 
     group
       .append("text")
-      .attr("class", "person-lifespan")
-      .attr("x", 16)
-      .attr("y", 63)
-      .text(person.lifespan ?? "Dates not yet verified");
-
-    group
-      .append("text")
-      .attr("class", "person-descriptor")
-      .attr("x", 16)
-      .attr("y", 87)
-      .text(person.descriptor ?? projected?.role ?? "Person record");
-
-    const foreignObject = group
-      .append("foreignObject")
-      .attr("x", node.width - 39)
-      .attr("y", 10)
-      .attr("width", 30)
-      .attr("height", 30);
-    foreignObject
-      .append("xhtml:button")
-      .attr("type", "button")
-      .attr("class", "node-info-button")
-      .attr("aria-label", `Open biography for ${person.name}`)
-      .attr("data-lavish-action", "true")
-      .text("i")
-      .on("click", (event) => {
-        event.stopPropagation();
-        this.handlers.onOpenDetails(person.id);
-      });
-  }
-
-  private renderUnionNode(
-    group: Selection<SVGGElement, LayoutNode, null, undefined>,
-    node: LayoutNode,
-    model: GenealogyModel,
-  ): void {
-    const union = model.getUnion(node.unionId!);
-    group
-      .attr("role", "img")
-      .attr(
-        "aria-label",
-        union.label ??
-          `Union of ${union.partnerIds
-            .map((id) => model.getPerson(id).name)
-            .join(" and ")}`,
-      );
-    group
-      .append("circle")
-      .attr(
-        "class",
-        `union-mark confidence-${union.confidence ?? "established"}`,
-      )
-      .attr("cx", node.width / 2)
-      .attr("cy", node.height / 2)
-      .attr("r", node.width / 2);
-  }
-
-  private renderContextNode(
-    group: Selection<SVGGElement, LayoutNode, null, undefined>,
-    node: LayoutNode,
-    model: GenealogyModel,
-  ): void {
-    const entity = model.getContextEntity(node.contextEntityId!);
-    group
-      .attr("role", "button")
-      .attr("tabindex", 0)
-      .attr(
-        "aria-label",
-        `${entity.name}. ${entity.descriptor ?? entity.kind}. Open historical connections.`,
-      )
-      .on("click", () => this.handlers.onOpenContextEntity(entity.id))
-      .on("keydown", (event: KeyboardEvent) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          this.handlers.onOpenContextEntity(entity.id);
-        }
-      });
-
-    group
-      .append("rect")
-      .attr("class", `context-card context-${entity.kind}`)
-      .attr("width", node.width)
-      .attr("height", node.height)
-      .attr("rx", 10);
-
-    group
-      .append("text")
-      .attr("class", "context-kind")
+      .attr("class", "node-type")
       .attr("x", 14)
       .attr("y", 19)
-      .text(
-        entity.kind === "family" ? "FAMILY NETWORK" : entity.kind.toUpperCase(),
-      );
+      .text(record.type.toLocaleUpperCase());
 
     group
       .append("foreignObject")
@@ -608,8 +482,8 @@ export class GraphRenderer {
       .attr("width", node.width - 28)
       .attr("height", node.height - 48)
       .append("xhtml:div")
-      .attr("class", "context-name")
-      .text(entity.name);
+      .attr("class", "node-name")
+      .text(record.name);
 
     group
       .append("foreignObject")
@@ -618,7 +492,7 @@ export class GraphRenderer {
       .attr("width", node.width - 28)
       .attr("height", 14)
       .append("xhtml:div")
-      .attr("class", "context-descriptor")
-      .text(entity.descriptor ?? entity.activeDates ?? "Historical context");
+      .attr("class", "node-dates")
+      .text(record.dates ?? "");
   }
 }

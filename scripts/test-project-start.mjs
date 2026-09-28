@@ -40,18 +40,17 @@ const post = async (path, data) => {
 try {
   const started = await run("workspace", [
     "start",
-    "Lubec, Maine industrial history",
+    "Example Harbor industrial history",
     "--no-browser",
   ]);
   ({ url } = started);
-  assert.equal(started.project.name, "Lubec, Maine industrial history");
+  assert.equal(started.project.name, "Example Harbor industrial history");
   ({ sessionFile } = await run("coordinator", ["attach", "Test coordinator", "--project", started.project.id]));
   assert.ok(sessionFile);
   let current = await state();
-  assert.equal(current.dataset.title, "Lubec, Maine industrial history");
+  assert.equal(current.dataset.title, "Example Harbor industrial history");
   assert.equal(current.dataset.initialFocusId, null);
-  assert.deepEqual(current.dataset.people, []);
-  assert.deepEqual(current.dataset.contextEntities, []);
+  assert.deepEqual(current.dataset.nodes, []);
   assert.deepEqual(current.dataset.sources, []);
   const annotation = await post("/api/commands", {
     type: "annotate",
@@ -62,24 +61,24 @@ try {
   const investigationId = annotation.result.investigationId;
   const preview = await post("/api/organization", {
     action: "organization-preview",
-    seed: { name: "Lubec, Maine", kind: "place" },
+    seed: { name: "Example Harbor", type: "place" },
   });
-  assert.equal((await state()).dataset.contextEntities.length, 0);
+  assert.equal((await state()).dataset.nodes.length, 0);
   await post("/api/organization", {
     action: "organization-apply",
     previewId: preview.id,
   });
   current = await state();
-  const lubec = current.dataset.contextEntities[0];
-  assert.equal(lubec.kind, "place");
-  assert.equal(current.dataset.initialFocusId, lubec.id);
+  const harbor = current.dataset.nodes[0];
+  assert.equal(harbor.type, "place");
+  assert.equal(current.dataset.initialFocusId, harbor.id);
   assert.equal(
     current.investigations.find((i) => i.id === investigationId).status,
     "paused",
   );
   const second = await post("/api/organization", {
     action: "organization-preview",
-    seed: { name: "A company to investigate", kind: "organization" },
+    seed: { name: "A company to investigate", type: "organization" },
   });
   await post("/api/organization", {
     action: "organization-apply",
@@ -90,8 +89,8 @@ try {
     commandFile,
     JSON.stringify({
       action: "organization-preview",
-      keepIds: [lubec.id],
-      reason: "Keep only Lubec",
+      keepIds: [harbor.id],
+      reason: "Keep only Example Harbor",
     }),
   );
   const trim = await run("coordinator", [
@@ -110,28 +109,28 @@ try {
     "--session",
     sessionFile,
   ]);
-  assert.equal((await state()).dataset.contextEntities.length, 1);
+  assert.equal((await state()).dataset.nodes.length, 1);
   await post("/api/organization", {
     action: "organization-undo",
     undoId: applied.undoId,
   });
   current = await state();
-  assert.equal(current.dataset.contextEntities.length, 2);
+  assert.equal(current.dataset.nodes.length, 2);
   assert.equal(current.investigations.length, 1);
   assert.ok(current.organization.history.every((h) => !h.before));
   await run("coordinator", ["detach", "--session", sessionFile]);
   const resumed = await run("workspace", ["resume", "--no-browser"]);
   assert.equal(resumed.url, url);
   ({ sessionFile } = await run("coordinator", ["attach", "Test coordinator", "--project", resumed.project.id]));
-  assert.equal((await state()).dataset.contextEntities.length, 2);
+  assert.equal((await state()).dataset.nodes.length, 2);
   await run("coordinator", ["detach", "--session", sessionFile]);
   sessionFile = undefined;
   const duplicate = await run("workspace", [
     "create",
-    "Lubec, Maine industrial history",
+    "Example Harbor industrial history",
   ]);
-  assert.equal(duplicate.id, "lubec-maine-industrial-history-2");
-  assert.equal((await state()).dataset.contextEntities.length, 2);
+  assert.equal(duplicate.id, "example-harbor-industrial-history-2");
+  assert.equal((await state()).dataset.nodes.length, 2);
   console.log(
     "Topic startup, empty annotation, place focus, live trim/undo, coordinator commands, resume and topic collision: passed.",
   );
@@ -143,7 +142,7 @@ try {
   const lock = join(
     directory,
     "projects",
-    "lubec-maine-industrial-history",
+    "example-harbor-industrial-history",
     "server.lock",
   );
   if (existsSync(lock)) {

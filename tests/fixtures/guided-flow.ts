@@ -2,12 +2,12 @@ import type { GraphTour, Walkthrough } from '../../src/domain/review-flow';
 import { graphToTables } from '../../src/domain/graph-csv';
 import { readDelivery } from '../../src/domain/graph-delivery';
 import { receiveDraft } from '../../server/review-flow.mjs';
-import type { FamilyDataset } from '../../src/domain/types';
+import type { GraphDataset } from '../../src/domain/types';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 // Explicitly fictional: an invented works in an imaginary bay.
-export const emptyGraph: FamilyDataset = {version: 2, title: 'Fictional workshop investigation', initialFocusId: null, people: []};
+export const emptyGraph: GraphDataset = {version: 3, title: 'Fictional workshop investigation', initialFocusId: null, nodes: [], types: [{name: 'place', fields: []}, {name: 'facility', fields: []}], relationships: []};
 
 export function prepareResearch(store: any) {
   const {investigationId} = store.command({type: 'annotate', question: 'Where was Example Works?', dispatch: true});
@@ -27,11 +27,12 @@ export function prepareResearch(store: any) {
 
 // What a builder writes for the fixture research: the works, its town, and the
 // reported location, citing the registry passage by id.
-export function draftFiles(job: {baseDataset: FamilyDataset; packet: any; updates: unknown[]}) {
+export function draftFiles(job: {baseDataset: GraphDataset; packet: any; updates: unknown[]}) {
   const ref = Object.keys(job.packet.evidence)[0]!;
   const tables = graphToTables(job.baseDataset);
   return {
-    'nodes.csv': `${tables['nodes.csv']}bay,place,Example Bay,,,,,,,,\nworks,facility,Example Works,,,,,,,,register\n`,
+    ...tables,
+    'nodes.csv': `${tables['nodes.csv']}bay,place,Example Bay,,An invented bay.,,\nworks,facility,Example Works,,An invented works.,,register\n`,
     'edges.csv': `${tables['edges.csv']}location,works,located_in,node,bay,reported,,The register identifies the town.,${ref},,,\n`,
     'questions.csv': 'id,question,nodeIds,edgeIds,provisionalTreatment,requestedResearch\nstreet,Which street was the works on?,works,location,Kept at town level.,Search the street directory.\n',
     'submission.txt': `done ${job.updates.length}\n`,

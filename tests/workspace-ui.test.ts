@@ -5,15 +5,13 @@ import {
   transition,
   type ResearchState,
 } from "../src/domain/research";
-import empty from "../src/data/empty.json";
+import { emptyGraph } from "../src/domain/graph-schema";
+const empty = emptyGraph();
 import { mountResearchWorkspace } from "../src/research-workspace";
 import { flowCommand } from "../server/review-flow.mjs";
 vi.mock("../src/vendor/lavish/artifact-sdk.js", () => ({
   createArtifactSdk: vi.fn(),
   deriveLavishQueueKey: vi.fn(),
-}));
-vi.mock("../src/ui/organization-panel", () => ({
-  mountOrganizationPanel: vi.fn(),
 }));
 let state: ResearchState;
 const click = (selector: string) =>
@@ -357,7 +355,7 @@ describe("investigation workspace", () => {
     state = transition(state, {
       type: "reply",
       text: "See the workshop record.",
-      references: [{ label: "The workshop", table: "contextEntities", recordId: "fictional-workshop" }],
+      references: [{ label: "The workshop", table: "nodes", recordId: "fictional-workshop" }],
     }).state;
     mount();
     click('[data-view="work"]');

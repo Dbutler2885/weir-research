@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { upgradeGraphState, needsGraphUpgrade } from "../src/domain/graph-upgrade.ts";
 import { reviewGraph } from "../src/domain/graph-delivery.ts";
-import { GenealogyModel } from "../src/domain/model.ts";
+import { GraphModel } from "../src/domain/model.ts";
 
 // Explicitly fictional: a proposal-format review of an invented works in an imaginary bay.
 const evidence = { "report/passage": { id: "passage", sourceId: "register", quote: "Example Works stood in Example Bay.", context: "Invented.", locator: "Page 1", interpretation: "Reported location." } };
@@ -59,8 +59,9 @@ describe("converting stored proposal-format reviews", () => {
     const r = converted.investigations[0].reviewFlow.graphReviews[1];
     expect(r.format).toBe("draft");
     expect(r).not.toHaveProperty("graph");
-    expect(r.summary).toBe("2 new nodes, 2 new edges, 1 evidence record added from the research.");
-    expect(r.draft.contextEntities.map((e: any) => e.id)).toEqual(["town", "bay", "works"]);
+    expect(r.summary).toBe("2 new nodes, 2 new edges, 1 change to types and relationships, 1 evidence record added from the research.");
+    expect(r.draft.nodes.map((n: any) => n.id)).toEqual(["town", "bay", "works"]);
+    expect(r.diff.vocabulary).toEqual(["New type: facility."]);
     expect(r.draft.claims.find((c: any) => c.id === "near").object).toEqual({ entityId: "town" });
     // Research reaches the graph only when the draft is accepted.
     expect(r.draft.evidence ?? []).toEqual([]);
@@ -68,19 +69,19 @@ describe("converting stored proposal-format reviews", () => {
     expect(r.questions).toEqual([{ id: "street", question: "Which street?", nodeIds: ["works"], edgeIds: ["location"], provisionalTreatment: "Kept at bay level.", requestedResearch: "" }]);
     expect(r.notes[0]).toMatchObject({ nodeIds: ["town"], decision: "Reused the town." });
     expect(r.tour.steps[0].focusNodeIds).toEqual(["bay", "town"]);
-    new GenealogyModel(reviewGraph(r).dataset);
+    new GraphModel(reviewGraph(r).dataset);
   });
 
   it("turns an applied review into the draft of the groups actually applied", () => {
     const r = (upgradeGraphState(state() as never) as any).investigations[0].reviewFlow.graphReviews[0];
     expect(r.status).toBe("applied");
-    expect(r.draft.contextEntities.map((e: any) => e.id)).toEqual(["town", "bay"]);
+    expect(r.draft.nodes.map((n: any) => n.id)).toEqual(["town", "bay"]);
     expect(r.draft.claims.map((c: any) => c.id)).toEqual(["near"]);
   });
 
   it("converts an unpublished candidate and slims old submissions", () => {
     const job = (upgradeGraphState(state() as never) as any).investigations[0].reviewFlow.jobs[0];
-    expect(job.candidate).toMatchObject({ summary: "2 new nodes, 2 new edges, 1 evidence record added from the research.", consumedUpdateSequence: 0, researchRevision: "r1", baseGraphRevision: 0 });
+    expect(job.candidate).toMatchObject({ summary: "2 new nodes, 2 new edges, 1 change to types and relationships, 1 evidence record added from the research.", consumedUpdateSequence: 0, researchRevision: "r1", baseGraphRevision: 0 });
     expect(job).not.toHaveProperty("issues");
     expect(job.submissions).toEqual([{ submissionDirectory: "old", summary: "The works and its bay" }]);
   });

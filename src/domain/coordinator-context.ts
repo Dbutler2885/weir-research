@@ -179,11 +179,12 @@ function dispatchText(state: ResearchState): string {
   return `### Who does which job\n\n${lines.join("\n")}\nRoles without an entry use the default. When a rule's condition fits an assignment, name its agent, model and effort in the assign command.`;
 }
 
+const unsummarized = (d: ResearchState["dataset"]) => d.nodes.filter((n) => !n.summary?.trim()).length;
+
 function orientation(state: ResearchState): ContextLayer {
   const d = state.dataset;
   const counts = [
-    `${d.people.length} people`,
-    `${(d.contextEntities || []).length} other entities`,
+    `${d.nodes.length} nodes${unsummarized(d) ? `, ${unsummarized(d)} without a summary (offer the human a reorganization; see prepare-research-graph)` : ""}`,
     `${(d.claims || []).length} connections`,
     `${sourceLibrary(state).length} sources`,
   ].join(", ");
@@ -256,7 +257,7 @@ function more(skills: Skill[]): ContextLayer {
     '- `{"action":"inspect","kind":"investigations","status":"closed"}` to list batches.',
     '- `{"action":"inspect","kind":"map"}` for the full research map and handoff.',
     '- `{"action":"inspect","kind":"source","id":"...","offset":0,"limit":6000}` for a source passage.',
-    '- `{"action":"inspect","kind":"entity","table":"people","id":"..."}` for a graph record.',
+    '- `{"action":"inspect","kind":"entity","table":"nodes","id":"..."}` for a graph record.',
     '- `{"action":"set-brief","investigationId":"...","brief":{"direction":"..."}}` when a batch\'s direction changes.',
     "`node tools/research.mjs search words` finds records, findings and passages.",
   ];
