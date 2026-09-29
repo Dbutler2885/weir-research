@@ -84,6 +84,12 @@ The [guide](docs/guide.md) covers settings, sources, reading PDFs, and the workf
 Issues and pull requests are welcome.
 Run `npm run check` before opening a pull request.
 
+## Acknowledgments
+
+Weir builds on [Lavish](https://github.com/kunchenguid/lavish-axi) by Kun Chen and contributors.
+The idea of annotating a rich page and sending those annotations back to an agent comes from Lavish.
+Weir's annotation engine is vendored from its MIT-licensed code, with [attribution and provenance](src/vendor/lavish/README.md).
+
 ## License
 
 Weir is open source under the [MIT license](LICENSE).
