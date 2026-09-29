@@ -8,7 +8,9 @@ import {
   openSync,
   closeSync,
   renameSync,
+  rmSync,
 } from "node:fs";
+import { createHash } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
@@ -107,17 +109,24 @@ export function createTopicProject(topic) {
   return created;
 }
 
-// The fictional sample project, built the first time a visitor opens it.
+// The fictional sample project, built the first time a visitor opens it and built
+// again when the app's sample changes, so an update never leaves an older one open.
 export async function sampleProject() {
   const registry = read(join(home, "projects.json"), []);
   const known = registry.find((p) => p.sample);
-  if (known && existsSync(join(known.directory, "workspace.json"))) return known;
+  const version = createHash("sha256").update(readFileSync(join(root, "server/sample-project.mjs"))).digest("hex").slice(0, 16);
+  if (known && known.version === version && existsSync(join(known.directory, "workspace.json"))) return known;
+  // Only a sample the app built itself, under its projects folder, is removed.
+  if (known && dirname(resolve(known.directory)) === join(home, "projects")) {
+    await stopProject(known);
+    rmSync(known.directory, { recursive: true, force: true });
+  }
   let id = "sample";
-  for (let number = 2; projects().some((p) => p.id === id) || existsSync(join(home, "projects", id)); number++) id = `sample-${number}`;
+  for (let number = 2; projects().some((p) => p.id === id && p.id !== known?.id) || existsSync(join(home, "projects", id)); number++) id = `sample-${number}`;
   const directory = join(home, "projects", id);
   const { buildSample } = await import("../server/sample-project.mjs");
   buildSample(directory);
-  const created = { id, name: "Sample: the fictional Marrow family", directory, sample: true };
+  const created = { id, name: "Sample: the fictional Marrow family", directory, sample: true, version };
   save(join(home, "projects.json"), [...registry.filter((p) => p !== known), created]);
   return created;
 }

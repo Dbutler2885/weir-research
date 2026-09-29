@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { emptyGraph } from "../src/domain/graph-schema";
-import { describe, it, expect, afterEach } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { describe, it, expect, afterEach, vi } from "vitest";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildSample } from "../server/sample-project.mjs";
@@ -61,5 +61,25 @@ describe("the sample project", () => {
     const first = welcomePage({ projects: [] });
     expect(first).not.toContain("Your projects");
     expect(first).toContain("What would you like to research?");
+  });
+  it("is built again when the app's sample has changed since it was built", async () => {
+    // A sample left by an older version of the app: one node, and no version.
+    const home = folder();
+    const old = join(home, "projects", "sample");
+    mkdirSync(old, { recursive: true });
+    new WorkspaceStore(old, { ...emptyGraph("An older sample"), nodes: [{ id: "edith", name: "Edith Marrow", type: "person" }] });
+    writeFileSync(join(home, "projects.json"), JSON.stringify([{ id: "sample", name: "Sample", directory: old, sample: true }]));
+    vi.stubEnv("RESEARCH_HOME", home);
+    vi.resetModules();
+    cleanup.push(() => vi.unstubAllEnvs());
+    const { sampleProject } = await import("../scripts/workspace-lib.mjs");
+    const opened = await sampleProject();
+    expect(opened.directory).toBe(old);
+    const rebuilt: any = new WorkspaceStore(old, emptyGraph("")).state;
+    expect(rebuilt.dataset.nodes).toHaveLength(7);
+    // A current sample is opened as it is, with what the visitor has done in it.
+    new WorkspaceStore(old, emptyGraph("")).command({ type: "send", text: "A visitor's message." });
+    expect(await sampleProject()).toEqual(opened);
+    expect(new WorkspaceStore(old, emptyGraph("")).state.conversation.at(-1).text).toBe("A visitor's message.");
   });
 });
