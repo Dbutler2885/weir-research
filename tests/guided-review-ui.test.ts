@@ -81,8 +81,9 @@ describe('suggested walkthrough edits',()=>{
   f.click(`${step} [data-guided-edit="comment"]`);
   f.host.querySelector<HTMLTextAreaElement>(`${step} [data-edit-comment]`)!.value='Say which register.';
   f.click(`${step} [data-guided-edit-comment-save]`);
-  expect(f.host.querySelector(step)!.textContent).toContain('Your comment, sent with your review: “Say which register.”');
+  expect(f.host.querySelector(step)!.textContent).toContain('Your comment, sent to the coordinator when you confirm: “Say which register.”');
   expect(bar()).toContain('1 accepted, 1 with a comment');
+  expect(f.host.querySelector('[data-guided-edits-send]')!.textContent).toBe('Apply 1 edit and send comment');
   // Choices survive the reader being opened again, until they are sent.
   view.destroy();view=new GuidedReview(f.host,f.store.state,f.store.state.investigations[0],f.options);
   expect(bar()).toContain('1 accepted, 1 with a comment');
