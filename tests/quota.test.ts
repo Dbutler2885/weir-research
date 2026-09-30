@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { claudeAdapter } from "../server/agents/claude.mjs";
-import { codexAdapter } from "../server/agents/codex.mjs";
+import { codexAdapter, retryTime } from "../server/agents/codex.mjs";
 import { AgentSupervisor } from "../server/agents/supervisor.mjs";
 import { LiveActivity, fileDescriber, researcherFiles } from "../server/live-activity.mjs";
 import { usageLines } from "../src/ui/live-panel";
@@ -55,6 +55,10 @@ describe("recognising a reached usage limit", () => {
     // Recorded on 2026-09-29: the error names the reset in local time.
     const worded = { ...failed, params: { ...failed.params, turn: { ...failed.params.turn, error: { message: "You’ve hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Sep 30th, 2026 12:06 AM.", codexErrorInfo: "usageLimitExceeded" } } } };
     expect(session.read(worded).turn).toMatchObject({ quota: true, resetsAt: new Date(2026, 8, 30, 0, 6).getTime() });
+    // Recorded at 12:05 AM on 2026-09-30: a reset within the day names only the time.
+    const soon = "You’ve hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at 12:06 AM.";
+    expect(retryTime(soon, new Date(2026, 8, 30, 0, 5, 24).getTime())).toBe(new Date(2026, 8, 30, 0, 6).getTime());
+    expect(retryTime(soon, new Date(2026, 8, 29, 23, 35).getTime())).toBe(new Date(2026, 8, 30, 0, 6).getTime());
     const other = { method: "turn/completed", params: { threadId: "t", turn: { id: "u", status: "failed", error: { message: "Server busy", codexErrorInfo: "serverOverloaded" } } } };
     expect(session.read(other).turn).toMatchObject({ ok: false, quota: false });
   });

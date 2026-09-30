@@ -185,14 +185,22 @@ export function codexUsage(...reports) {
   };
 }
 
-// The reset a usage-limit error names, as in "try again at Sep 30th, 2026 12:06 AM.", in local time.
-export function retryTime(message) {
-  const match = String(message || "").match(/try again at ([A-Z][a-z]{2}) (\d{1,2})(?:st|nd|rd|th)?, (\d{4}) (\d{1,2}):(\d{2}) ([AP]M)/);
+// The reset a usage-limit error names, in local time: "try again at Sep 30th, 2026 12:06 AM."
+// or, when it is soon, only "try again at 12:06 AM.", the next time the clock shows it.
+export function retryTime(message, now = Date.now()) {
+  const match = String(message || "").match(/try again at (?:([A-Z][a-z]{2}) (\d{1,2})(?:st|nd|rd|th)?, (\d{4}) )?(\d{1,2}):(\d{2}) ([AP]M)/);
   if (!match) return null;
   const [, month, day, year, hour, minute, half] = match;
+  const hours = (Number(hour) % 12) + (half === "PM" ? 12 : 0);
+  if (!month) {
+    const at = new Date(now);
+    at.setHours(hours, Number(minute), 0, 0);
+    if (at.getTime() <= now) at.setDate(at.getDate() + 1);
+    return at.getTime();
+  }
   const index = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"].indexOf(month);
   if (index < 0) return null;
-  return new Date(Number(year), index, Number(day), (Number(hour) % 12) + (half === "PM" ? 12 : 0), Number(minute)).getTime();
+  return new Date(Number(year), index, Number(day), hours, Number(minute)).getTime();
 }
 
 function compare(a, b) {
