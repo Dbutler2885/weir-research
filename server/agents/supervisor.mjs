@@ -433,7 +433,7 @@ class Agent extends EventEmitter {
         }
         // A turn the usage limit stopped is not over: the agent waits and carries on.
         if (turn?.quota && !this.interrupting) {
-          this.pauseForQuota();
+          this.pauseForQuota(turn.resetsAt);
           continue;
         }
         if (turn) {
@@ -462,9 +462,11 @@ class Agent extends EventEmitter {
     this.busy = true;
   }
   // Waits until the reported reset, or a while when none was reported, then carries on.
-  pauseForQuota() {
+  // The rate-limit report's reset comes first; the stopped turn's own message backs it up.
+  pauseForQuota(stated = null) {
     const now = Date.now();
-    const reported = this.usage?.exhausted && this.usage.resetsAt > now ? this.usage.resetsAt : null;
+    const usage = this.usage?.exhausted && this.usage.resetsAt > now ? this.usage.resetsAt : null;
+    const reported = usage ?? (stated > now ? stated : null);
     const resetsAt = reported ?? now + this.quotaWait.unknown;
     const at = new Date(resetsAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
     const reason = `Paused: the usage limit is reached${reported ? "" : " and no reset time was given"}. It carries on at ${at}.`;
