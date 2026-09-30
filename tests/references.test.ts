@@ -83,6 +83,9 @@ describe("a reference, as the coordinator reads it", () => {
     const s = sample();
     const d = describeReference(s.state, { table: "sources", recordId: "register", label: "Tidewell parish register", text: "baptised 1851", anchor: { type: "text-range" } });
     expect(d.about).toBe("the words “baptised 1851” in the source “Tidewell parish register of baptisms (fictional)”");
+    // A picked element carries its text, which is what the human pointed at.
+    const picked = describeReference(s.state, { table: "sources", recordId: "register", label: "Tidewell parish register", text: "Available on request." });
+    expect(picked.about).toBe("the text “Available on request.” in the source “Tidewell parish register of baptisms (fictional)”");
     expect(d.ids).toEqual({ source: "register" });
   });
 });

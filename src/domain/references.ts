@@ -133,9 +133,10 @@ export function describeReference(state: ResearchState, r: AnnotationTarget): Re
   }
   if (review) ids.graphReview = review.id;
 
-  // Words the human selected lead, with the object they sit in.
-  const selected = (r.anchor as { type?: string } | undefined)?.type === "text-range" ? r.text?.replace(/\s+/g, " ").trim() : "";
-  if (selected && !r.label.includes(selected)) about = `the words ${quoted(selected, 300)} in ${about}`;
+  // Words the human selected, or the text of the element they picked, lead, with the object they sit in.
+  const words = r.text?.replace(/\s+/g, " ").trim() || "";
+  const range = (r.anchor as { type?: string } | undefined)?.type === "text-range";
+  if (words && !r.label.includes(words)) about = `${range ? "the words" : "the text"} ${quoted(words, 300)} in ${about}`;
 
   const seenOn = r.screen ? describeScreen(state, r.screen) : undefined;
   return { kind, about, ...(seenOn ? { seenOn } : {}), ids };
