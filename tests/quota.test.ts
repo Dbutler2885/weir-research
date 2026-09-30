@@ -52,8 +52,21 @@ describe("recognising a reached usage limit", () => {
     // Shaped as the app server's protocol describes a turn failed for usage.
     const failed = { method: "turn/completed", params: { threadId: "t", turn: { id: "u", status: "failed", error: { message: "Usage limit reached", codexErrorInfo: "usageLimitExceeded" } } } };
     expect(session.read(failed).turn).toMatchObject({ ok: false, quota: true });
+    // Recorded on 2026-09-29: the error names the reset in local time.
+    const worded = { ...failed, params: { ...failed.params, turn: { ...failed.params.turn, error: { message: "You’ve hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Sep 30th, 2026 12:06 AM.", codexErrorInfo: "usageLimitExceeded" } } } };
+    expect(session.read(worded).turn).toMatchObject({ quota: true, resetsAt: new Date(2026, 8, 30, 0, 6).getTime() });
     const other = { method: "turn/completed", params: { threadId: "t", turn: { id: "u", status: "failed", error: { message: "Server busy", codexErrorInfo: "serverOverloaded" } } } };
     expect(session.read(other).turn).toMatchObject({ ok: false, quota: false });
+  });
+
+  it("keeps a Codex limit's reset when another of its limits reports nothing", () => {
+    // Recorded on 2026-09-29: the full five-hour limit, then an empty report for a second limit.
+    const session = codexAdapter.session({ write: () => {}, describe: describe_, folder: "/work" });
+    const update = (rateLimits: object) => ({ method: "account/rateLimits/updated", params: { rateLimits } });
+    session.read(update({ limitId: "codex", primary: { usedPercent: 100, windowDurationMins: 300, resetsAt: 1790741218 }, secondary: { usedPercent: 63, windowDurationMins: 10080, resetsAt: 1791170788 }, rateLimitReachedType: null }));
+    const usage = session.read(update({ limitId: "premium", primary: null, secondary: null, rateLimitReachedType: null })).usage;
+    expect(usage).toMatchObject({ exhausted: true, resetsAt: 1790741218_000 });
+    expect(usage!.windows.map((w: any) => w.name)).toEqual(["5-hour", "weekly"]);
   });
 });
 

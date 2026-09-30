@@ -190,9 +190,13 @@ function asked(
   q: Question,
   notes: Annotation[],
 ): string {
+  if (q.messageId) {
+    const message = state.conversation?.find((m) => m.id === q.messageId);
+    return `<div class="asked"><span class="eyebrow">You asked</span><p>In the conversation you wrote:</p><blockquote ${target({ label: message?.text || q.title })}>${html(message?.text)}</blockquote></div>`;
+  }
   if (q.origin === "coordinator") {
     const approval = state.conversation?.find((m) => m.id === q.approvalMessageId);
-    return `<div class="asked asked-coordinator"><span class="eyebrow">The coordinator asked</span><p>After research returned:</p><blockquote>${html(q.explanation)}</blockquote>${approval?.decision?.decidedAt ? `<p class="asked-note">You approved this research on ${html(when(approval.decision.decidedAt))}.</p>` : ""}</div>`;
+    return `<div class="asked asked-coordinator"><span class="eyebrow">The coordinator asked</span>${approval ? "<p>After research returned:</p>" : ""}<blockquote>${html(q.explanation)}</blockquote>${approval?.decision?.decidedAt ? `<p class="asked-note">You approved this research on ${html(when(approval.decision.decidedAt))}.</p>` : ""}</div>`;
   }
   const written = b.reviewFlow?.walkthroughs[0]?.createdAt;
   return `<div class="asked"><span class="eyebrow">You asked</span>${notes

@@ -35,6 +35,8 @@ export const codexAdapter = {
     let starting = false;
     // The agent's latest reply, which ends its turn.
     let reply = "";
+    // Codex reports each of its limits separately; one report never replaces another's.
+    const limits = new Map();
     const waiting = [];
     const request = (method, params, then = () => {}) => {
       const id = ++nextId;
@@ -143,7 +145,11 @@ export const codexAdapter = {
           reply = "";
         }
         if (message.method === "item/completed" && message.params?.item?.type === "agentMessage") reply = message.params.item.text || "";
-        if (message.method === "account/rateLimits/updated") return { actions: [], usage: codexUsage(message.params.rateLimits || {}) };
+        if (message.method === "account/rateLimits/updated") {
+          const report = message.params.rateLimits || {};
+          limits.set(report.limitId ?? "codex", report);
+          return { actions: [], usage: codexUsage(...limits.values()) };
+        }
         // How full its context is: the last response's tokens, and the model's window.
         if (message.method === "thread/tokenUsage/updated") {
           const usage = message.params.tokenUsage || {};
@@ -155,7 +161,8 @@ export const codexAdapter = {
           flush();
           const failure = message.params.turn.error?.codexErrorInfo;
           const quota = failure === "usageLimitExceeded" || failure === "rateLimitExceeded";
-          return { actions: [], turn: { ok: message.params.turn.status === "completed", quota, text: reply } };
+          const resetsAt = quota ? retryTime(message.params.turn.error?.message) : null;
+          return { actions: [], turn: { ok: message.params.turn.status === "completed", quota, text: reply, ...(resetsAt ? { resetsAt } : {}) } };
         }
         return { actions: streamActions(message, describe) };
       },
@@ -163,19 +170,29 @@ export const codexAdapter = {
   },
 };
 
-// Codex's rate-limit report: how much of each window is used, and when it resets.
-export function codexUsage(limits) {
-  const windows = [limits.primary, limits.secondary].filter(Boolean).map((w) => ({
+// Codex's rate-limit reports: how much of each window is used, and when it resets.
+export function codexUsage(...reports) {
+  const windows = reports.flatMap((limits) => [limits.primary, limits.secondary]).filter(Boolean).map((w) => ({
     name: !w.windowDurationMins ? "usage" : w.windowDurationMins % 1440 === 0 ? (w.windowDurationMins === 10080 ? "weekly" : `${w.windowDurationMins / 1440}-day`) : `${Math.round(w.windowDurationMins / 60)}-hour`,
     used: w.usedPercent / 100,
     resetsAt: w.resetsAt ? w.resetsAt * 1000 : null,
   }));
   const full = windows.filter((w) => w.used >= 1);
   return {
-    exhausted: Boolean(limits.rateLimitReachedType) || full.length > 0,
+    exhausted: reports.some((limits) => limits.rateLimitReachedType) || full.length > 0,
     resetsAt: full.length ? Math.max(...full.map((w) => w.resetsAt || 0)) || null : null,
     windows,
   };
+}
+
+// The reset a usage-limit error names, as in "try again at Sep 30th, 2026 12:06 AM.", in local time.
+export function retryTime(message) {
+  const match = String(message || "").match(/try again at ([A-Z][a-z]{2}) (\d{1,2})(?:st|nd|rd|th)?, (\d{4}) (\d{1,2}):(\d{2}) ([AP]M)/);
+  if (!match) return null;
+  const [, month, day, year, hour, minute, half] = match;
+  const index = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"].indexOf(month);
+  if (index < 0) return null;
+  return new Date(Number(year), index, Number(day), (Number(hour) % 12) + (half === "PM" ? 12 : 0), Number(minute)).getTime();
 }
 
 function compare(a, b) {

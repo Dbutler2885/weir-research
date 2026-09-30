@@ -211,7 +211,42 @@ describe("coordinator batches", () => {
     expect(state.conversation!.at(-1)).toMatchObject({ readyBatchId: investigationId });
   });
 
-  it("requires the human's approval before a coordinator question", () => {
+  it("opens a batch from a plain message, without an annotation", () => {
+    const { messageId } = run({ type: "send", text: "Find out who ran the mill after 1900." });
+    const { investigationId } = run({
+      type: "open-batch",
+      brief,
+      title: "Later owners",
+      questions: [{ title: "Who ran the mill after 1900?", messageId }],
+    });
+    const batch = state.investigations.find((i) => i.id === investigationId)!;
+    expect(batch.questions![0]).toMatchObject({ origin: "human", messageId });
+    expect(batch.questions![0]!.explanation).toBeUndefined();
+    // The researcher receives the human's own words, as with an annotation.
+    const assignment = batch.annotations.find((x) => x.id === batch.questions![0]!.annotationIds[0])!;
+    expect(assignment).toMatchObject({ question: "Find out who ran the mill after 1900." });
+    expect(assignment.author).toBeUndefined();
+    expect(assignment.dispatchedAt).toBeTruthy();
+    const { messageId: reply } = run({ type: "reply", text: "On it." });
+    expect(() =>
+      run({ type: "add-to-batch", investigationId, questions: [{ title: "Q", messageId: reply }] }),
+    ).toThrow("one the human wrote");
+    expect(() => run({ type: "add-to-batch", investigationId, questions: [{ title: "Q" }] })).toThrow("Research request");
+  });
+
+  it("opens a batch on the coordinator's own judgement", () => {
+    const { investigationId } = run({
+      type: "open-batch",
+      brief,
+      title: "Closing year",
+      questions: [{ title: "When did the mill close?", request: "Resolve the conflicting closing years." }],
+    });
+    const question = state.investigations.find((i) => i.id === investigationId)!.questions![0]!;
+    expect(question).toMatchObject({ origin: "coordinator", explanation: "Resolve the conflicting closing years." });
+    expect(question.messageId).toBeUndefined();
+  });
+
+  it("links an approved request to its coordinator question", () => {
     const [a] = sendTwo();
     const { investigationId } = run({
       type: "open-batch",

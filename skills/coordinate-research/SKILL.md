@@ -87,7 +87,10 @@ Answer every send in the conversation with your plan for it: a direct answer, re
 Send these through the command tool:
 
 - `{"action":"reply","text":"...","references":[{"label":"...","table":"nodes","recordId":"..."}]}` answers in the conversation; references become links the human can follow.
-- `{"action":"open-batch","title":"...","brief":{"purpose":"...","scope":"...","direction":"..."},"questions":[{"title":"Coordinator-written heading","annotationIds":["..."]}],"scope":["web","imports"]}` opens a numbered batch from sent annotations.
+- `{"action":"open-batch","title":"...","brief":{"purpose":"...","scope":"...","direction":"..."},"questions":[{"title":"Coordinator-written heading","annotationIds":["..."]}],"scope":["web","imports"]}` opens a numbered batch.
+  A question needs no annotation: `{"title":"...","messageId":"..."}` takes up research the human asked for in a plain message, whose words reach the researcher as an annotation's do.
+  `{"title":"...","request":"..."}` starts research on your own judgement; the request says what the question is and appears in Findings.
+  Either way, your interpretation and strategy belong in the assignment brief.
   A batch is research one walkthrough and one graph update can coherently explain.
   The brief is required: its purpose, what is in and out of the batch, and where the work is heading now.
   A later coordinator starting fresh relies on it to know what the batch is for and where new notes belong.
@@ -97,8 +100,8 @@ Send these through the command tool:
 - `{"action":"add-to-batch","investigationId":"...","questions":[{"questionId":"existing","annotationIds":["..."]},{"title":"New heading","annotationIds":["..."]}]}` places later annotations that address an open batch's work.
 - `{"action":"batch-ready","investigationId":"...","text":"..."}` tells the human a batch is ready to review; never leave a finished batch unannounced.
 - `{"action":"retitle","investigationId":"...","title":"...","questions":[{"questionId":"...","title":"..."}]}` rewrites batch and question headings, for example the placeholder headings of converted projects, which repeat the human's own words.
-- `{"action":"request-approval","title":"...","body":"...","investigationId":"..."}` asks before research the human did not request, such as following up an inconsistency.
-  After the human approves, add it with `{"title":"...","approvalMessageId":"..."}` as a question without annotations; the body becomes its explanation in Findings.
+- `{"action":"request-approval","title":"...","body":"...","investigationId":"..."}` asks the human first when you want their decision, such as whether a costly follow-up is worth it.
+  After the human approves, add it with `{"title":"...","approvalMessageId":"..."}` as a question; the body becomes its request and its explanation in Findings.
 
 Batch membership is yours to decide; tell the human your choice in the conversation so they can correct it.
 A batch closes when its graph review is finished, whether its changes were approved or set aside, and related later work starts a new batch.

@@ -8,7 +8,7 @@ import type {
 } from "./research.ts";
 
 // A question inside a batch: a coordinator-written heading over the human's
-// annotations, or over the coordinator's own approved follow-up.
+// annotations or plain message, or over a request the coordinator wrote itself.
 export interface Question {
   id: string;
   title: string;
@@ -16,6 +16,8 @@ export interface Question {
   annotationIds: string[];
   explanation?: string;
   approvalMessageId?: string;
+  // The human's plain message this question takes up, in place of annotations.
+  messageId?: string;
   createdAt: string;
 }
 
@@ -183,26 +185,41 @@ function questionsFrom(
       });
       continue;
     }
+    // Research without annotations: for a human message, whose words are the
+    // assignment as an annotation's are, or for an approved request or the
+    // coordinator's own judgement, whose written request is the assignment.
     const approval = raw.approvalMessageId
       ? next.conversation?.find((m) => m.id === raw.approvalMessageId)
       : undefined;
-    assert(
-      approval?.decision?.status === "approved",
-      "A coordinator question needs research the human approved.",
-    );
-    assert(
-      !next.investigations.some((i) =>
-        i.questions?.some((q) => q.approvalMessageId === approval.id),
-      ),
-      "This approved research already has a question.",
-    );
-    // The approved request becomes the question's assignment, like a human annotation.
+    if (raw.approvalMessageId) {
+      assert(
+        approval?.decision?.status === "approved",
+        "That request is not one the human approved.",
+      );
+      assert(
+        !next.investigations.some((i) =>
+          i.questions?.some((q) => q.approvalMessageId === approval.id),
+        ),
+        "This approved research already has a question.",
+      );
+    }
+    const asked = raw.messageId
+      ? next.conversation?.find((m) => m.id === raw.messageId)
+      : undefined;
+    if (raw.messageId)
+      assert(
+        asked?.author === "human" && asked.text,
+        "The message must be one the human wrote.",
+      );
+    const request = asked
+      ? asked.text!
+      : text(raw.request ?? approval?.decision?.body, "Research request", 5000);
     const annotation: Annotation = {
       id: id(),
-      author: "coordinator",
+      ...(asked ? {} : { author: "coordinator" as const }),
       target: { label: title },
       references: [],
-      question: approval.decision!.body,
+      question: request,
       createdAt: now,
       dispatchedAt: now,
     };
@@ -210,10 +227,11 @@ function questionsFrom(
     (batch.questions ||= []).push({
       id: id(),
       title,
-      origin: "coordinator",
+      origin: asked ? "human" : "coordinator",
       annotationIds: [annotation.id],
-      explanation: approval.decision!.body,
-      approvalMessageId: approval.id,
+      ...(asked ? {} : { explanation: request }),
+      ...(approval ? { approvalMessageId: approval.id } : {}),
+      ...(asked ? { messageId: asked.id } : {}),
       createdAt: now,
     });
   }
