@@ -151,7 +151,7 @@ When work is clearly wrong or no longer wanted, stop it outright:
 {"action":"stop-researcher","investigationId":"...","reason":"Why the researcher is being stopped"}
 ```
 
-Stopping pauses the batch with the reason and keeps saved checkpoints for a later pass.
+Stopping records the reason, keeps saved checkpoints, and leaves the batch queued for you to assign again or leave; nothing waits on the human.
 Claude and Codex researchers are steered and stopped the same way.
 
 Every worker is started by the app, so the live panel always shows it; you cannot start agents yourself.

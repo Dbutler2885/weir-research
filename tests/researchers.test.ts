@@ -310,26 +310,23 @@ describe("steerable researchers", () => {
     expect(() => s.command({ action: "steer", message: " " })).toThrow("A redirection must be text");
   });
 
-  it("stops a researcher outright, pausing the batch with the coordinator's reason", async () => {
+  it("stops a researcher outright, leaving the batch the coordinator's to assign again", async () => {
     const s = await steerable();
     s.say({ type: "assistant", message: { content: [{ type: "tool_use", name: "Read", input: { file_path: "brief.json" } }] } });
     expect(s.live.list()).toHaveLength(1);
     expect(s.command({ action: "stop-researcher", reason: "The human withdrew this question." })).toEqual({ stopped: true });
     expect(s.process.child.killed).toBe(true);
-    expect(s.investigation().status).toBe("paused");
+    expect(s.investigation().status).toBe("queued");
+    expect(s.investigation().lease).toBeUndefined();
     expect(s.investigation().events.at(-1).message).toBe("Coordinator stopped the researcher: The human withdrew this question.");
     s.process.child.emit("close", null);
     expect(s.live.list()).toEqual([]);
-    expect(s.investigation().status).toBe("paused");
+    // Its exit is not a failure, and nothing asks the human to approve resuming it.
+    expect(s.investigation().status).toBe("queued");
     s.store.update((next: any) => {
       next.investigations.find((i: any) => i.id === s.id).number = 1;
     });
-    expect(liveRows({ ...s.store.state, live: s.live.list() } as any)).toContainEqual({
-      group: "attention",
-      who: "Researcher",
-      batch: { id: s.id, number: 1 },
-      stage: "Research paused. Coordinator stopped the researcher: The human withdrew this question.",
-    });
+    expect(liveRows({ ...s.store.state, live: s.live.list() } as any).filter((r: any) => r.group === "attention")).toEqual([]);
     expect(() => s.command({ action: "steer", message: "Too late" })).toThrow("No researcher is running");
   });
 
@@ -398,7 +395,7 @@ describe.each(["claude", "codex"] as const)("a %s researcher under the coordinat
     await r.until(() => r.pool.live.list()[0]?.latest?.text === "Reading its assignment");
     r.command({ action: "stop-researcher", reason: "Wrong direction." });
     await r.until(() => r.pool.active.size === 0);
-    expect(r.investigation().status).toBe("paused");
+    expect(r.investigation().status).toBe("queued");
     expect(r.events().at(-1)).toBe("Coordinator stopped the researcher: Wrong direction.");
     expect(r.pool.live.list()).toEqual([]);
   });
