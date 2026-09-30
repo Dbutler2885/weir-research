@@ -109,6 +109,20 @@ function reviewLine(b: Investigation) {
   return parts.length ? `Review: ${parts.join(", ")}.` : null;
 }
 
+// What the human can see and do for a batch, in the app's own words, so the coordinator
+// describes their screen rather than its bookkeeping.
+function humanLine(b: Investigation) {
+  const findings = b.proposals.filter((p) => p.kind === "findings" || !p.kind).flatMap((p) => p.findings || []).length;
+  const flow = b.reviewFlow;
+  const parts = [findings ? `${findings} findings to read under Investigations, Findings` : "no findings yet"];
+  if (flow?.walkthroughs.length) parts.push(b.walkthroughRequestedAt ? "a walkthrough in Review, with a revision being written" : "a walkthrough to read in Review");
+  else if (b.walkthroughRequestedAt) parts.push("a walkthrough being written, not yet in Review");
+  else if (b.readyAt) parts.push("Create walkthrough in Review");
+  else parts.push("nothing in Review until you mark the batch ready");
+  if (flow?.graphReviews.some((r) => r.status === "pending")) parts.push("a graph draft to decide in Review");
+  return `The human sees: ${parts.join("; ")}.`;
+}
+
 function batchBlock(state: ResearchState, b: Investigation, workers: LiveWorker[]) {
   const lines = [`### ${batchName(b)}: ${clip(b.title, 160)}`, `ID ${b.id} · status ${b.status}${b.readyAt ? " · marked ready" : ""}${b.held ? " · held by the human: start nothing on it until they release it" : ""}`];
   if (b.brief)
@@ -129,6 +143,7 @@ function batchBlock(state: ResearchState, b: Investigation, workers: LiveWorker[
   lines.push(`Findings: ${findingsLine(b)}`);
   const review = reviewLine(b);
   if (review) lines.push(review);
+  lines.push(humanLine(b));
   const checkpoint = b.checkpoints.at(-1);
   if (checkpoint && ["queued", "running", "paused"].includes(b.status))
     lines.push(`Latest checkpoint (${day(checkpoint.at)}): ${clip(checkpoint.summary, 300)}`);
