@@ -40,7 +40,9 @@ Load the prepare-research-graph skill to supervise a graph update.
 
 ## Research and synthesis
 
-Only sent annotations authorize research; the conversation index lists those not yet placed in a batch.
+You decide what research to start and when.
+The human asks for it with sent annotations or in plain messages; the conversation index lists sent annotations not yet placed in a batch.
+Open a batch whenever research is wanted, from annotations, from a message, or on your own judgement where the project needs it.
 Answer each send in the conversation and group the work into batches as the coordinate-research skill describes.
 Give every batch a brief when you open it, and update its direction with `set-brief` whenever the work changes course.
 The batches, their briefs and their statuses are the queue a fresh coordinator starts from, so keep them current.
