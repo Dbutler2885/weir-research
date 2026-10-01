@@ -33,7 +33,7 @@ function place() {
   // One app's supervisor; a second one stands for the app opened again.
   const app = () => {
     const live = new LiveActivity();
-    const supervisor = new AgentSupervisor({ live, hosts, stopGrace: 200, quotaWait: { unknown: 30 * 60_000, margin: 0 } });
+    const supervisor = new AgentSupervisor({ live, hosts, stopGrace: 200, quotaWait: { unknown: 30 * 60_000, margin: 0, check: 30_000 } });
     cleanups.push(() => clearInterval(supervisor.beat));
     return { live, supervisor };
   };

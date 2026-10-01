@@ -84,7 +84,7 @@ export class AgentSupervisor {
   // Homes are the app's own Codex home and home folder, from agentHomes. With hosts,
   // each agent runs under its own host process, which can outlive the app; the
   // registry folder records them and the socket folder holds their sockets.
-  constructor({ hosts = /** @type {any} */ (null), launch = spawn, live = new LiveActivity(), adapters = { claude: claudeAdapter, codex: codexAdapter }, stopGrace = 5000, homes = null, watchInterval = 2000, quotaWait = { unknown: 30 * 60_000, margin: 60_000 }, logSegment = LOG_SEGMENT } = {}) {
+  constructor({ hosts = /** @type {any} */ (null), launch = spawn, live = new LiveActivity(), adapters = { claude: claudeAdapter, codex: codexAdapter }, stopGrace = 5000, homes = null, watchInterval = 2000, quotaWait = { unknown: 30 * 60_000, margin: 60_000, check: 30_000 }, logSegment = LOG_SEGMENT } = {}) {
     this.launch = launch;
     this.homes = homes;
     this.live = live;
@@ -473,7 +473,14 @@ class Agent extends EventEmitter {
     this.paused = { resetsAt, reason };
     this.busy = false;
     this.emit("paused", this.paused);
-    this.resumeTimer = setTimeout(() => this.resume(), Math.max(0, resetsAt - now) + (reported ? this.quotaWait.margin : 0));
+    this.awaitReset(resetsAt + (reported ? this.quotaWait.margin : 0));
+  }
+  // Timers stand still while the computer sleeps, so one long timer would carry on hours
+  // after the reset; the clock is read again at short intervals instead.
+  awaitReset(due) {
+    const wait = due - Date.now();
+    if (wait <= 0) return this.resume();
+    this.resumeTimer = setTimeout(() => this.awaitReset(due), Math.min(wait, this.quotaWait.check));
   }
   resume() {
     if (!this.paused || this.finishing) return;

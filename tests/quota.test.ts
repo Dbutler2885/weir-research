@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -75,20 +75,20 @@ describe("recognising a reached usage limit", () => {
 });
 
 describe("an agent that reaches its usage limit", () => {
-  function start() {
+  function start(quota = 1) {
     const folder = mkdtempSync(join(tmpdir(), "quota-"));
     cleanups.push(() => rmSync(folder, { recursive: true, force: true }));
     cleanups.push(() => rmSync(`${folder}.log`, { force: true }));
     process.env.FAKE_CLAUDE_RECORD = "1";
     cleanups.push(() => delete process.env.FAKE_CLAUDE_RECORD);
     const live = new LiveActivity();
-    const supervisor = new AgentSupervisor({ live, stopGrace: 200, quotaWait: { unknown: 30 * 60_000, margin: 0 } });
+    const supervisor = new AgentSupervisor({ live, stopGrace: 200, quotaWait: { unknown: 30 * 60_000, margin: 0, check: 50 } });
     const agent = supervisor.start({
       key: "research:quota",
       provider: "claude",
       executable: resolve("tests/fixtures/fake-claude.mjs"),
       folder,
-      prompt: `steps:${JSON.stringify([{ quota: 1 }])}`,
+      prompt: `steps:${JSON.stringify([{ quota }])}`,
       live: { role: "researcher", name: "Claude researcher", investigationId: "quota" },
       describe: describe_,
     });
@@ -115,6 +115,17 @@ describe("an agent that reaches its usage limit", () => {
     // It was told to carry on, with what was sent while it waited.
     expect(a.received()[1]).toContain("The usage limit has reset. Carry on with your assignment");
     expect(a.received()[1]).toContain('steps:[{"tool":"Read"');
+  });
+
+  it("carries on soon after the reset when the computer slept through it", async () => {
+    const a = start(3 * 3600);
+    await new Promise((done) => a.agent.once("paused", done));
+    // Timers stand still while the computer sleeps; only the clock moves on.
+    const woke = Date.now() + 3 * 3600_000 + 1000;
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => woke);
+    cleanups.push(() => clock.mockRestore());
+    await until(() => a.events.includes("resumed"));
+    expect(a.received()[1]).toContain("The usage limit has reset.");
   });
 });
 
