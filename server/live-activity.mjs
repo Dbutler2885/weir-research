@@ -216,7 +216,8 @@ export function coordinatorAction(data, state) {
     case "walkthrough-update": return `Sending instructions to the walkthrough writer for ${batch(data.investigationId)}`;
     case "publish-walkthrough": return `Publishing the walkthrough for ${batch(data.investigationId)}`;
     case "inspect-flow": return `Checking the graph draft for ${batch(data.investigationId)}`;
-    case "assign-graph": return `Assigning a graph builder to ${batch(data.investigationId)}`;
+    case "request-graph": return `Starting the graph update you asked for on ${batch(data.investigationId)}`;
+    case "assign-graph": return `Briefing a graph builder for ${batch(data.investigationId)}`;
     case "graph-update": return `Sending instructions to the graph builder for ${batch(data.investigationId)}`;
     case "request-graph-resume": return `Asking to resume the graph for ${batch(data.investigationId)}`;
     case "publish-graph-review": return `Signing off the graph draft for ${batch(data.investigationId)}`;

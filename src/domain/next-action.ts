@@ -37,8 +37,8 @@ export function nextAction(state: ResearchState, batch: Investigation): NextActi
       return next("human", "Graph update paused; waiting for the human to approve or decline resuming it.");
     if (job?.status === "returned")
       return next("coordinator", "Check the builder's draft against the human's instructions; send it back with graph-update, or write the tour and sign it off with publish-graph-review.");
-    if (job?.status === "queued" && job.engine === "manual")
-      return next("coordinator", "Assign a graph builder with assign-graph.");
+    if (job?.status === "queued" && (job.awaitingBrief || job.engine === "manual"))
+      return next("coordinator", "The human asked for a graph update; brief a graph builder with assign-graph, carrying any limits they set.");
     if (job?.status === "queued" || job?.status === "running")
       return next("worker", "A graph builder is preparing the draft.");
   }

@@ -42,11 +42,13 @@ export function validateWalkthrough(i, input) {
 }
 // A graph update represents a batch's findings; a walkthrough, when one exists, adds its
 // explanation. The graph itself travels as tables written into the builder's directory.
-export function graphPacket(state, investigation, walkthrough, updates = []) {
+export function graphPacket(state, investigation, walkthrough, updates = [], brief = null) {
   const proposalIds = walkthrough?.proposalIds || investigation.proposals.filter(p => p.kind === 'findings').map(p => p.id);
   const {evidence, findings} = evidenceRegistry(investigation, proposalIds);
   return {
     question: walkthrough?.question || [investigation.title, ...(investigation.questions || []).map(q => q.title)].join('\n'),
+    // The coordinator's brief for this job: the human's limits on it, such as a cutoff date.
+    brief,
     walkthrough: walkthrough || null,
     researchRevision: walkthrough?.id || `batch:${investigation.id}:${proposalIds.join(',')}`,
     baseGraphRevision: state.datasetRevision, updates: structuredClone(updates), findings, evidence,
@@ -63,8 +65,9 @@ export function flowCommand(store, command, actor = 'coordinator') {
   const i = store.state.investigations.find(i => i.id === command.investigationId);
   fail(i, 'Unknown investigation.');
   const action = command.action;
-  const humanActions = ['request-walkthrough', 'review-walkthrough-edits', 'request-graph', 'graph-job-pause', 'graph-job-resume', 'graph-resume-decision', 'graph-accept', 'graph-set-aside'];
-  fail(actor === 'coordinator' ? !humanActions.includes(action) : humanActions.includes(action), 'This action belongs to the other review role.');
+  const humanActions = ['request-walkthrough', 'review-walkthrough-edits', 'graph-job-pause', 'graph-job-resume', 'graph-resume-decision', 'graph-accept', 'graph-set-aside'];
+  // Either may request a graph update: the human from Review, the coordinator for the human's message.
+  fail(action === 'request-graph' || (actor === 'coordinator' ? !humanActions.includes(action) : humanActions.includes(action)), 'This action belongs to the other review role.');
   if (action === 'inspect-flow') return structuredClone(i.reviewFlow || {walkthroughs: [], jobs: [], graphReviews: []});
   if (action === 'assign-walkthrough') {
     fail(i.walkthroughRequestedAt, 'The human has not asked for a walkthrough of this batch.');
@@ -180,18 +183,28 @@ export function flowCommand(store, command, actor = 'coordinator') {
     });
     return {requested: true};
   }
+  // A graph update starts only because the human asked: from Review, which waits for the
+  // coordinator's brief, or in the conversation, which the coordinator cites with its brief.
   if (action === 'request-graph') {
     // A finished graph review ends the batch; later work belongs to a new one.
     fail(!graphWorkFinished(i), "This batch's graph update is finished. Open a new batch for later work.");
     fail(i.proposals.some(p => p.kind === 'findings'), 'This batch has no findings to represent yet.');
+    const asked = actor === 'coordinator' ? (store.state.conversation || []).find(m => m.id === command.messageId) : null;
+    if (actor === 'coordinator') {
+      fail(asked?.author === 'human', 'Start a graph update only when the human asked for one: cite their message as messageId.');
+      const cited = store.state.investigations.some(x => (x.reviewFlow?.jobs || []).some(j => j.requestedIn === asked.id));
+      fail(!cited, 'That message already started a graph update. Cite the human\'s new request.');
+      fail(text(command.brief), 'Give the graph builder a brief: what the human asked, and any limits on it.');
+    }
     const blocker = graphBlocker(store.state);
     fail(!blocker, blocker);
-    const choice = pick(store.state, 'graph-builder');
+    const choice = pick(store.state, 'graph-builder', actor === 'coordinator' ? command : undefined);
     const jobId = randomUUID(), at = new Date().toISOString(), engine = choice?.agent || 'manual';
+    const brief = asked ? command.brief.trim() : null;
     store.update(next => {
       const inv = next.investigations.find(x => x.id === i.id), flow = flowFor(inv), w = flow.walkthroughs.at(-1);
-      flow.jobs.push({id: jobId, format: 'tables', ...(w ? {walkthroughId: w.id} : {}), status: 'queued', engine, model: choice?.model ?? null, effort: choice?.effort ?? null, progress: engine === 'manual' ? 'Waiting for the coordinator to assign a graph builder.' : 'Graph preparation is queued.', createdAt: at, attempt: 0, updates: [], consumedUpdateSequence: 0, packet: graphPacket(next, inv, w), baseDataset: structuredClone(next.dataset)});
-      inv.events.push({at, message: 'Graph update requested.'});
+      flow.jobs.push({id: jobId, format: 'tables', ...(w ? {walkthroughId: w.id} : {}), status: 'queued', engine, model: choice?.model ?? null, effort: choice?.effort ?? null, ...(asked ? {brief, requestedIn: asked.id} : {awaitingBrief: true}), progress: asked ? 'Graph preparation is queued.' : 'Waiting for the coordinator to brief a graph builder.', createdAt: at, attempt: 0, updates: [], consumedUpdateSequence: 0, packet: graphPacket(next, inv, w, [], brief), baseDataset: structuredClone(next.dataset)});
+      inv.events.push({at, message: asked ? `Coordinator started the graph update you asked for: "${asked.text?.trim().slice(0, 200) || 'your message'}"` : 'Graph update requested.'});
     });
     return {jobId};
   }
@@ -202,6 +215,8 @@ export function flowCommand(store, command, actor = 'coordinator') {
     fail(!i.closedAt, 'This batch is closed.');
     fail(!(i.reviewFlow?.jobs || []).length, 'This batch already has graph work; open a new batch for the reorganization.');
     fail(text(command.message), 'Say what the human asked the reorganization to do.');
+    const asked = (store.state.conversation || []).find(m => m.id === command.messageId);
+    fail(asked?.author === 'human', 'Reorganize the graph only when the human asked for it: cite their message as messageId.');
     const blocker = graphBlocker(store.state);
     fail(!blocker, blocker);
     const choice = pick(store.state, 'graph-builder');
@@ -209,7 +224,7 @@ export function flowCommand(store, command, actor = 'coordinator') {
     store.update(next => {
       const inv = next.investigations.find(x => x.id === i.id), flow = flowFor(inv);
       const updates = [{id: randomUUID(), sequence: 1, message: `${REORGANIZATION}\n\n${command.message}`, annotationIds: [], at}];
-      flow.jobs.push({id: jobId, format: 'tables', reorganization: true, status: 'queued', engine, model: choice?.model ?? null, effort: choice?.effort ?? null, progress: engine === 'manual' ? 'Waiting for the coordinator to assign a graph builder.' : 'Graph reorganization is queued.', createdAt: at, attempt: 0, updates, consumedUpdateSequence: 0, packet: graphPacket(next, inv, undefined, updates), baseDataset: structuredClone(next.dataset)});
+      flow.jobs.push({id: jobId, format: 'tables', reorganization: true, status: 'queued', engine, model: choice?.model ?? null, effort: choice?.effort ?? null, requestedIn: asked.id, progress: engine === 'manual' ? 'Waiting for the coordinator to assign a graph builder.' : 'Graph reorganization is queued.', createdAt: at, attempt: 0, updates, consumedUpdateSequence: 0, packet: graphPacket(next, inv, undefined, updates), baseDataset: structuredClone(next.dataset)});
       inv.events.push({at, message: 'Graph reorganization requested.'});
     });
     return {jobId};
@@ -221,7 +236,8 @@ export function flowCommand(store, command, actor = 'coordinator') {
     fail(job, 'Unknown graph preparation.');
     if (action === 'assign-graph') {
       fail(job.status === 'queued', 'Only queued graph work can be assigned.');
-      fail(['codex','claude'].includes(command.engine), 'Choose claude or codex for the graph builder.');
+      fail(text(command.brief), 'Give the graph builder a brief: what the human asked, and any limits on it.');
+      fail(!command.engine || ['codex','claude'].includes(command.engine), 'Choose claude or codex for the graph builder.');
     } else if (action === 'graph-update') {
       // A draft the human is reviewing can go back for a revision; the builder continues from it.
       const underReview = job.status === 'published' && flow.graphReviews.some(r => r.jobId === job.id && r.status === 'pending');
@@ -238,7 +254,14 @@ export function flowCommand(store, command, actor = 'coordinator') {
     if (action === 'graph-resume-decision') fail(job.resumeRequest?.status === 'pending' && ['approve','decline'].includes(command.decision), 'No matching resume request.');
     store.update(next => {
       const inv = next.investigations.find(x => x.id === i.id), f = flowFor(inv), j = f.jobs.find(x => x.id === job.id);
-      if (action === 'assign-graph') Object.assign(j, {engine: command.engine, model: command.model ?? null, effort: command.effort ?? null});
+      if (action === 'assign-graph') {
+        if (command.engine) Object.assign(j, {engine: command.engine, model: command.model ?? null, effort: command.effort ?? null});
+        j.brief = command.brief.trim();
+        delete j.awaitingBrief;
+        j.packet = graphPacket(next, inv, f.walkthroughs.find(w => w.id === j.walkthroughId), j.updates, j.brief);
+        j.progress = 'Graph preparation is queued.';
+        inv.events.push({at: new Date().toISOString(), message: 'Coordinator briefed the graph builder.'});
+      }
       if (action === 'graph-job-pause') { j.status = 'paused'; j.progress = 'Graph preparation paused. Saved work is retained.'; }
       if (action === 'request-graph-resume') j.resumeRequest = {reason: command.reason, status: 'pending'};
       if (action === 'graph-job-resume' || (action === 'graph-resume-decision' && command.decision === 'approve')) {
@@ -255,7 +278,7 @@ export function flowCommand(store, command, actor = 'coordinator') {
           w = {...structuredClone(command.walkthrough), id: randomUUID(), revision: f.walkthroughs.length + 1, createdAt: update.at};
           f.walkthroughs.push(w); j.walkthroughId = w.id;
         }
-        j.packet = graphPacket(next, inv, w, j.updates);
+        j.packet = graphPacket(next, inv, w, j.updates, j.brief ?? null);
         j.baseDataset = structuredClone(next.dataset);
         if (j.status === 'published') {
           // The draft stays readable, but it is no longer the one to decide on.

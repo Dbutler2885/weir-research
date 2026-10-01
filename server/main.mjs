@@ -127,7 +127,7 @@ process.on("exit", () => researchers.stop());
 // A coordinator command, from the app's coordinator or one attached from outside.
 function coordinatorCommand(data) {
   // An agent, model or effort named for one assignment must be one the installed CLIs offer.
-  if (["assign", "assign-graph", "assign-walkthrough", "ask-helper"].includes(data.action) && data.engine && data.engine !== "manual")
+  if (["assign", "request-graph", "assign-graph", "assign-walkthrough", "ask-helper"].includes(data.action) && data.engine && data.engine !== "manual")
     validateChoice({ agent: data.engine, model: data.model ?? null, effort: data.effort ?? null }, catalog, "The named agent");
   const result = coordinator.command(data);
   researchers.pump();
