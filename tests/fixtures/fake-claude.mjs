@@ -21,6 +21,8 @@ const stepsFor = (text) => {
 };
 
 const inbox = [];
+// The reset each limit reported, kept for later refusals.
+const resets = {};
 let interrupted = false;
 let running = null;
 let ended = false;
@@ -41,8 +43,9 @@ async function turn(steps) {
   for (let i = 0; i < steps.length; i++) {
     const step = steps[i];
     // {quota: seconds} hits the usage limit, reporting a reset that many seconds away, as Claude does.
+    // Like Claude's limit window, the reset stays the same however often it refuses.
     if (step.quota) {
-      const resetsAt = Math.floor(Date.now() / 1000) + step.quota;
+      const resetsAt = (resets[step.quota] ??= Math.floor(Date.now() / 1000) + step.quota);
       out({ type: "rate_limit_event", rate_limit_info: { status: "rejected", resetsAt, rateLimitType: "five_hour", unifiedWindows: { five_hour: { utilization: 1, resetsAt } } } });
       out({ type: "assistant", message: { model: "<synthetic>", content: [{ type: "text", text: "You've hit your session limit" }] }, error: "rate_limit" });
       out({ type: "result", subtype: "success", is_error: true, result: "You've hit your session limit", api_error_status: 429 });
