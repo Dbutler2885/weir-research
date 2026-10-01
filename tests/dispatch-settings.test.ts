@@ -5,7 +5,7 @@ import { dispatchSettings, rowChoice } from "../src/ui/dispatch-settings";
 // A fictional catalog: both CLIs installed, with a small model list each.
 const catalog: Catalog = {
   agents: [
-    { id: "claude", label: "Claude Code", installed: true, efforts: ["low", "high"], models: [{ id: "opus", label: "Opus", efforts: ["low", "high"] }, { id: "haiku", label: "Haiku", efforts: ["low", "high"] }] },
+    { id: "claude", label: "Claude Code", installed: true, efforts: ["low", "high"], models: [{ id: "opus", label: "Opus", efforts: ["low", "high"] }, { id: "haiku", label: "Haiku", efforts: ["low", "high"] }, { id: "claude-opus-4", label: "Opus 4", efforts: ["low"], older: true }] },
     { id: "codex", label: "Codex", installed: true, efforts: ["low", "medium"], models: [{ id: "gpt-6-sol", label: "GPT-6-Sol", efforts: ["low", "medium"] }] },
   ],
 };
@@ -33,6 +33,15 @@ describe("who does which job, in settings", () => {
     expect((helper.querySelector('[data-field="model"]') as HTMLSelectElement).disabled).toBe(true);
     expect(helper.textContent).toContain("Small tasks the coordinator hands off");
     expect(page.textContent).toContain("ask the coordinator in the conversation");
+  });
+
+  it("offers each kind's current model, and an older one only where it is already chosen", () => {
+    const models = (row: Element) => [...row.querySelectorAll('[data-field="model"] option')].map((o) => o.textContent);
+    expect(models(render().querySelector('[data-dispatch-role="default"]')!)).toEqual(["Its default model", "Opus", "Haiku"]);
+    const doc = changeDispatch(defaultDispatch("claude"), { action: "set-role", role: "researcher", agent: "claude", model: "claude-opus-4" }, catalog, "human", () => "r1", "2026-09-25T12:00:00.000Z");
+    const page = render(doc);
+    expect(models(page.querySelector('[data-dispatch-role="researcher"]')!)).toEqual(["Its default model", "Opus", "Haiku", "Opus 4"]);
+    expect(models(page.querySelector('[data-dispatch-role="default"]')!)).toEqual(["Its default model", "Opus", "Haiku"]);
   });
 
   it("shows the entries and rules the coordinator added", () => {

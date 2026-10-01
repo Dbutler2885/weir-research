@@ -40,7 +40,8 @@ export interface Catalog {
     id: AgentId;
     label: string;
     installed: boolean;
-    models: { id: string; label: string; efforts: string[] }[];
+    // An older model is still valid for a choice already made, but not offered anew.
+    models: { id: string; label: string; efforts: string[]; older?: boolean }[];
     efforts: string[];
   }[];
 }

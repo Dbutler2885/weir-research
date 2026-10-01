@@ -377,6 +377,18 @@ export function mountResearchWorkspace(
     });
     syncComposer();
     renderView();
+    if (next === "settings") void refreshCatalog();
+  }
+  // The installed CLIs are asked for their models again, so a new one shows in the menus.
+  async function refreshCatalog() {
+    try {
+      const catalog = await request("/api/catalog", {});
+      if (JSON.stringify(catalog) === JSON.stringify(state.catalog)) return;
+      state = { ...state, catalog };
+      if (view === "settings") renderView();
+    } catch {
+      /* The menus keep the models read before. */
+    }
   }
   function setMode(enabled: boolean) {
     annotate = enabled;

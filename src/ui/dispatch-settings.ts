@@ -15,7 +15,7 @@ export function menus(catalog: Catalog, choice: Choice | undefined, name: string
   ].join("");
   const off = !choice ? "disabled" : "";
   return `<select data-field="agent" aria-label="${html(name)} agent">${agents}</select>
-<select data-field="model" aria-label="${html(name)} model" ${off}>${option("", "Its default model", !choice?.model)}${(agent?.models || []).map((m) => option(m.id, m.label, m.id === choice?.model)).join("")}</select>
+<select data-field="model" aria-label="${html(name)} model" ${off}>${option("", "Its default model", !choice?.model)}${(agent?.models || []).filter((m) => !m.older || m.id === choice?.model).map((m) => option(m.id, m.label, m.id === choice?.model)).join("")}</select>
 <select data-field="effort" aria-label="${html(name)} effort" ${off}>${option("", "Its default effort", !choice?.effort)}${efforts.map((e) => option(e, e, e === choice?.effort)).join("")}</select>`;
 }
 
