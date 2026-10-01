@@ -117,7 +117,7 @@ const graphBuilders = new GraphBuilders(store, directory, root, { live, supervis
 const writers = new WalkthroughWriters(store, directory, root, { live, supervisor });
 coordinator.writers = writers;
 // What the installed agent CLIs offer, and the project's rules for which does each job.
-const catalog = agentCatalog({ findExecutable: researchers.findExecutable });
+const catalog = await agentCatalog({ findExecutable: researchers.findExecutable });
 const dispatch = new DispatchRules(store, catalog);
 dispatch.ensure();
 coordinator.dispatch = dispatch;
@@ -331,6 +331,11 @@ const server = createServer(async (req, res) => {
       return json(res, 403, {
         error: "This credential is limited to worker commands.",
       });
+    // The installed CLIs' models, read again so one released since the app started shows.
+    if (req.method === "POST" && url.pathname === "/api/catalog") {
+      Object.assign(catalog, await agentCatalog({ findExecutable: researchers.findExecutable }));
+      return json(res, 200, catalog);
+    }
     if (req.method === "GET" && url.pathname === "/api/project")
       return json(res, 200, { directory, protocol: 2, stamp });
     // What the human is writing to the coordinator and has not sent, kept with the

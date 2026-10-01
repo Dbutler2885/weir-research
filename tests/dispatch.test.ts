@@ -25,10 +25,33 @@ const codexModels = JSON.stringify({
     { slug: "gpt-hidden", display_name: "Hidden", visibility: "hide", supported_reasoning_levels: [{ effort: "low" }] },
   ],
 });
-const claudeHelp = "  --effort <level>   Effort level for the current session\n                     (low, medium, high, xhigh, max)\n";
-const run = (command: string) => (command === "codex" ? codexModels : claudeHelp);
-const catalog = (installed = ["claude", "codex"]): Catalog =>
-  agentCatalog({ findExecutable: (name: string) => (installed.includes(name) ? `/bin/${name}` : null), run }) as Catalog;
+const claudeHelp = "  --effort <level>   Effort level for the current session\n                     (low, medium, high, xhigh, max)\n  --model <model>   Provide an alias for the latest model (e.g. 'fable', 'opus', or 'sonnet')\n";
+// What Claude Code answers when asked to initialize, trimmed: its current models, then older ones.
+const model = (value: string, displayName: string, efforts?: string[]) => ({ value, displayName, ...(efforts ? { supportedEffortLevels: efforts } : {}) });
+const claudeList = JSON.stringify({
+  type: "control_response",
+  response: {
+    subtype: "success",
+    request_id: "models",
+    response: {
+      models: [
+        model("default", "Default (recommended)", ["low", "high"]),
+        model("opus", "Opus 5.5", ["low", "medium", "high", "xhigh", "max"]),
+        model("claude-fable-5-1", "Fable 5.1", ["low", "high", "max"]),
+        model("haiku", "Haiku 4.5"),
+        model("claude-opus-5", "Opus 5", ["low", "high"]),
+      ],
+    },
+  },
+});
+let claudeAnswers = true;
+const run = async (command: string, args: string[]) =>
+  command === "codex" ? codexModels : args.includes("--help") ? claudeHelp : claudeAnswers ? `${claudeList}\n` : "";
+const catalogOf = async (installed = ["claude", "codex"]): Promise<Catalog> =>
+  (await agentCatalog({ findExecutable: (name: string) => (installed.includes(name) ? `/bin/${name}` : null), run })) as Catalog;
+const both = await catalogOf();
+const claudeOnly = await catalogOf(["claude"]);
+const catalog = (installed?: string[]) => (installed?.length === 1 ? claudeOnly : both);
 const now = "2026-09-25T12:00:00.000Z";
 let n = 0;
 const id = () => `rule-${++n}`;
@@ -39,8 +62,21 @@ describe("what the installed CLIs offer", () => {
     expect(codex.models).toEqual([{ id: "gpt-6-sol", label: "GPT-6-Sol", efforts: ["low", "high"] }]);
     expect(codex.efforts).toEqual(["low", "high"]);
   });
-  it("lists Claude Code's model aliases with the efforts its help names", () => {
+  it("lists the models Claude Code names itself, offering each kind's current one by the alias that follows new versions", () => {
     const claude = catalog().agents.find((a) => a.id === "claude")!;
+    expect(claude.models).toEqual([
+      { id: "opus", label: "Opus 5.5", efforts: ["low", "medium", "high", "xhigh", "max"] },
+      { id: "fable", label: "Fable 5.1", efforts: ["low", "high", "max"] },
+      { id: "claude-fable-5-1", label: "Fable 5.1", efforts: ["low", "high", "max"], older: true },
+      { id: "haiku", label: "Haiku 4.5", efforts: [] },
+      { id: "claude-opus-5", label: "Opus 5", efforts: ["low", "high"], older: true },
+    ]);
+    expect(claude.efforts).toEqual(["low", "medium", "high", "xhigh", "max"]);
+  });
+  it("falls back to Claude Code's aliases when it cannot list its models", async () => {
+    claudeAnswers = false;
+    const claude = (await catalogOf()).agents.find((a) => a.id === "claude")!;
+    claudeAnswers = true;
     expect(claude.models.map((m) => m.id)).toEqual(["fable", "opus", "sonnet", "haiku"]);
     expect(claude.efforts).toEqual(["low", "medium", "high", "xhigh", "max"]);
   });
