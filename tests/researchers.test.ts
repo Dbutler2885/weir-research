@@ -436,9 +436,17 @@ describe.each(["claude", "codex"] as const)("a %s researcher under the coordinat
     await r.until(() => r.investigation().status === "paused");
     expect(r.events().at(-1)).toContain("Resume to pick up its conversation where it left off.");
     expect(r.investigation().researcherSession).toEqual(session);
+    process.env.FAKE_CLAUDE_RECORD = "1";
+    cleanups.push(() => delete process.env.FAKE_CLAUDE_RECORD);
     const pool = await resumed(r);
     await r.until(() => r.investigation().status === "running" && pool.active.size === 1);
     await r.until(() => r.events().filter((m: string) => m.includes("waiting for instructions")).length === 2);
+    // It is told it was stopped, and that messages it has not acted on still stand.
+    if (engine === "claude") {
+      const received = readFileSync(join(session.directory, "received.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l).text);
+      expect(received.at(-1)).toContain("You were stopped partway through this pass");
+      expect(received.at(-1)).toContain("Any message above that you have not acted on still stands");
+    }
     // The same session, in the same folder, rather than a fresh researcher.
     expect(r.investigation().researcherSession).toMatchObject({ id: session.id, directory: session.directory });
     expect([...pool.active.values()][0].directory).toBe(session.directory);

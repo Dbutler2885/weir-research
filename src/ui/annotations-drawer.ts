@@ -23,6 +23,9 @@ export interface DrawerHost {
   // True when the workspace service cannot be reached right now.
   offline?(): boolean;
   changed(): void;
+  // The unsent draft kept with the project, which outlasts the browser's copy.
+  loadDraft?(): Promise<unknown>;
+  saveDraft?(draft: unknown): Promise<unknown>;
 }
 
 interface Draft {
@@ -32,6 +35,8 @@ interface Draft {
   message?: string;
   editing?: string;
   feedback?: boolean;
+  // When it was last changed, so the newer of the browser's and the project's copies wins.
+  savedAt?: number;
 }
 
 const when = (iso: string) =>
@@ -60,12 +65,14 @@ export class AnnotationsDrawer {
   private readonly draftKey = `research-draft:${window.location.origin}`;
   private readonly seenKey = `research-seen:${window.location.origin}`;
   private error = "";
+  private draftTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(
     private readonly root: HTMLElement,
     private readonly host: DrawerHost,
   ) {
     this.draft = this.loadDraft();
+    void this.loadProjectDraft();
     root.addEventListener("click", (event) => void this.click(event));
     root.addEventListener("input", (event) => this.input(event));
     root.addEventListener("keydown", (event) => this.keydown(event));
@@ -457,12 +464,30 @@ ${this.tab === "conversation" ? this.conversation(state) : this.queue(state)}`;
     return { references: [], question: "" };
   }
 
+  // The browser keeps the draft under the app's address, which can change when the app
+  // opens again, so the project keeps it too; whichever was changed last wins.
+  private async loadProjectDraft(): Promise<void> {
+    try {
+      const saved = (await this.host.loadDraft?.()) as Draft | null;
+      if (!saved || !Array.isArray(saved.references) || typeof saved.question !== "string") return;
+      if ((saved.savedAt ?? 0) <= (this.draft.savedAt ?? 0)) return;
+      this.draft = saved;
+      this.render();
+    } catch {
+      /* The browser's copy stands. */
+    }
+  }
+
   private saveDraft(): void {
+    this.draft.savedAt = Date.now();
     try {
       localStorage.setItem(this.draftKey, JSON.stringify(this.draft));
     } catch {
       /* Drafts are a convenience; research is saved on the server. */
     }
+    clearTimeout(this.draftTimer);
+    const draft = this.draft;
+    this.draftTimer = setTimeout(() => void this.host.saveDraft?.(draft)?.catch(() => {}), 400);
   }
 }
 

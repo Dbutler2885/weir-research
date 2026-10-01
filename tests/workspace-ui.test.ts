@@ -26,8 +26,11 @@ function mount() {
     '<div class="app-shell"><header class="app-header"><div class="brand-block"><h1>Fictional workshop</h1></div></header><main class="workspace"><aside class="details-panel" aria-hidden="true"></aside></main></div>';
   mountResearchWorkspace(structuredClone(state), vi.fn());
 }
+// The unsent draft the project keeps, as the server's draft file would.
+let projectDraft: unknown = null;
 beforeEach(() => {
   localStorage.clear();
+  projectDraft = null;
   state = initialState({
     ...empty,
     title: "Who founded the fictional workshop?",
@@ -64,6 +67,10 @@ beforeEach(() => {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (path, options) => {
+      if (path === "/api/draft") {
+        if (options?.body) projectDraft = JSON.parse(options.body);
+        return { ok: true, json: async () => (options?.body ? { saved: true } : projectDraft) };
+      }
       if (path === "/api/app-settings") {
         Object.assign(state, JSON.parse(options.body));
         return { ok: true, json: async () => ({ developerMode: state.developerMode, annotationIntroSeen: state.annotationIntroSeen }) };
@@ -357,6 +364,19 @@ describe("investigation workspace", () => {
     expect(JSON.parse(localStorage.getItem(`research-draft:${window.location.origin}`)!).message).toBe(
       "Let us work inside this project",
     );
+  });
+  it("keeps the unsent message with the project, so it comes back when the app opens at another address", async () => {
+    click("[data-open-coordinator]");
+    const box = document.querySelector<HTMLTextAreaElement>("[data-message]")!;
+    box.value = "Check the 1871 directory";
+    box.dispatchEvent(new Event("input", { bubbles: true }));
+    await vi.waitFor(() => expect((projectDraft as any)?.message).toBe("Check the 1871 directory"));
+    // At another address the browser has no copy; the project's comes back.
+    localStorage.clear();
+    document.body.replaceChildren();
+    mount();
+    click("[data-open-coordinator]");
+    await vi.waitFor(() => expect(document.querySelector<HTMLTextAreaElement>("[data-message]")!.value).toBe("Check the 1871 directory"));
   });
   it("distinguishes a coordinator that is working from one that is listening", async () => {
     state.coordinator = {

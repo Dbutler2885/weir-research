@@ -64,6 +64,17 @@ describe("coordinator startup context", () => {
     expect(context.text.indexOf(note)).toBeLessThan(context.text.indexOf("## The queue"));
   });
 
+  it("lists the human's messages the coordinator has not answered, as after it was closed or paused", () => {
+    const p = project();
+    p.run({ type: "send", text: "Did the mill burn in 1890?" });
+    p.run({ type: "reply", text: "I will check the fire insurance maps." });
+    expect(layer(buildCoordinatorContext(p.state), "attention")).not.toContain("no reply yet");
+    p.run({ type: "send", text: "Also check the newspaper." });
+    const attention = layer(buildCoordinatorContext(p.state), "attention");
+    expect(attention).toContain('has no reply yet: "Also check the newspaper."');
+    expect(attention).not.toContain("Did the mill burn");
+  });
+
   it("describes each open batch once, with its number, brief and next action", () => {
     const p = project();
     const first = p.open("The mill's builder", "Who built the mill?");

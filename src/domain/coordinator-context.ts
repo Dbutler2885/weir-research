@@ -77,7 +77,14 @@ function attention(state: ResearchState): ContextLayer {
       `- Sent note not yet in a batch (${a.id}): "${clip(a.question, 300)}"${refs.length ? ` on ${refs.map((r) => clip(r, 400)).join(", ")}` : ""}. Answer it, then place it in a batch with open-batch or add-to-batch.`,
     );
   }
-  for (const m of state.conversation || [])
+  // The human's messages since the coordinator last replied, such as ones a closed or
+  // paused coordinator never answered; their notes are listed above.
+  const conversation = state.conversation || [];
+  const replied = conversation.findLastIndex((m) => m.author === "coordinator");
+  for (const m of conversation.slice(replied + 1))
+    if (m.author === "human" && m.text?.trim())
+      blocks.push(`- The human's message (${m.id}) has no reply yet: "${clip(m.text, 300)}". Answer it in the conversation.`);
+  for (const m of conversation)
     if (m.decision?.status === "pending")
       blocks.push(`- Your request "${clip(m.decision.title, 160)}" (${m.id}) is waiting for the human's decision.`);
   const open = state.investigations.filter(isOpen);

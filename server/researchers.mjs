@@ -359,7 +359,7 @@ Your final message should be a short completion status. The host will validate r
       effort: assignment?.effort,
       resume: task.resuming ?? undefined,
       prompt: task.resuming
-        ? "You were stopped partway through this pass, and your conversation has been picked up again in the same folder. brief.json has been written again with the coordinator's current brief in coordinatorBrief; read it, then carry on from where you stopped. Write checkpoints and result.json as instructed."
+        ? "You were stopped partway through this pass, and your conversation has been picked up again in the same folder. brief.json has been written again with the coordinator's current brief in coordinatorBrief; read it, then carry on from where you stopped. Any message above that you have not acted on still stands, including one the usage limit refused. Write checkpoints and result.json as instructed."
         : "Read brief.json and complete this bounded research pass. Write checkpoints and result.json as instructed.",
       live: { role: "researcher", name, investigationId: id },
       describe: fileDescriber(researcherFiles, this.titles(brief)),
