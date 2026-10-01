@@ -8,7 +8,8 @@ import { referenceText } from "../domain/research";
 import { describeReference } from "../domain/references";
 import type { Message } from "../domain/conversation";
 import { html } from "./finding-review";
-import { clock, running } from "./live-panel";
+import { running } from "./live-panel";
+import { resetTime } from "../domain/reset-time";
 
 export type DrawerTab = "conversation" | "queue";
 
@@ -231,7 +232,7 @@ ${this.tab === "conversation" ? this.conversation(state) : this.queue(state)}`;
     const last = state.conversation?.at(-1);
     if (!c?.connected || c.listening || last?.author !== "human") return "";
     if (c.paused)
-      return `<div class="coordinator-working is-paused" aria-live="polite"><div class="coordinator-working-head"><strong>${html(c.name || "Coordinator")} is paused</strong><time datetime="${html(c.paused.until)}">until ${html(clock(c.paused.until))}</time></div><p>The usage limit is reached. It reads your messages when the limit resets.</p></div>`;
+      return `<div class="coordinator-working is-paused" aria-live="polite"><div class="coordinator-working-head"><strong>${html(c.name || "Coordinator")} is paused</strong><time datetime="${html(c.paused.until)}">until ${html(resetTime(Date.parse(c.paused.until)))}</time></div><p>The usage limit is reached. It reads your messages when the limit resets.</p></div>`;
     const since = c.since || last.at;
     const steps = [c.latest, ...(c.trail || [])].filter((s): s is { at: string; text: string } => Boolean(s && s.at >= since));
     const before = steps[1]?.text || (steps[0] ? "Read your message" : "");
@@ -246,7 +247,7 @@ ${this.tab === "conversation" ? this.conversation(state) : this.queue(state)}`;
     if (!c?.enabled) return "";
     const who = html(c.name || "Your coordinator");
     if (c.connected && c.paused)
-      return `<p class="coordinator-presence is-paused"><span class="presence-dot"></span>${who} is paused until ${html(clock(c.paused.until))}. Messages you send wait until then.</p>`;
+      return `<p class="coordinator-presence is-paused"><span class="presence-dot"></span>${who} is paused until ${html(resetTime(Date.parse(c.paused.until)))}. Messages you send wait until then.</p>`;
     if (c.connected && c.listening)
       return `<p class="coordinator-presence"><span class="presence-dot"></span>${who} is listening.</p>`;
     if (c.connected)

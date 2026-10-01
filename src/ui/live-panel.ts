@@ -1,5 +1,6 @@
 import type { Investigation, LiveWorker, ResearchState } from "../domain/research";
 import { html } from "./finding-review";
+import { resetTime } from "../domain/reset-time";
 import { writerStatus } from "./review-view";
 
 // One worker, or one piece of work waiting for one, as the Now list shows it.
@@ -186,7 +187,7 @@ export function runningSummary(state: ResearchState): string {
   const c = state.coordinator;
   return [
     coordinatorWorking(state) ? "Coordinator working" : "",
-    c?.connected && c.paused ? `Coordinator paused until ${clock(c.paused.until)}` : "",
+    c?.connected && c.paused ? `Coordinator paused until ${resetTime(Date.parse(c.paused.until))}` : "",
     // Why the coordinator is not running shows in the panel this opens.
     !c?.connected && c?.waiting ? "Coordinator starts when you write" : "",
     !c?.connected && !c?.waiting && c?.problem ? "Coordinator not running" : "",
@@ -200,12 +201,6 @@ export function runningSummary(state: ResearchState): string {
 }
 
 const labels: Record<string, string> = { claude: "Claude Code", codex: "Codex" };
-const resetTime = (ms: number | null, now: number) => {
-  if (!ms) return "";
-  const at = new Date(ms);
-  const time = at.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
-  return ms - now < 20 * 3_600_000 ? time : `${at.toLocaleDateString("en-US", { weekday: "short" })} ${time}`;
-};
 // How much of each agent's usage limit is used, where the agent reports it.
 export function usageLines(state: ResearchState, now = Date.now()): string[] {
   return Object.entries(state.usage || {}).map(([agent, u]) => {

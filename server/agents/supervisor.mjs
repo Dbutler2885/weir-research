@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { AgentProblem } from "./problem.mjs";
 import { LiveActivity } from "../live-activity.mjs";
+import { resetTime } from "../../src/domain/reset-time.ts";
 import { claudeAdapter } from "./claude.mjs";
 import { codexAdapter } from "./codex.mjs";
 
@@ -468,7 +469,7 @@ class Agent extends EventEmitter {
     const usage = this.usage?.exhausted && this.usage.resetsAt > now ? this.usage.resetsAt : null;
     const reported = usage ?? (stated > now ? stated : null);
     const resetsAt = reported ?? now + this.quotaWait.unknown;
-    const at = new Date(resetsAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+    const at = resetTime(resetsAt, now);
     const reason = `Paused: the usage limit is reached${reported ? "" : " and no reset time was given"}. It carries on at ${at}.`;
     this.paused = { resetsAt, reason };
     this.busy = false;

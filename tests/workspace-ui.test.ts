@@ -263,17 +263,27 @@ describe("investigation workspace", () => {
     expect(document.querySelector(".coordinator-presence")!.textContent).toBe("Coordinator is listening.");
   });
   it("says when the usage limit pauses the coordinator, and until when", async () => {
-    const until = new Date(2026, 8, 26, 13, 0).toISOString();
+    // A weekly limit can be days away, so the date is given with the time.
+    const reset = new Date();
+    reset.setDate(reset.getDate() + 3);
+    reset.setHours(23, 26, 0, 0);
+    const until = reset.toISOString();
+    const when = `11:26 PM on ${reset.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
     state.coordinator = { enabled: true, connected: true, listening: false, paused: { until }, since: null, name: "Coordinator", handoff: "", awaitingSynthesis: [] };
     state.conversation = [{ id: "m1", author: "human", text: "hello?", at: new Date().toISOString() } as never];
     mount();
     click("[data-open-coordinator]");
-    expect(document.querySelector(".coordinator-presence")!.textContent).toBe("Coordinator is paused until 1:00 PM. Messages you send wait until then.");
-    expect(document.querySelector(".coordinator-working")!.textContent).toMatch(/Coordinator is paused\s*until 1:00 PM\s*The usage limit is reached/);
-    expect(document.querySelector("[data-running]")!.textContent).toContain("Coordinator paused until 1:00 PM");
+    expect(document.querySelector(".coordinator-presence")!.textContent).toBe(`Coordinator is paused until ${when}. Messages you send wait until then.`);
+    expect(document.querySelector(".coordinator-working")!.textContent).toMatch(new RegExp(`Coordinator is paused\\s*until ${when}\\s*The usage limit is reached`));
+    expect(document.querySelector("[data-running]")!.textContent).toContain(`Coordinator paused until ${when}`);
   });
   it("lets a paused coordinator be replaced without stopping researchers", async () => {
-    const until = new Date(2026, 8, 26, 13, 0).toISOString();
+    // A weekly limit can be days away, so the date is given with the time.
+    const reset = new Date();
+    reset.setDate(reset.getDate() + 3);
+    reset.setHours(23, 26, 0, 0);
+    const until = reset.toISOString();
+    const when = `11:26 PM on ${reset.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
     state.coordinator = { enabled: true, connected: true, listening: false, paused: { until }, since: null, name: "Coordinator", handoff: "", awaitingSynthesis: [] };
     state.live = [{ role: "researcher", name: "Codex researcher", investigationId: state.investigations[0]!.id, startedAt: new Date().toISOString(), latest: null }];
     mount();
