@@ -112,6 +112,12 @@ describe("coordinator startup context", () => {
     const text = buildCoordinatorContext(state).text;
     expect(text).toContain("30 findings in 1 proposal");
     expect(text).not.toContain(statement);
+    // What the human's screen shows, so the coordinator describes it in the app's words.
+    expect(text).toContain("The human sees: 30 findings to read under Investigations, Findings; nothing in Review until you mark the batch ready.");
+    state.investigations[0]!.readyAt = "2026-09-30T04:10:00Z";
+    expect(buildCoordinatorContext(state).text).toContain("The human sees: 30 findings to read under Investigations, Findings; Create walkthrough in Review.");
+    state.investigations[0]!.walkthroughRequestedAt = "2026-09-30T04:12:00Z";
+    expect(buildCoordinatorContext(state).text).toContain("The human sees: 30 findings to read under Investigations, Findings; a walkthrough being written, not yet in Review.");
   });
 
   it("gives IDs the inspection commands can retrieve", () => {

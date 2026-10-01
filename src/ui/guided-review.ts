@@ -63,6 +63,17 @@ export function changeSections(r: GraphReview): {title: string; items: Change[]}
     {title: 'Removed edges', items: d.removedEdges.map(e => ({label: edge(e), ids: [e.id], target: claim(e.id, true)}))},
   ].filter(section => section.items.length);
 }
+// The confirm button names what it does with the human's choices: accepted edits go
+// into the walkthrough, declined ones are dropped, comments go to the coordinator.
+export function confirmLabel(accepted: number, declined: number, comments: number): string {
+  const edits = (n: number) => `${n} ${n === 1 ? 'edit' : 'edits'}`;
+  if (accepted && comments) return `Apply ${edits(accepted)} and send ${comments === 1 ? 'comment' : 'comments'}`;
+  if (accepted) return `Apply ${edits(accepted)}`;
+  if (comments) return `Send ${comments === 1 ? 'comment' : 'comments'}`;
+  if (declined) return `Decline ${edits(declined)}`;
+  return 'Confirm';
+}
+
 export class GuidedReview {
   private renderer?: GraphRenderer;
   private generation = 0;
@@ -131,7 +142,7 @@ export class GuidedReview {
     const writing = this.commenting === e.id;
     const controls = writing
       ? `<textarea data-edit-comment rows="3" placeholder="Your note to the coordinator about this passage…">${html(d?.comment || '')}</textarea><div class="walkthrough-edit-actions"><button class="primary" data-guided-edit-comment-save>Save comment</button><button data-guided-edit-comment-cancel>Cancel</button></div>`
-      : `<div class="walkthrough-edit-actions"><button data-guided-edit="accept" ${pressed('accept')}>Yes</button><button data-guided-edit="decline" ${pressed('decline')}>No</button><button data-guided-edit="comment" ${pressed('comment')}>Comment</button><span class="walkthrough-edit-position">Edit ${this.edits().indexOf(e) + 1} of ${this.edits().length}</span></div>${d?.decision === 'comment' && d.comment ? `<p class="walkthrough-edit-note">Your comment, sent with your review: “${html(d.comment)}”</p>` : ''}`;
+      : `<div class="walkthrough-edit-actions"><button data-guided-edit="accept" ${pressed('accept')}>Yes</button><button data-guided-edit="decline" ${pressed('decline')}>No</button><button data-guided-edit="comment" ${pressed('comment')}>Comment</button><span class="walkthrough-edit-position">Edit ${this.edits().indexOf(e) + 1} of ${this.edits().length}</span></div>${d?.decision === 'comment' && d.comment ? `<p class="walkthrough-edit-note">Your comment, sent to the coordinator when you confirm: “${html(d.comment)}”</p>` : ''}`;
     return `<div class="walkthrough-edit${d ? ` is-${d.decision}` : ''}" data-edit-id="${html(e.id)}">
       <p class="walkthrough-edit-label">Suggested edit${e.earlier ? ', revised after your comment' : ''}</p>
       <div class="walkthrough-edit-text">${heading ? `<h1>${marked(wordDiff(e.before, e.after))}</h1>` : changes(e.before, e.after)}</div>
@@ -149,8 +160,8 @@ export class GuidedReview {
     const decided = edits.filter(e => this.decisions[e.id]).length;
     const summary = decided
       ? [count('accept') ? `${count('accept')} accepted` : '', count('decline') ? `${count('decline')} declined` : '', count('comment') ? `${count('comment')} with a comment` : '', decided < edits.length ? `${edits.length - decided} to decide` : ''].filter(Boolean).join(', ')
-      : 'Decide each one where it appears, then send your review.';
-    return `<div class="walkthrough-edits-bar"><div><strong>${edits.length} ${edits.length === 1 ? 'edit' : 'edits'} suggested by the coordinator</strong><span>${html(summary)}</span></div><button data-guided-edits-next>${decided < edits.length ? 'Next edit' : 'Show edits'}</button>${decided < edits.length ? '<button data-guided-edits-accept-all>Accept the rest</button>' : ''}<button class="primary" data-guided-edits-send ${decided ? '' : 'disabled'}>Send review</button></div>`;
+      : 'Decide each one where it appears, then confirm.';
+    return `<div class="walkthrough-edits-bar"><div><strong>${edits.length} ${edits.length === 1 ? 'edit' : 'edits'} suggested by the coordinator</strong><span>${html(summary)}</span></div><button data-guided-edits-next>${decided < edits.length ? 'Next edit' : 'Show edits'}</button>${decided < edits.length ? '<button data-guided-edits-accept-all>Accept the rest</button>' : ''}<button class="primary" data-guided-edits-send ${decided ? '' : 'disabled'}>${html(confirmLabel(count('accept'), count('decline'), count('comment')))}</button></div>`;
   }
   private save() { localStorage.setItem(this.key, JSON.stringify(this.progress)); }
   private walkthrough(): Walkthrough | undefined { return this.investigation.reviewFlow!.walkthroughs.find(w => w.id === this.progress.walkthroughId); }

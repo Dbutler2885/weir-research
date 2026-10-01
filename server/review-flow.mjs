@@ -153,7 +153,6 @@ export function flowCommand(store, command, actor = 'coordinator') {
     const writer = i.reviewFlow?.writer;
     if (!command.walkthrough && writer?.status === 'returned') command = {...command, walkthrough: writer.draft};
     validateWalkthrough(i, command.walkthrough);
-    fail(i.status !== 'paused', 'The investigation is paused. Request human approval before continuing.');
     const prior = i.reviewFlow?.walkthroughs.at(-1);
     // A published walkthrough is corrected through its file, where the human reviews each
     // edit; only a walkthrough the human asked to have rewritten replaces it outright.

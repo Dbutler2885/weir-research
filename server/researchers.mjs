@@ -434,12 +434,19 @@ Your final message should be a short completion status. The host will validate r
     return { steered: true };
   }
   // The coordinator ends a researcher outright; saved checkpoints stay for the next pass.
+  // The batch stays the coordinator's to assign again or leave, with nothing for the human to approve.
   halt(id, reason) {
     if (typeof reason !== "string" || !reason.trim() || reason.length > 5000)
       throw new Error("Explain why the researcher is being stopped, in up to 5,000 characters.");
     const task = this.running(id);
     this.checkpoint(task);
-    this.fail(task, `Coordinator stopped the researcher: ${reason.trim()}`);
+    this.store.update((next) => {
+      const i = next.investigations.find((i) => i.id === task.id);
+      if (i?.lease?.token !== task.token) return;
+      i.status = "queued";
+      delete i.lease;
+      i.events.push({ at: new Date().toISOString(), message: `Coordinator stopped the researcher: ${reason.trim()}` });
+    });
     this.terminate(task);
     return { stopped: true };
   }
