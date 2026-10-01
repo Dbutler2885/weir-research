@@ -4,8 +4,12 @@
 // or {change: file}, with optional delay and writes: {file: text}. turn/steer
 // replaces the remaining steps at the next step, and turn/interrupt ends the
 // turn. FAKE_CODEX_VERSION sets the reported version, FAKE_CODEX_MISSING names
-// a method to refuse, and FAKE_CODEX_SIGNED_OUT reports no sign-in.
-import { writeFileSync } from "node:fs";
+// a method to refuse, and FAKE_CODEX_SIGNED_OUT reports no sign-in. Its threads
+// are listed in threads.txt in the thread's folder; thread/resume picks one up, or
+// is refused when there is no such thread.
+import { randomUUID } from "node:crypto";
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { createInterface } from "node:readline";
 
 const out = (message) => process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", ...message })}\n`);
@@ -16,7 +20,7 @@ const stepsFor = (input) => {
   return text.startsWith("steps:") ? JSON.parse(text.slice(6)) : [];
 };
 
-const threadId = "thread-1";
+let threadId = null;
 let turns = 0;
 let active = null;
 
@@ -57,7 +61,16 @@ createInterface({ input: process.stdin })
       return out({ id, result: { userAgent: `research-workspace/${process.env.FAKE_CODEX_VERSION || "0.155.1"} (fake)`, platformFamily: "unix" } });
     if (method === "account/read")
       return out({ id, result: { account: process.env.FAKE_CODEX_SIGNED_OUT ? null : { type: "chatgpt" }, requiresOpenaiAuth: true } });
+    if (method === "thread/resume") {
+      const threads = join(params.cwd, "threads.txt");
+      if (!existsSync(threads) || !readFileSync(threads, "utf8").split("\n").includes(params.threadId))
+        return out({ id, error: { code: -32600, message: `no rollout found for thread id ${params.threadId}` } });
+      threadId = params.threadId;
+      return out({ id, result: { thread: { id: threadId, cwd: params.cwd } } });
+    }
     if (method === "thread/start") {
+      threadId = `thread-${randomUUID()}`;
+      appendFileSync(join(params.cwd, "threads.txt"), `${threadId}\n`);
       out({ id, result: { thread: { id: threadId, cwd: params.cwd } } });
       return notify("thread/started", { thread: { id: threadId } });
     }

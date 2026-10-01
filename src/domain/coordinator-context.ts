@@ -148,6 +148,9 @@ function batchBlock(state: ResearchState, b: Investigation, workers: LiveWorker[
   if (checkpoint && ["queued", "running", "paused"].includes(b.status))
     lines.push(`Latest checkpoint (${day(checkpoint.at)}): ${clip(checkpoint.summary, 300)}`);
   if (b.status === "paused" && b.events.length) lines.push(`Last event: ${clip(b.events.at(-1)!.message, 240)}`);
+  const session = b.researcherSession;
+  if (session && b.status !== "running")
+    lines.push(`Interrupted researcher: assigning ${session.engine} again picks up its conversation where it stopped, so brief it on what changed rather than the whole pass; another engine starts afresh from the checkpoints.`);
   for (const w of workers.filter((w) => w.investigationId === b.id))
     lines.push(`Worker: ${w.name}${w.latest ? `, ${clip(w.latest.text, 200)}` : ", starting"}.`);
   const candidates = currentCandidates(state, b).length;

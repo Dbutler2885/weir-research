@@ -27,7 +27,8 @@ export const codexAdapter = {
   env(base, { homes }) {
     return homes ? { ...base, CODEX_HOME: homes.codexHome, HOME: homes.home } : base;
   },
-  session({ write, describe, folder, instructions = "", model = "", effort = "", web = false }) {
+  // resume picks up an earlier thread by its ID instead of starting one.
+  session({ write, describe, folder, instructions = "", model = "", effort = "", web = false, resume = "" }) {
     let nextId = 0;
     const requests = new Map();
     let threadId = null;
@@ -75,8 +76,9 @@ export const codexAdapter = {
               throw new AgentProblem("Codex is not signed in for this app. Sign in with `npm run workspace -- sign-in codex`, then try again.");
           });
           request(
-            "thread/start",
+            resume ? "thread/resume" : "thread/start",
             {
+              ...(resume ? { threadId: resume } : {}),
               // No sandbox mode here: it would replace the folder's permission profile.
               cwd: folder,
               approvalPolicy: "never",
@@ -133,6 +135,8 @@ export const codexAdapter = {
           } catch (error) {
             return { actions: [], failure: error };
           }
+          // The thread's ID, by which it can be picked up again.
+          if (pending.method === "thread/start" || pending.method === "thread/resume") return { actions: [], session: threadId };
           return { actions: [] };
         }
         // A request from the app server, such as an approval; the app answers none.

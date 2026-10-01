@@ -80,19 +80,23 @@ export class ResearcherPool {
         kept.splice(kept.indexOf(record), 1);
         continue;
       }
+      // A researcher that ended with the app waits to be resumed, keeping its last checkpoint.
       if (
         i.status === "running" &&
         !coordinator?.candidates().some((c) => c.investigationId === i.id) &&
         ["Codex researcher", "Claude Code researcher"].includes(i.lease?.worker)
       ) {
+        const session = i.researcherSession;
+        if (session) this.checkpoint({ id: i.id, token: i.lease.token, directory: session.directory });
         store.command({ type: "pause", investigationId: i.id });
         store.update((next) =>
           next.investigations
             .find((item) => item.id === i.id)
             .events.push({
               at: new Date().toISOString(),
-              message:
-                "Workspace restarted. Saved findings are retained; resume to launch a replacement researcher.",
+              message: session
+                ? "The app closed while the researcher was working. Resume to pick up its conversation where it left off."
+                : "Workspace restarted. Saved findings are retained; resume to launch a replacement researcher.",
             }),
         );
       }
@@ -154,6 +158,12 @@ export class ResearcherPool {
       const contents = readFileSync(file, "utf8");
       if (contents === task.lastCheckpoint) return;
       const data = JSON.parse(contents);
+      // A resumed researcher's folder still holds the checkpoint taken in before.
+      const last = this.store.state.investigations.find((i) => i.id === task.id)?.checkpoints.at(-1);
+      if (last && ["summary", "findings", "nextSteps"].every((key) => last[key] === data[key])) {
+        task.lastCheckpoint = contents;
+        return;
+      }
       this.store.command({
         ...data,
         type: "checkpoint",
@@ -214,6 +224,9 @@ export class ResearcherPool {
       return false;
     }
     const assignment = this.coordinator?.assignment(id);
+    // A pass that was interrupted picks up its conversation, in its folder, with the same CLI.
+    const prior = this.store.state.investigations.find((i) => i.id === id)?.researcherSession;
+    const resume = prior?.engine === engine && existsSync(prior.directory) ? prior : null;
     const brief = structuredClone(
       this.store.command({
         type: "claim",
@@ -223,18 +236,21 @@ export class ResearcherPool {
           engine === "codex" ? "Codex researcher" : "Claude Code researcher",
       }),
     );
-    if (assignment) {
-      brief.coordinatorBrief = assignment.brief;
-      this.store.update((next) => {
-        delete next.coordination.assignments[id];
-      });
-    }
+    if (assignment) brief.coordinatorBrief = assignment.brief;
+    this.store.update((next) => {
+      if (assignment) delete next.coordination.assignments[id];
+      if (!resume) delete next.investigations.find((i) => i.id === id).researcherSession;
+    });
     const token = brief.investigation.lease.token;
-    const directory = join(this.directory, "agents", id, token);
+    const directory = resume ? resume.directory : join(this.directory, "agents", id, token);
     const task = {
       id,
       token,
       directory,
+      // The session being picked up, until the CLI confirms it; the assignment is kept
+      // to start a fresh researcher if it cannot be.
+      resuming: resume?.id ?? null,
+      assignment,
       started: Date.now(),
       timeLimitMinutes:
         this.store.state.researchSettings?.timeLimitMinutes ?? null,
@@ -341,7 +357,10 @@ Your final message should be a short completion status. The host will validate r
       browser,
       model: assignment?.model,
       effort: assignment?.effort,
-      prompt: "Read brief.json and complete this bounded research pass. Write checkpoints and result.json as instructed.",
+      resume: task.resuming ?? undefined,
+      prompt: task.resuming
+        ? "You were stopped partway through this pass, and your conversation has been picked up again in the same folder. brief.json has been written again with the coordinator's current brief in coordinatorBrief; read it, then carry on from where you stopped. Write checkpoints and result.json as instructed."
+        : "Read brief.json and complete this bounded research pass. Write checkpoints and result.json as instructed.",
       live: { role: "researcher", name, investigationId: id },
       describe: fileDescriber(researcherFiles, this.titles(brief)),
       // What the app needs to take this researcher back if it outlives the app.
@@ -351,8 +370,18 @@ Your final message should be a short completion status. The host will validate r
   }
   // How the pool follows a researcher's agent, whether it started it or took it back.
   follow(task, engine) {
+    // The session is kept from the start, so whatever ends the researcher, it can be picked up.
+    task.agent.on("session", (session) => {
+      task.resuming = null;
+      if (!this.current(task)) return;
+      this.store.update((next) => {
+        next.investigations.find((i) => i.id === task.id).researcherSession = { engine, id: session, directory: task.directory, at: new Date().toISOString() };
+      });
+    });
     task.agent.on("turn", ({ outcome }) => this.turnEnded(task, outcome));
+    // A session that could not be picked up is replaced once the agent exits.
     task.agent.on("failed", (error) =>
+      task.resuming ||
       this.fail(
         task,
         error instanceof AgentProblem
@@ -376,6 +405,7 @@ Your final message should be a short completion status. The host will validate r
   // A researcher that has written its result is done; one that has not waits for the coordinator.
   turnEnded(task, outcome) {
     if (!this.current(task) || outcome === "interrupted") return;
+    if (task.resuming) return task.agent.stop();
     this.checkpoint(task);
     if (existsSync(join(task.directory, "result.json"))) return task.agent.finish();
     this.note(
@@ -384,6 +414,18 @@ Your final message should be a short completion status. The host will validate r
         ? "The researcher's turn ended with an error before it wrote its findings. It is waiting for instructions."
         : "The researcher stopped before writing its findings. It is waiting for instructions.",
     );
+  }
+  // A session that could not be picked up: the same assignment goes to a fresh researcher,
+  // which starts from the saved checkpoints.
+  replace(task) {
+    this.store.update((next) => {
+      const i = next.investigations.find((i) => i.id === task.id);
+      i.status = "queued";
+      delete i.lease;
+      delete i.researcherSession;
+      if (task.assignment && next.coordination?.assignments) next.coordination.assignments[task.id] = task.assignment;
+      i.events.push({ at: new Date().toISOString(), message: "The researcher's earlier conversation could not be picked up; a fresh researcher starts from the saved checkpoints." });
+    });
   }
   titles(brief) {
     return Object.fromEntries(brief.documents.map((d) => [basename(d.localFile), d.name]));
@@ -401,16 +443,23 @@ Your final message should be a short completion status. The host will validate r
     this.checkpoint(task);
     try {
       if (!this.current(task)) return;
+      // Not while the app closes: the session is kept for when the human resumes it.
+      if (task.resuming && !this.stopped) return this.replace(task);
       if (code !== 0) throw new Error("Researcher exited before completing its proposal.");
       const proposal = JSON.parse(readFileSync(join(directory, "result.json"), "utf8"));
       if (this.coordinator?.enabled) this.coordinator.receive(task, proposal);
       else this.store.command({ type: "propose", investigationId: id, token, proposal });
+      // Its result is in; there is nothing left to pick up.
+      this.store.update((next) => {
+        delete next.investigations.find((i) => i.id === id).researcherSession;
+      });
     } catch (error) {
+      const kept = Boolean(this.store.state.investigations.find((i) => i.id === id)?.researcherSession);
       // Validation messages contain research content only; raw provider logs stay on disk.
       this.fail(
         task,
         code !== 0
-          ? `${engine} stopped ${reason === "lost" ? "when it lost contact with the app" : "before completing a proposal"}. Resume with this or another provider; saved checkpoints are retained.`
+          ? `${engine} stopped ${reason === "lost" ? "when it lost contact with the app" : "before completing a proposal"}. ${kept ? "Resume to pick up its conversation where it left off." : "Resume with this or another provider; saved checkpoints are retained."}`
           : `Proposal needs another pass: ${error.message}`,
       );
     } finally {
@@ -445,6 +494,8 @@ Your final message should be a short completion status. The host will validate r
       if (i?.lease?.token !== task.token) return;
       i.status = "queued";
       delete i.lease;
+      // Stopped on purpose, so its next pass starts afresh.
+      delete i.researcherSession;
       i.events.push({ at: new Date().toISOString(), message: `Coordinator stopped the researcher: ${reason.trim()}` });
     });
     this.terminate(task);

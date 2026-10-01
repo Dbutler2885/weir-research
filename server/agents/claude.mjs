@@ -22,7 +22,8 @@ export function claudeUsage(info) {
 export const claudeAdapter = {
   // The agent is confined to its folder; web adds the web tools.
   // compactAt is the context size, in tokens, at which Claude Code compacts on its own.
-  args({ folder, instructions = "", model = "", effort = "", web = false, browser = null, compactAt = 0 }) {
+  // resume picks up an earlier conversation by its session ID.
+  args({ folder, instructions = "", model = "", effort = "", web = false, browser = null, compactAt = 0, resume = "" }) {
     return [
       "--print",
       "--input-format",
@@ -34,6 +35,7 @@ export const claudeAdapter = {
       "dontAsk",
       ...(model ? ["--model", model] : []),
       ...(effort ? ["--effort", effort] : []),
+      ...(resume ? ["--resume", resume] : []),
       ...claudeIsolationArgs(folder, { web, browser, compactAt }),
       ...(instructions ? ["--append-system-prompt", instructions] : []),
     ];
@@ -56,6 +58,8 @@ export const claudeAdapter = {
       // turn successfully or because the usage limit was reached.
       read(event) {
         const actions = streamActions(event, describe);
+        // The conversation's ID, by which it can be picked up again.
+        if (event.type === "system" && event.subtype === "init" && event.session_id) return { actions, session: event.session_id };
         if (event.type === "rate_limit_event") return { actions, usage: claudeUsage(event.rate_limit_info || {}) };
         // How full its context is, read from each reply's usage.
         const used = event.type === "assistant" && event.message?.usage;

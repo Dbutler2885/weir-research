@@ -419,7 +419,8 @@ class Agent extends EventEmitter {
         } catch (error) {
           result = { actions: [], failure: error };
         }
-        const { actions, turn, failure, usage, context, compacted } = result;
+        const { actions, turn, failure, usage, context, compacted, session } = result;
+        if (session) this.emit("session", session);
         for (const text of actions) this.emit("action", text);
         if (context) this.emit("context", context);
         if (compacted) this.emit("compacted", compacted);

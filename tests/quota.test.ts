@@ -8,6 +8,7 @@ import { codexAdapter, retryTime } from "../server/agents/codex.mjs";
 import { AgentSupervisor } from "../server/agents/supervisor.mjs";
 import { LiveActivity, fileDescriber, researcherFiles } from "../server/live-activity.mjs";
 import { usageLines } from "../src/ui/live-panel";
+import { resetTime } from "../src/domain/reset-time";
 import { until } from "./fixtures/until";
 
 const cleanups: (() => void)[] = [];
@@ -130,6 +131,13 @@ describe("an agent that reaches its usage limit", () => {
 });
 
 describe("showing remaining usage", () => {
+  it("gives a reset's date when it is not today, as a weekly limit's often is", () => {
+    const now = new Date(2026, 8, 30, 17, 52).getTime();
+    expect(resetTime(new Date(2026, 8, 30, 23, 26).getTime(), now)).toBe("11:26 PM");
+    expect(resetTime(new Date(2026, 9, 4, 23, 26).getTime(), now)).toBe("11:26 PM on Oct 4");
+    expect(resetTime(new Date(2026, 9, 1, 0, 30).getTime(), now)).toBe("12:30 AM on Oct 1");
+  });
+
   const now = Date.UTC(2026, 8, 25, 12);
   it("says how much of each limit is used and when it resets", () => {
     const lines = usageLines(
