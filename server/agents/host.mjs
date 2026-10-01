@@ -46,7 +46,7 @@ let kept = false;
 // Set when the host stops the agent itself, having lost the app.
 let stopReason = null;
 const commands = {
-  send: ({ text }) => agent.send(text),
+  send: ({ text, now }) => agent.send(text, { now }),
   steer: ({ text }) => agent.steer(text),
   interrupt: () => agent.interrupt(),
   compact: () => agent.compact(),

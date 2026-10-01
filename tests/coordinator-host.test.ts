@@ -58,7 +58,7 @@ function fixture(steps: object[] = []) {
     // Only whole lines: the fake may be writing the next one.
     return existsSync(file) ? readFileSync(file, "utf8").split("\n").slice(0, -1).map((l) => JSON.parse(l)) : [];
   };
-  return { store, coordinator, open, received, commands };
+  return { store, coordinator, open, received, commands, stepsFile };
 }
 
 describe("the app's coordinator", () => {
@@ -96,17 +96,30 @@ describe("the app's coordinator", () => {
     await until(() => f.coordinator.status().listening);
   });
 
-  it("is paused, not working, while the usage limit holds it, and keeps the human's messages until then", async () => {
+  it("is paused, not working, while the usage limit holds it; the human's messages try to reach it, the app's updates wait", async () => {
     const f = fixture([{ quota: 600 }]);
     const host = f.open();
     await until(() => f.coordinator.status().paused);
     const paused = f.coordinator.status();
     expect(paused).toMatchObject({ connected: true, listening: false, since: null });
     expect(Date.parse(paused.paused!.until) - Date.now()).toBeGreaterThan(590_000);
+    // The app's own update waits for the reset.
+    f.store.command({ type: "annotate", question: "Who owned the mill?", target: { label: "Mill" } });
+    await new Promise((done) => setTimeout(done, 100));
+    expect(f.received(host)).toHaveLength(1);
+    // The human's message tries now, with the held update; the limit refuses it, and the pause holds.
     f.store.command({ type: "send", text: "hello?" });
+    await until(() => f.received(host).length === 2);
+    expect(f.received(host)[1].text).toContain("hello?");
+    expect(f.received(host)[1].text).toContain("Who owned the mill?");
     await new Promise((done) => setTimeout(done, 100));
     expect(f.coordinator.status()).toMatchObject({ listening: false, since: null, paused: paused.paused });
-    expect(f.received(host)).toHaveLength(1);
+    // The limit lifts early; the next message gets through and the pause ends.
+    writeFileSync(f.stepsFile, "[]");
+    f.store.command({ type: "send", text: "are you back?" });
+    await until(() => f.coordinator.status().listening);
+    expect(f.coordinator.status().paused).toBeNull();
+    expect(f.received(host)).toHaveLength(3);
   });
 
   it("replaces a coordinator paused by its usage limit", async () => {

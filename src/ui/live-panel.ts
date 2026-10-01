@@ -76,7 +76,7 @@ export function liveRows(state: ResearchState): LiveRow[] {
   const waiting = unansweredNotes(state);
   const c = state.coordinator;
   if (c?.connected && c.paused)
-    rows.push({ group: "waiting", who: "Coordinator", stage: `Paused until ${clock(c.paused.until)}: the usage limit is reached. Messages wait until then.` });
+    rows.push({ group: "waiting", who: "Coordinator", stage: `Paused until ${resetTime(Date.parse(c.paused.until))}: the usage limit is reached. Your messages still try to reach it, in case the limit lifts sooner.` });
   else if (c?.connected) {
     // Only what it has done in this turn; an idle coordinator shows none.
     const steps = c.listening ? [] : [c.latest, ...(c.trail || [])].filter((s) => s && (!c.since || s.at >= c.since));

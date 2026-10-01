@@ -6,7 +6,8 @@
 // turn. FAKE_CODEX_VERSION sets the reported version, FAKE_CODEX_MISSING names
 // a method to refuse, and FAKE_CODEX_SIGNED_OUT reports no sign-in. Its threads
 // are listed in threads.txt in the thread's folder; thread/resume picks one up, or
-// is refused when there is no such thread.
+// is refused when there is no such thread. A step {quota: true} fails the turn for
+// usage, and account/rateLimits/read allows usage unless a file "limited" is in its folder.
 import { randomUUID } from "node:crypto";
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -29,6 +30,10 @@ async function run(turn, steps) {
   let n = 0;
   for (let i = 0; i < steps.length; i++) {
     const step = steps[i];
+    if (step.quota) {
+      active = null;
+      return notify("turn/completed", { threadId, turn: { id: turn.id, items: [], status: "failed", error: { message: "You've hit your usage limit.", codexErrorInfo: "usageLimitExceeded" } } });
+    }
     const item = step.change
       ? { type: "fileChange", id: `patch-${++n}`, changes: [{ path: step.change, kind: "add", diff: "" }] }
       : { type: "commandExecution", id: `exec-${++n}`, command: `/bin/zsh -lc '${step.command}'` };
@@ -61,6 +66,8 @@ createInterface({ input: process.stdin })
       return out({ id, result: { userAgent: `research-workspace/${process.env.FAKE_CODEX_VERSION || "0.155.1"} (fake)`, platformFamily: "unix" } });
     if (method === "account/read")
       return out({ id, result: { account: process.env.FAKE_CODEX_SIGNED_OUT ? null : { type: "chatgpt" }, requiresOpenaiAuth: true } });
+    if (method === "account/rateLimits/read")
+      return out({ id, result: { ordinaryUsageAllowed: !existsSync("limited"), rateLimitsByLimitId: {} } });
     if (method === "thread/resume") {
       const threads = join(params.cwd, "threads.txt");
       if (!existsSync(threads) || !readFileSync(threads, "utf8").split("\n").includes(params.threadId))

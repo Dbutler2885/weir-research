@@ -105,6 +105,10 @@ export const codexAdapter = {
       interrupt() {
         if (threadId && turnId) request("turn/interrupt", { threadId, turnId });
       },
+      // Asks whether the usage limit still holds, without starting a turn.
+      limitLifted() {
+        request("account/rateLimits/read", undefined);
+      },
       // The app server's own compaction request.
       compact() {
         if (threadId) request("thread/compact/start", { threadId });
@@ -123,7 +127,8 @@ export const codexAdapter = {
               flush();
               return { actions: [] };
             }
-            if (pending.method === "turn/interrupt") return { actions: [] };
+            // A question the app can ask again later is no reason to stop.
+            if (pending.method === "turn/interrupt" || pending.method === "account/rateLimits/read") return { actions: [] };
             const reason =
               message.error.code === METHOD_NOT_FOUND
                 ? `The Codex app server no longer supports ${pending.method}; this app was tested with Codex ${TESTED_CODEX}.`
@@ -137,6 +142,12 @@ export const codexAdapter = {
           }
           // The thread's ID, by which it can be picked up again.
           if (pending.method === "thread/start" || pending.method === "thread/resume") return { actions: [], session: threadId };
+          // Codex says whether ordinary usage is allowed again; its percentages and reset
+          // times are not to be read as recovery.
+          if (pending.method === "account/rateLimits/read") {
+            for (const report of Object.values(message.result?.rateLimitsByLimitId || {})) limits.set(report.limitId ?? "codex", report);
+            return { actions: [], ...(limits.size ? { usage: codexUsage(...limits.values()) } : {}), allowed: message.result?.ordinaryUsageAllowed === true };
+          }
           return { actions: [] };
         }
         // A request from the app server, such as an approval; the app answers none.

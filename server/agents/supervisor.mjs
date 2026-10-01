@@ -85,7 +85,7 @@ export class AgentSupervisor {
   // Homes are the app's own Codex home and home folder, from agentHomes. With hosts,
   // each agent runs under its own host process, which can outlive the app; the
   // registry folder records them and the socket folder holds their sockets.
-  constructor({ hosts = /** @type {any} */ (null), launch = spawn, live = new LiveActivity(), adapters = { claude: claudeAdapter, codex: codexAdapter }, stopGrace = 5000, homes = null, watchInterval = 2000, quotaWait = { unknown: 30 * 60_000, margin: 60_000, check: 30_000 }, logSegment = LOG_SEGMENT } = {}) {
+  constructor({ hosts = /** @type {any} */ (null), launch = spawn, live = new LiveActivity(), adapters = { claude: claudeAdapter, codex: codexAdapter }, stopGrace = 5000, homes = null, watchInterval = 2000, quotaWait = { unknown: 30 * 60_000, margin: 60_000, check: 30_000, ask: 10 * 60_000 }, logSegment = LOG_SEGMENT } = {}) {
     this.launch = launch;
     this.homes = homes;
     this.live = live;
@@ -345,14 +345,14 @@ class HostedAgent extends EventEmitter {
     if (this.socket) this.socket.write(line);
     else this.queue.push(line);
   }
-  send(text) {
+  send(text, { now = false } = {}) {
     if (this.finishing) throw new Error("This agent has already closed its input.");
-    this.command({ op: "send", text });
-    // The host holds a message while the usage limit pauses the agent.
+    this.command({ op: "send", text, now });
+    // While the usage limit pauses the agent, the host holds the message or tries it.
     if (!this.paused) this.busy = true;
   }
   steer(text) {
-    this.send(text);
+    this.send(text, { now: true });
   }
   interrupt() {
     this.command({ op: "interrupt" });
@@ -386,7 +386,9 @@ class Agent extends EventEmitter {
     this.child = child;
     this.stopGrace = stopGrace;
     this.quotaWait = quotaWait;
-    // Set while the provider's usage limit holds the agent; messages wait for it.
+    // Set while the provider's usage limit holds the agent. The app's own updates wait for
+    // it in held; a person's message tries to get through at once, as the limit may have
+    // lifted early.
     this.paused = null;
     this.held = [];
     this.busy = false;
@@ -438,12 +440,19 @@ class Agent extends EventEmitter {
           this.pauseForQuota(turn.resetsAt);
           continue;
         }
+        // A message that got through while paused shows the limit has lifted.
+        const release = turn?.ok && this.paused;
+        if (release) this.lifted();
+        // The provider answers when asked whether the limit still holds.
+        if (result.allowed && this.paused) this.resume();
         if (turn) {
           const outcome = this.interrupting ? "interrupted" : turn.ok ? "done" : "error";
           this.busy = false;
           this.interrupting = false;
           this.emit("turn", { outcome, text: turn.text ?? "" });
         }
+        // What the app held while paused follows the message that got through.
+        if (release && this.held.length) this.send(this.held.splice(0).join("\n\n"));
         this.closeWhenIdle();
       }
     });
@@ -453,11 +462,19 @@ class Agent extends EventEmitter {
     if (this.closed) return;
     this.child.stdin.write(`${JSON.stringify(message)}\n`);
   }
-  // Starts a turn when the agent is waiting, or reaches it at its next step.
-  send(text) {
+  // Starts a turn when the agent is waiting, or reaches it at its next step. While the
+  // usage limit holds it, the app's updates wait, and a person's message (now) tries
+  // at once with them. A refused message stays in the agent's conversation, so it is
+  // never sent again.
+  send(text, { now = false } = {}) {
     if (this.finishing) throw new Error("This agent has already closed its input.");
-    if (this.paused) {
+    if (this.paused && !now) {
       this.held.push(text);
+      return;
+    }
+    if (this.paused) {
+      this.paused.tried = true;
+      this.session.send([...this.held.splice(0), text].join("\n\n"));
       return;
     }
     this.session.send(text);
@@ -465,35 +482,51 @@ class Agent extends EventEmitter {
   }
   // Waits until the reported reset, or a while when none was reported, then carries on.
   // The rate-limit report's reset comes first; the stopped turn's own message backs it up.
+  // A message refused while already paused changes nothing, unless it gives a new reset.
   pauseForQuota(stated = null) {
     const now = Date.now();
     const usage = this.usage?.exhausted && this.usage.resetsAt > now ? this.usage.resetsAt : null;
     const reported = usage ?? (stated > now ? stated : null);
+    this.busy = false;
+    if (this.paused && (!reported || reported === this.paused.resetsAt)) return;
     const resetsAt = reported ?? now + this.quotaWait.unknown;
     const at = resetTime(resetsAt, now);
     const reason = `Paused: the usage limit is reached${reported ? "" : " and no reset time was given"}. It carries on at ${at}.`;
-    this.paused = { resetsAt, reason };
-    this.busy = false;
-    this.emit("paused", this.paused);
+    this.paused = { resetsAt, reason, tried: Boolean(this.paused?.tried), asked: now };
+    this.emit("paused", { resetsAt, reason });
+    clearTimeout(this.resumeTimer);
     this.awaitReset(resetsAt + (reported ? this.quotaWait.margin : 0));
   }
   // Timers stand still while the computer sleeps, so one long timer would carry on hours
-  // after the reset; the clock is read again at short intervals instead.
+  // after the reset; the clock is read again at short intervals instead. A provider that
+  // can say whether its limit still holds, as Codex can, is asked now and then, since
+  // the limit can lift before the reset.
   awaitReset(due) {
-    const wait = due - Date.now();
-    if (wait <= 0) return this.resume();
-    this.resumeTimer = setTimeout(() => this.awaitReset(due), Math.min(wait, this.quotaWait.check));
+    const now = Date.now();
+    if (now >= due) return this.resume();
+    if (this.session.limitLifted && now - this.paused.asked >= this.quotaWait.ask) {
+      this.paused.asked = now;
+      this.session.limitLifted();
+    }
+    this.resumeTimer = setTimeout(() => this.awaitReset(due), Math.min(due - now, this.quotaWait.check));
   }
   resume() {
     if (!this.paused || this.finishing) return;
-    this.paused = null;
+    const { tried } = this.paused;
+    this.lifted();
     const held = this.held.splice(0);
+    const refused = tried ? ["Messages sent to you while the limit held are in the conversation above. The limit refused them at the time, so act on them now."] : [];
+    this.send(["The usage limit has reset. Carry on with your assignment from where you stopped.", ...refused, ...held].join("\n\n"));
+  }
+  // The pause is over; anything the app held goes once the agent is told.
+  lifted() {
+    clearTimeout(this.resumeTimer);
+    this.paused = null;
     this.emit("resumed");
-    this.send(["The usage limit has reset. Carry on with your assignment from where you stopped.", ...held].join("\n\n"));
   }
   // Redirects a running turn; the adapter delivers it at the agent's next step.
   steer(text) {
-    this.send(text);
+    this.send(text, { now: true });
   }
   interrupt() {
     if (!this.busy || this.closed) return;

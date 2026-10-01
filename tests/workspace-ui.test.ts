@@ -273,7 +273,7 @@ describe("investigation workspace", () => {
     state.conversation = [{ id: "m1", author: "human", text: "hello?", at: new Date().toISOString() } as never];
     mount();
     click("[data-open-coordinator]");
-    expect(document.querySelector(".coordinator-presence")!.textContent).toBe(`Coordinator is paused until ${when}. Messages you send wait until then.`);
+    expect(document.querySelector(".coordinator-presence")!.textContent).toBe(`Coordinator is paused until ${when}. Your messages still try to reach it, in case the limit lifts sooner.`);
     expect(document.querySelector(".coordinator-working")!.textContent).toMatch(new RegExp(`Coordinator is paused\\s*until ${when}\\s*The usage limit is reached`));
     expect(document.querySelector("[data-running]")!.textContent).toContain(`Coordinator paused until ${when}`);
   });
