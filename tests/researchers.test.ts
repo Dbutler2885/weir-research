@@ -351,6 +351,29 @@ describe("steerable researchers", () => {
   });
 });
 
+describe("a researcher the app crashed under", () => {
+  it("waits to be resumed with its session, taking in the checkpoint it last wrote", () => {
+    const f = fixture();
+    const id = f.queue();
+    assignQueued(f.store, f.pool, "codex");
+    const task = f.pool.active.get(id);
+    const session = { engine: "codex", id: "thread-crashed", directory: task.directory, at: new Date().toISOString() };
+    f.store.update((next: any) => {
+      next.investigations[0].researcherSession = session;
+    });
+    writeFileSync(join(task.directory, "checkpoint.json"), JSON.stringify({ summary: "Found the deed", findings: "Registry book 4, page 12", nextSteps: "Check the tax rolls" }));
+    // The app ends without stopping its researchers, as a crash would.
+    clearInterval(f.pool.timer);
+    const reopened = new ResearcherPool(f.store, f.directory, resolve("."));
+    cleanups.push(() => reopened.stop());
+    const i = f.store.state.investigations[0]!;
+    expect(i.status).toBe("paused");
+    expect(i.events.at(-1)!.message).toBe("The app closed while the researcher was working. Resume to pick up its conversation where it left off.");
+    expect(i.checkpoints.map((c: any) => c.summary)).toEqual(["Found the deed"]);
+    expect(i.researcherSession).toEqual(session);
+  });
+});
+
 describe.each(["claude", "codex"] as const)("a %s researcher under the coordinator", (engine) => {
   const executables = { claude: resolve("tests/fixtures/fake-claude.mjs"), codex: resolve("tests/fixtures/fake-codex.mjs") };
   async function running() {
@@ -371,7 +394,22 @@ describe.each(["claude", "codex"] as const)("a %s researcher under the coordinat
     pool.pump();
     const investigation = () => store.state.investigations.find((i: any) => i.id === id);
     const events = () => investigation().events.map((e: any) => e.message);
-    return { pool, coordinator, command, investigation, events, until };
+    return { pool, coordinator, command, investigation, events, until, store, directory, id };
+  }
+  // The human resumes the paused batch, and the coordinator assigns it again.
+  async function resumed(r: Awaited<ReturnType<typeof running>>, options: { engine?: string } = {}) {
+    const { Coordinator } = await import("../server/coordinator.mjs");
+    const pool = new ResearcherPool(r.store, r.directory, resolve("."), { findExecutable: (name: string) => (executables as any)[name] });
+    cleanups.push(() => pool.stop());
+    const coordinator = new Coordinator(r.store);
+    const session = "coordinator-session-for-test-000004";
+    coordinator.attach("Test coordinator", session);
+    coordinator.researchers = pool;
+    pool.coordinator = coordinator as any;
+    r.store.command({ type: "resume", investigationId: r.id });
+    coordinator.command({ session, investigationId: r.id, action: "assign", engine: options.engine ?? engine, brief: "Carry on with the fixture record." });
+    pool.pump();
+    return pool;
   }
   const result = JSON.stringify({ title: "Unresolved", summary: "Two identities", ambiguity: "Open", evidence: [], changes: [] });
   const write = engine === "claude"
@@ -386,6 +424,73 @@ describe.each(["claude", "codex"] as const)("a %s researcher under the coordinat
     await r.until(() => r.coordinator.candidates().length === 1);
     await r.until(() => r.pool.active.size === 0);
     expect(r.pool.live.list()).toEqual([]);
+  });
+
+  it("keeps its conversation when stopped, and picks it up in the same folder when the batch is resumed", async () => {
+    const r = await running();
+    await r.until(() => r.events().some((m: string) => m.includes("waiting for instructions")));
+    const session = r.investigation().researcherSession;
+    expect(session).toMatchObject({ engine, directory: expect.stringContaining(r.id) });
+    // The human closes the app and chooses to stop its workers.
+    r.pool.stop();
+    await r.until(() => r.investigation().status === "paused");
+    expect(r.events().at(-1)).toContain("Resume to pick up its conversation where it left off.");
+    expect(r.investigation().researcherSession).toEqual(session);
+    process.env.FAKE_CLAUDE_RECORD = "1";
+    cleanups.push(() => delete process.env.FAKE_CLAUDE_RECORD);
+    const pool = await resumed(r);
+    await r.until(() => r.investigation().status === "running" && pool.active.size === 1);
+    await r.until(() => r.events().filter((m: string) => m.includes("waiting for instructions")).length === 2);
+    // It is told it was stopped, and that messages it has not acted on still stand.
+    if (engine === "claude") {
+      const received = readFileSync(join(session.directory, "received.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l).text);
+      expect(received.at(-1)).toContain("You were stopped partway through this pass");
+      expect(received.at(-1)).toContain("Any message above that you have not acted on still stands");
+    }
+    // The same session, in the same folder, rather than a fresh researcher.
+    expect(r.investigation().researcherSession).toMatchObject({ id: session.id, directory: session.directory });
+    expect([...pool.active.values()][0].directory).toBe(session.directory);
+    // Handing in its result ends the session.
+    pool.steer(r.id, `steps:${JSON.stringify([write])}`);
+    await r.until(() => pool.active.size === 0);
+    expect(r.coordinator.candidates()).toHaveLength(1);
+    expect(r.investigation().researcherSession).toBeUndefined();
+  });
+
+  it("starts a fresh researcher from the checkpoints when its conversation cannot be picked up", async () => {
+    const r = await running();
+    await r.until(() => r.events().some((m: string) => m.includes("waiting for instructions")));
+    r.pool.stop();
+    await r.until(() => r.investigation().status === "paused");
+    const old = r.investigation().researcherSession;
+    r.store.update((next: any) => {
+      next.investigations.find((i: any) => i.id === r.id).researcherSession.id = "a-session-that-is-gone";
+    });
+    const pool = await resumed(r);
+    await r.until(() => r.events().some((m: string) => m.includes("could not be picked up")));
+    await r.until(() => r.investigation().researcherSession?.id && r.investigation().researcherSession.id !== "a-session-that-is-gone");
+    expect(r.investigation().researcherSession.directory).not.toBe(old.directory);
+    expect(r.investigation().status).toBe("running");
+    pool.stop();
+    await r.until(() => pool.active.size === 0);
+  });
+
+  it("starts afresh when the coordinator assigns another engine, or stopped the researcher itself", async () => {
+    const r = await running();
+    await r.until(() => r.events().some((m: string) => m.includes("waiting for instructions")));
+    r.command({ action: "stop-researcher", reason: "Moving this to another batch." });
+    await r.until(() => r.pool.active.size === 0);
+    expect(r.investigation().researcherSession).toBeUndefined();
+    const s = await running();
+    await s.until(() => s.events().some((m: string) => m.includes("waiting for instructions")));
+    s.pool.stop();
+    await s.until(() => s.investigation().status === "paused");
+    const old = s.investigation().researcherSession;
+    const pool = await resumed(s, { engine: engine === "claude" ? "codex" : "claude" });
+    await s.until(() => s.investigation().researcherSession && s.investigation().researcherSession.id !== old.id);
+    expect(s.investigation().researcherSession.directory).not.toBe(old.directory);
+    pool.stop();
+    await s.until(() => pool.active.size === 0);
   });
 
   it("stops mid-run when the coordinator says so", async () => {

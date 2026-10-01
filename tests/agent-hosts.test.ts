@@ -33,7 +33,7 @@ function place() {
   // One app's supervisor; a second one stands for the app opened again.
   const app = () => {
     const live = new LiveActivity();
-    const supervisor = new AgentSupervisor({ live, hosts, stopGrace: 200, quotaWait: { unknown: 30 * 60_000, margin: 0 } });
+    const supervisor = new AgentSupervisor({ live, hosts, stopGrace: 200, quotaWait: { unknown: 30 * 60_000, margin: 0, check: 30_000, ask: 10 * 60_000 } });
     cleanups.push(() => clearInterval(supervisor.beat));
     return { live, supervisor };
   };
@@ -195,6 +195,9 @@ describe("a researcher pool opening again", () => {
     const { investigationId: id } = store.command({ type: "annotate", question: "Q", target: { label: "R" }, dispatch: true, scope: ["imports"] }) as any;
     assignQueued(store, pool, "claude");
     await until(() => first.live.list()[0]);
+    // Its session reaches the app from the host, so it could be picked up again.
+    await until(() => store.state.investigations[0].researcherSession);
+    expect(store.state.investigations[0].researcherSession).toMatchObject({ engine: "claude", id: expect.any(String) });
     // The human quits, keeping the researcher running.
     first.supervisor.keep();
     await new Promise((done) => setTimeout(done, 100));
@@ -216,5 +219,6 @@ describe("a researcher pool opening again", () => {
     reopened.steer(id, steps([{ tool: "Write", input: { file_path: "result.json" }, writes: { "result.json": result } }]));
     await until(() => store.state.investigations[0].status === "review");
     expect(store.state.investigations[0].proposals[0].title).toBe("Unresolved");
+    expect(store.state.investigations[0].researcherSession).toBeUndefined();
   });
 });

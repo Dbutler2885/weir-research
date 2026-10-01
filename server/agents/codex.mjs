@@ -27,7 +27,8 @@ export const codexAdapter = {
   env(base, { homes }) {
     return homes ? { ...base, CODEX_HOME: homes.codexHome, HOME: homes.home } : base;
   },
-  session({ write, describe, folder, instructions = "", model = "", effort = "", web = false }) {
+  // resume picks up an earlier thread by its ID instead of starting one.
+  session({ write, describe, folder, instructions = "", model = "", effort = "", web = false, resume = "" }) {
     let nextId = 0;
     const requests = new Map();
     let threadId = null;
@@ -75,8 +76,9 @@ export const codexAdapter = {
               throw new AgentProblem("Codex is not signed in for this app. Sign in with `npm run workspace -- sign-in codex`, then try again.");
           });
           request(
-            "thread/start",
+            resume ? "thread/resume" : "thread/start",
             {
+              ...(resume ? { threadId: resume } : {}),
               // No sandbox mode here: it would replace the folder's permission profile.
               cwd: folder,
               approvalPolicy: "never",
@@ -103,6 +105,10 @@ export const codexAdapter = {
       interrupt() {
         if (threadId && turnId) request("turn/interrupt", { threadId, turnId });
       },
+      // Asks whether the usage limit still holds, without starting a turn.
+      limitLifted() {
+        request("account/rateLimits/read", undefined);
+      },
       // The app server's own compaction request.
       compact() {
         if (threadId) request("thread/compact/start", { threadId });
@@ -121,7 +127,8 @@ export const codexAdapter = {
               flush();
               return { actions: [] };
             }
-            if (pending.method === "turn/interrupt") return { actions: [] };
+            // A question the app can ask again later is no reason to stop.
+            if (pending.method === "turn/interrupt" || pending.method === "account/rateLimits/read") return { actions: [] };
             const reason =
               message.error.code === METHOD_NOT_FOUND
                 ? `The Codex app server no longer supports ${pending.method}; this app was tested with Codex ${TESTED_CODEX}.`
@@ -132,6 +139,14 @@ export const codexAdapter = {
             pending.then(message.result || {});
           } catch (error) {
             return { actions: [], failure: error };
+          }
+          // The thread's ID, by which it can be picked up again.
+          if (pending.method === "thread/start" || pending.method === "thread/resume") return { actions: [], session: threadId };
+          // Codex says whether ordinary usage is allowed again; its percentages and reset
+          // times are not to be read as recovery.
+          if (pending.method === "account/rateLimits/read") {
+            for (const report of Object.values(message.result?.rateLimitsByLimitId || {})) limits.set(report.limitId ?? "codex", report);
+            return { actions: [], ...(limits.size ? { usage: codexUsage(...limits.values()) } : {}), allowed: message.result?.ordinaryUsageAllowed === true };
           }
           return { actions: [] };
         }

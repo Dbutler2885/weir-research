@@ -6,9 +6,11 @@
 // run starts a process beneath it, and {quota: seconds} hits the usage limit.
 // A message arriving mid-turn replaces the remaining steps at the next step, as
 // Claude's does. FAKE_CLAUDE_RECORD keeps every message received in
-// received.jsonl.
+// received.jsonl. Its sessions are listed in sessions.txt in its folder, and
+// --resume picks one up, or fails as Claude does when there is no such session.
 import { spawn } from "node:child_process";
-import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 
 const out = (event) => process.stdout.write(`${JSON.stringify(event)}\n`);
@@ -19,20 +21,31 @@ const stepsFor = (text) => {
 };
 
 const inbox = [];
+// The reset each limit reported, kept for later refusals.
+const resets = {};
 let interrupted = false;
 let running = null;
 let ended = false;
 let wake = () => {};
 
-out({ type: "system", subtype: "init", cwd: process.cwd(), tools: [] });
+const resume = process.argv.includes("--resume") ? process.argv[process.argv.indexOf("--resume") + 1] : null;
+const sessions = existsSync("sessions.txt") ? readFileSync("sessions.txt", "utf8").split("\n") : [];
+if (resume && !sessions.includes(resume)) {
+  out({ type: "result", subtype: "error_during_execution", is_error: true, session_id: resume, errors: [`No conversation found with session ID: ${resume}`] });
+  process.exit(1);
+}
+const session = resume || randomUUID();
+if (!resume) appendFileSync("sessions.txt", `${session}\n`);
+out({ type: "system", subtype: "init", session_id: session, cwd: process.cwd(), tools: [] });
 
 async function turn(steps) {
   let n = 0;
   for (let i = 0; i < steps.length; i++) {
     const step = steps[i];
     // {quota: seconds} hits the usage limit, reporting a reset that many seconds away, as Claude does.
+    // Like Claude's limit window, the reset stays the same however often it refuses.
     if (step.quota) {
-      const resetsAt = Math.floor(Date.now() / 1000) + step.quota;
+      const resetsAt = (resets[step.quota] ??= Math.floor(Date.now() / 1000) + step.quota);
       out({ type: "rate_limit_event", rate_limit_info: { status: "rejected", resetsAt, rateLimitType: "five_hour", unifiedWindows: { five_hour: { utilization: 1, resetsAt } } } });
       out({ type: "assistant", message: { model: "<synthetic>", content: [{ type: "text", text: "You've hit your session limit" }] }, error: "rate_limit" });
       out({ type: "result", subtype: "success", is_error: true, result: "You've hit your session limit", api_error_status: 429 });

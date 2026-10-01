@@ -1,6 +1,6 @@
 // @vitest-environment node
-import { afterEach, describe, expect, it } from "vitest";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { claudeAdapter } from "../server/agents/claude.mjs";
@@ -8,6 +8,7 @@ import { codexAdapter, retryTime } from "../server/agents/codex.mjs";
 import { AgentSupervisor } from "../server/agents/supervisor.mjs";
 import { LiveActivity, fileDescriber, researcherFiles } from "../server/live-activity.mjs";
 import { usageLines } from "../src/ui/live-panel";
+import { resetTime } from "../src/domain/reset-time";
 import { until } from "./fixtures/until";
 
 const cleanups: (() => void)[] = [];
@@ -75,21 +76,21 @@ describe("recognising a reached usage limit", () => {
 });
 
 describe("an agent that reaches its usage limit", () => {
-  function start() {
+  function start(quota = 1, { provider = "claude", ask = 30 * 60_000 } = {}) {
     const folder = mkdtempSync(join(tmpdir(), "quota-"));
     cleanups.push(() => rmSync(folder, { recursive: true, force: true }));
     cleanups.push(() => rmSync(`${folder}.log`, { force: true }));
     process.env.FAKE_CLAUDE_RECORD = "1";
     cleanups.push(() => delete process.env.FAKE_CLAUDE_RECORD);
     const live = new LiveActivity();
-    const supervisor = new AgentSupervisor({ live, stopGrace: 200, quotaWait: { unknown: 30 * 60_000, margin: 0 } });
+    const supervisor = new AgentSupervisor({ live, stopGrace: 200, quotaWait: { unknown: 30 * 60_000, margin: 0, check: 50, ask } });
     const agent = supervisor.start({
       key: "research:quota",
-      provider: "claude",
-      executable: resolve("tests/fixtures/fake-claude.mjs"),
+      provider,
+      executable: resolve(`tests/fixtures/fake-${provider}.mjs`),
       folder,
-      prompt: `steps:${JSON.stringify([{ quota: 1 }])}`,
-      live: { role: "researcher", name: "Claude researcher", investigationId: "quota" },
+      prompt: `steps:${JSON.stringify([{ quota }])}`,
+      live: { role: "researcher", name: "Researcher", investigationId: "quota" },
       describe: describe_,
     });
     cleanups.push(() => agent.stop());
@@ -97,10 +98,11 @@ describe("an agent that reaches its usage limit", () => {
     for (const name of ["paused", "resumed", "turn", "exit"]) agent.on(name, () => events.push(name));
     const received = () =>
       existsSync(join(folder, "received.jsonl")) ? readFileSync(join(folder, "received.jsonl"), "utf8").split("\n").slice(0, -1).map((l) => JSON.parse(l).text) : [];
-    return { agent, live, supervisor, events, received };
+    return { agent, live, supervisor, events, received, folder };
   }
+  const read = `steps:${JSON.stringify([{ tool: "Read", input: { file_path: "brief.json" } }])}`;
 
-  it("pauses with the reason and reset time, holds new messages, and carries on at the reset", async () => {
+  it("pauses with the reason and reset time, holds the app's messages, and carries on with them at the reset", async () => {
     const a = start();
     const paused = await new Promise<any>((done) => a.agent.once("paused", done));
     expect(paused.reason).toMatch(/^Paused: the usage limit is reached\. It carries on at \d+:\d\d [AP]M\.$/);
@@ -108,17 +110,73 @@ describe("an agent that reaches its usage limit", () => {
     expect(a.supervisor.usage.claude).toMatchObject({ exhausted: true });
     // The stopped turn is neither a finished turn nor a failure.
     expect(a.events).toEqual(["paused"]);
-    a.agent.steer(`steps:${JSON.stringify([{ tool: "Read", input: { file_path: "brief.json" } }])}`);
+    a.agent.send(read);
     expect(a.received()).toHaveLength(1);
     await until(() => a.events.includes("turn"));
     expect(a.events).toEqual(["paused", "resumed", "turn"]);
     // It was told to carry on, with what was sent while it waited.
     expect(a.received()[1]).toContain("The usage limit has reset. Carry on with your assignment");
-    expect(a.received()[1]).toContain('steps:[{"tool":"Read"');
+    expect(a.received()[1]).toContain(read);
+    expect(a.received()[1]).not.toContain("refused");
+  });
+
+  it("lets a person's message try at once, staying paused while the limit refuses it and carrying on once it gets through", async () => {
+    const a = start(3600);
+    await new Promise((done) => a.agent.once("paused", done));
+    a.agent.steer(`steps:${JSON.stringify([{ quota: 3600 }])}`);
+    await until(() => a.received().length === 2);
+    await new Promise((done) => setTimeout(done, 100));
+    expect(a.agent.paused).not.toBeNull();
+    expect(a.events).not.toContain("resumed");
+    // The limit lifted early; the next message gets through.
+    a.agent.steer(read);
+    await until(() => a.events.includes("turn"));
+    expect(a.agent.paused).toBeNull();
+    expect(a.events.slice(-2)).toEqual(["resumed", "turn"]);
+    expect(a.received()).toHaveLength(3);
+  });
+
+  it("at the reset, points the agent to the messages the limit refused rather than sending them again", async () => {
+    const a = start(2);
+    await new Promise((done) => a.agent.once("paused", done));
+    a.agent.steer(`steps:${JSON.stringify([{ quota: 2 }])}`);
+    await until(() => a.events.includes("turn"), 10_000);
+    expect(a.received()).toHaveLength(3);
+    expect(a.received()[2]).toContain("The limit refused them at the time, so act on them now.");
+  });
+
+  it("asks Codex whether the limit still holds, and carries on when it has lifted", async () => {
+    const a = start(1, { provider: "codex", ask: 50 });
+    writeFileSync(join(a.folder, "limited"), "");
+    // The thread's reset is not known, so it would wait the full half hour.
+    await new Promise((done) => a.agent.once("paused", done));
+    await new Promise((done) => setTimeout(done, 300));
+    expect(a.agent.paused).not.toBeNull();
+    rmSync(join(a.folder, "limited"));
+    await until(() => a.events.includes("resumed"));
+    await until(() => a.events.includes("turn"));
+  });
+
+  it("carries on soon after the reset when the computer slept through it", async () => {
+    const a = start(3 * 3600);
+    await new Promise((done) => a.agent.once("paused", done));
+    // Timers stand still while the computer sleeps; only the clock moves on.
+    const woke = Date.now() + 3 * 3600_000 + 1000;
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => woke);
+    cleanups.push(() => clock.mockRestore());
+    await until(() => a.events.includes("resumed"));
+    expect(a.received()[1]).toContain("The usage limit has reset.");
   });
 });
 
 describe("showing remaining usage", () => {
+  it("gives a reset's date when it is not today, as a weekly limit's often is", () => {
+    const now = new Date(2026, 8, 30, 17, 52).getTime();
+    expect(resetTime(new Date(2026, 8, 30, 23, 26).getTime(), now)).toBe("11:26 PM");
+    expect(resetTime(new Date(2026, 9, 4, 23, 26).getTime(), now)).toBe("11:26 PM on Oct 4");
+    expect(resetTime(new Date(2026, 9, 1, 0, 30).getTime(), now)).toBe("12:30 AM on Oct 1");
+  });
+
   const now = Date.UTC(2026, 8, 25, 12);
   it("says how much of each limit is used and when it resets", () => {
     const lines = usageLines(

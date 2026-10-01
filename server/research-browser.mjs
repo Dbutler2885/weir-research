@@ -1,6 +1,6 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { homedir } from 'node:os';
-import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { executableOnPath } from './researchers.mjs';
 
@@ -180,15 +180,31 @@ class FirefoxEngine {
   }
   async start() {
     mkdirSync(this.folder, {recursive: true});
-    const child = spawn(process.execPath, [join(this.root, 'server', 'firefox-relay.mjs'), this.folder, this.path, ...(this.headless ? ['--headless'] : [])], {detached: true, stdio: 'ignore'});
+    // The relay's own account of a start that fails, kept for saying why.
+    const logFile = join(this.folder, 'firefox-relay.log');
+    const log = openSync(logFile, 'w');
+    const child = spawn(process.execPath, [join(this.root, 'server', 'firefox-relay.mjs'), this.folder, this.path, ...(this.headless ? ['--headless'] : [])], {detached: true, stdio: ['ignore', log, log]});
+    closeSync(log);
     child.unref();
-    // Firefox makes a new profile slowly the first time.
-    for (let n = 0; n < 400; n++) {
+    // A relay that fails ends the wait; one that exits cleanly found another relay running.
+    let failed = false;
+    child.on('exit', (code) => (failed = code !== 0));
+    // Firefox makes a new profile slowly the first time, slower still on a busy machine.
+    const deadline = Date.now() + 120_000;
+    while (Date.now() < deadline && !failed) {
       const url = await this.running();
       if (url) return url;
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
-    throw new Error('The research browser did not start.');
+    let said = '';
+    try {
+      // The error itself, rather than the stack and version lines around it.
+      const text = readFileSync(logFile, 'utf8').trim();
+      said = text.match(/^\w*Error: .*$/m)?.[0] || text.split('\n').at(-1) || '';
+    } catch {
+      /* No account of it. */
+    }
+    throw new Error(`The research browser did not start${said ? `: ${said}` : '.'}`);
   }
   // The relay's address, when it is running.
   async running() {

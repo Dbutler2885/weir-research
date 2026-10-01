@@ -155,6 +155,9 @@ export interface Investigation {
     annotationIds: string[];
     dataset: GraphDataset;
   };
+  // The researcher's session with its CLI, kept until it hands in its result, so a pass
+  // the app's closing or a crash interrupted picks up its conversation where it stopped.
+  researcherSession?: { engine: string; id: string; directory: string; at: string };
 }
 export interface SourceCollection {
   id: string;

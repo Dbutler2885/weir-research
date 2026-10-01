@@ -9,6 +9,9 @@ describe("closing a project", () => {
     document.body.innerHTML = quitDialog(state(["researcher", "builder"]));
     expect(document.querySelector("h2")!.textContent).toBe("2 workers are still working");
     expect([...document.querySelectorAll("[data-quit]")].map((b) => b.textContent)).toEqual(["Keep them running", "Stop them", "Cancel"]);
+    expect(document.querySelector("p")!.textContent).toContain("A stopped researcher picks up where it left off when you resume its batch.");
+    document.body.innerHTML = quitDialog(state(["builder"]));
+    expect(document.querySelector("p")!.textContent).not.toContain("researcher");
   });
   it("only confirms closing when nothing would be kept", () => {
     document.body.innerHTML = quitDialog(state(["helper"]));

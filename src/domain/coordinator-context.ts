@@ -77,7 +77,14 @@ function attention(state: ResearchState): ContextLayer {
       `- Sent note not yet in a batch (${a.id}): "${clip(a.question, 300)}"${refs.length ? ` on ${refs.map((r) => clip(r, 400)).join(", ")}` : ""}. Answer it, then place it in a batch with open-batch or add-to-batch.`,
     );
   }
-  for (const m of state.conversation || [])
+  // The human's messages since the coordinator last replied, such as ones a closed or
+  // paused coordinator never answered; their notes are listed above.
+  const conversation = state.conversation || [];
+  const replied = conversation.findLastIndex((m) => m.author === "coordinator");
+  for (const m of conversation.slice(replied + 1))
+    if (m.author === "human" && m.text?.trim())
+      blocks.push(`- The human's message (${m.id}) has no reply yet: "${clip(m.text, 300)}". Answer it in the conversation.`);
+  for (const m of conversation)
     if (m.decision?.status === "pending")
       blocks.push(`- Your request "${clip(m.decision.title, 160)}" (${m.id}) is waiting for the human's decision.`);
   const open = state.investigations.filter(isOpen);
@@ -148,6 +155,9 @@ function batchBlock(state: ResearchState, b: Investigation, workers: LiveWorker[
   if (checkpoint && ["queued", "running", "paused"].includes(b.status))
     lines.push(`Latest checkpoint (${day(checkpoint.at)}): ${clip(checkpoint.summary, 300)}`);
   if (b.status === "paused" && b.events.length) lines.push(`Last event: ${clip(b.events.at(-1)!.message, 240)}`);
+  const session = b.researcherSession;
+  if (session && b.status !== "running")
+    lines.push(`Interrupted researcher: assigning ${session.engine} again picks up its conversation where it stopped, so brief it on what changed rather than the whole pass; another engine starts afresh from the checkpoints.`);
   for (const w of workers.filter((w) => w.investigationId === b.id))
     lines.push(`Worker: ${w.name}${w.latest ? `, ${clip(w.latest.text, 200)}` : ", starting"}.`);
   const candidates = currentCandidates(state, b).length;

@@ -579,6 +579,8 @@ export function mountResearchWorkspace(
     },
     offline: () => offline,
     changed: () => updateCounts(),
+    loadDraft: () => request("/api/draft"),
+    saveDraft: (draft) => request("/api/draft", draft),
   });
   dialog.addEventListener("cancel", (event) => {
     event.preventDefault();

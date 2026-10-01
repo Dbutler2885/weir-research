@@ -38,7 +38,7 @@ function publish(type, data = {}) {
   appendFileSync(spec.events, `${JSON.stringify(event)}\n`, { mode: 0o600 });
   for (const client of clients) client.write(`${JSON.stringify(event)}\n`);
 }
-for (const type of ["action", "turn", "usage", "paused", "resumed", "intruder", "context", "compacted"]) agent.on(type, (data) => publish(type, data ?? {}));
+for (const type of ["session", "action", "turn", "usage", "paused", "resumed", "intruder", "context", "compacted"]) agent.on(type, (data) => publish(type, data ?? {}));
 agent.on("failed", (error) => publish("failed", { message: error.message, problem: error instanceof AgentProblem }));
 
 let lastBeat = Date.now();
@@ -46,7 +46,7 @@ let kept = false;
 // Set when the host stops the agent itself, having lost the app.
 let stopReason = null;
 const commands = {
-  send: ({ text }) => agent.send(text),
+  send: ({ text, now }) => agent.send(text, { now }),
   steer: ({ text }) => agent.steer(text),
   interrupt: () => agent.interrupt(),
   compact: () => agent.compact(),

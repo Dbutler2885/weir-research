@@ -10,6 +10,7 @@ import {
   openSync,
   closeSync,
   unlinkSync,
+  renameSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, extname, basename, dirname } from "node:path";
@@ -101,6 +102,7 @@ const researchBrowser = new ResearchBrowser(appDirectory, { root });
 // the tools for recording feedback about Weir itself, and whether the human has
 // seen the introduction to annotating.
 const appSettingsFile = join(appDirectory, "app-settings.json");
+const draftFile = join(directory, "draft.json");
 const appSettings = () => {
   try {
     return JSON.parse(readFileSync(appSettingsFile, "utf8"));
@@ -331,6 +333,23 @@ const server = createServer(async (req, res) => {
       });
     if (req.method === "GET" && url.pathname === "/api/project")
       return json(res, 200, { directory, protocol: 2, stamp });
+    // What the human is writing to the coordinator and has not sent, kept with the
+    // project so it comes back whatever address the app opens at.
+    if (req.method === "GET" && url.pathname === "/api/draft") {
+      try {
+        return json(res, 200, JSON.parse(readFileSync(draftFile, "utf8")));
+      } catch {
+        return json(res, 200, null);
+      }
+    }
+    if (req.method === "POST" && url.pathname === "/api/draft") {
+      const draft = await body(req);
+      if (!draft || typeof draft !== "object" || JSON.stringify(draft).length > 200_000)
+        return json(res, 400, { error: "A draft is an object of up to 200,000 characters." });
+      writeFileSync(`${draftFile}.tmp`, JSON.stringify(draft), { mode: 0o600 });
+      renameSync(`${draftFile}.tmp`, draftFile);
+      return json(res, 200, { saved: true });
+    }
     if (req.method === "GET" && url.pathname === "/api/state")
       return json(res, 200, {
         ...store.publicState(),

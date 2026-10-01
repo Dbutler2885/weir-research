@@ -177,9 +177,9 @@ export class CoordinatorHost {
     if (this.agent && !this.agent.finishing) this.send(text);
   }
   // A message starts a turn when it is idle, or joins the one it is in.
-  send(text) {
+  send(text, options) {
     if (!this.agent.busy) this.since = Date.now();
-    this.agent.send(text);
+    this.agent.send(text, options);
   }
   schedule() {
     clearTimeout(this.timer);
@@ -241,7 +241,9 @@ export class CoordinatorHost {
     const body = delta.changed
       ? JSON.stringify(delta.changed, null, 1)
       : delta.context.text;
-    this.send(`The project changed. Act on what needs you, answer the human in the conversation, then end your turn.\n\n${body}`);
+    // A message from the human tries to reach a coordinator the usage limit paused, in
+    // case the limit has lifted; the app's own updates wait for the reset.
+    this.send(`The project changed. Act on what needs you, answer the human in the conversation, then end your turn.\n\n${body}`, {now: Boolean(delta.changed?.messages?.length)});
   }
   // Each command the coordinator's tool leaves in its mailbox gets an answer beside it.
   async mailbox() {

@@ -8,7 +8,8 @@ import { referenceText } from "../domain/research";
 import { describeReference } from "../domain/references";
 import type { Message } from "../domain/conversation";
 import { html } from "./finding-review";
-import { clock, running } from "./live-panel";
+import { running } from "./live-panel";
+import { resetTime } from "../domain/reset-time";
 
 export type DrawerTab = "conversation" | "queue";
 
@@ -22,6 +23,9 @@ export interface DrawerHost {
   // True when the workspace service cannot be reached right now.
   offline?(): boolean;
   changed(): void;
+  // The unsent draft kept with the project, which outlasts the browser's copy.
+  loadDraft?(): Promise<unknown>;
+  saveDraft?(draft: unknown): Promise<unknown>;
 }
 
 interface Draft {
@@ -31,6 +35,8 @@ interface Draft {
   message?: string;
   editing?: string;
   feedback?: boolean;
+  // When it was last changed, so the newer of the browser's and the project's copies wins.
+  savedAt?: number;
 }
 
 const when = (iso: string) =>
@@ -59,12 +65,14 @@ export class AnnotationsDrawer {
   private readonly draftKey = `research-draft:${window.location.origin}`;
   private readonly seenKey = `research-seen:${window.location.origin}`;
   private error = "";
+  private draftTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(
     private readonly root: HTMLElement,
     private readonly host: DrawerHost,
   ) {
     this.draft = this.loadDraft();
+    void this.loadProjectDraft();
     root.addEventListener("click", (event) => void this.click(event));
     root.addEventListener("input", (event) => this.input(event));
     root.addEventListener("keydown", (event) => this.keydown(event));
@@ -231,7 +239,7 @@ ${this.tab === "conversation" ? this.conversation(state) : this.queue(state)}`;
     const last = state.conversation?.at(-1);
     if (!c?.connected || c.listening || last?.author !== "human") return "";
     if (c.paused)
-      return `<div class="coordinator-working is-paused" aria-live="polite"><div class="coordinator-working-head"><strong>${html(c.name || "Coordinator")} is paused</strong><time datetime="${html(c.paused.until)}">until ${html(clock(c.paused.until))}</time></div><p>The usage limit is reached. It reads your messages when the limit resets.</p></div>`;
+      return `<div class="coordinator-working is-paused" aria-live="polite"><div class="coordinator-working-head"><strong>${html(c.name || "Coordinator")} is paused</strong><time datetime="${html(c.paused.until)}">until ${html(resetTime(Date.parse(c.paused.until)))}</time></div><p>The usage limit is reached. Sending a message tries again now; if the limit still holds, the coordinator reads it when the limit resets.</p></div>`;
     const since = c.since || last.at;
     const steps = [c.latest, ...(c.trail || [])].filter((s): s is { at: string; text: string } => Boolean(s && s.at >= since));
     const before = steps[1]?.text || (steps[0] ? "Read your message" : "");
@@ -246,7 +254,7 @@ ${this.tab === "conversation" ? this.conversation(state) : this.queue(state)}`;
     if (!c?.enabled) return "";
     const who = html(c.name || "Your coordinator");
     if (c.connected && c.paused)
-      return `<p class="coordinator-presence is-paused"><span class="presence-dot"></span>${who} is paused until ${html(clock(c.paused.until))}. Messages you send wait until then.</p>`;
+      return `<p class="coordinator-presence is-paused"><span class="presence-dot"></span>${who} is paused until ${html(resetTime(Date.parse(c.paused.until)))}. Your messages still try to reach it, in case the limit lifts sooner.</p>`;
     if (c.connected && c.listening)
       return `<p class="coordinator-presence"><span class="presence-dot"></span>${who} is listening.</p>`;
     if (c.connected)
@@ -456,12 +464,30 @@ ${this.tab === "conversation" ? this.conversation(state) : this.queue(state)}`;
     return { references: [], question: "" };
   }
 
+  // The browser keeps the draft under the app's address, which can change when the app
+  // opens again, so the project keeps it too; whichever was changed last wins.
+  private async loadProjectDraft(): Promise<void> {
+    try {
+      const saved = (await this.host.loadDraft?.()) as Draft | null;
+      if (!saved || !Array.isArray(saved.references) || typeof saved.question !== "string") return;
+      if ((saved.savedAt ?? 0) <= (this.draft.savedAt ?? 0)) return;
+      this.draft = saved;
+      this.render();
+    } catch {
+      /* The browser's copy stands. */
+    }
+  }
+
   private saveDraft(): void {
+    this.draft.savedAt = Date.now();
     try {
       localStorage.setItem(this.draftKey, JSON.stringify(this.draft));
     } catch {
       /* Drafts are a convenience; research is saved on the server. */
     }
+    clearTimeout(this.draftTimer);
+    const draft = this.draft;
+    this.draftTimer = setTimeout(() => void this.host.saveDraft?.(draft)?.catch(() => {}), 400);
   }
 }
 
