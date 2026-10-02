@@ -106,7 +106,6 @@ export function inspectContext(state, request, candidates) {
   if (request.kind === "map")
     return {
       researchMap: state.coordination?.researchMap || "",
-      handoff: state.coordination?.handoff || "",
     };
   if (request.kind === "investigations") {
     const items = state.investigations.filter(

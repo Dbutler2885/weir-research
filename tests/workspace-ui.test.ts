@@ -246,18 +246,18 @@ describe("investigation workspace", () => {
     expect(document.querySelector('[data-count="unread"]')!.textContent).toBe("1");
   });
   it("says in the conversation whether a coordinator is listening", async () => {
-    state.coordinator = { enabled: true, connected: false, name: null, handoff: "", awaitingSynthesis: [] };
+    state.coordinator = { enabled: true, connected: false, name: null, awaitingSynthesis: [] };
     mount();
     click("[data-open-coordinator]");
     expect(document.querySelector(".coordinator-presence")!.textContent).toContain("No coordinator is attached");
-    state.coordinator = { enabled: true, connected: true, listening: true, name: "Research coordinator", handoff: "", awaitingSynthesis: [] };
+    state.coordinator = { enabled: true, connected: true, listening: true, name: "Research coordinator", awaitingSynthesis: [] };
     await poll();
     await vi.waitFor(() =>
       expect(document.querySelector(".coordinator-presence")!.textContent).toContain("Research coordinator is listening"),
     );
   });
   it("shows the coordinator at work on the human's message, step by step, until it replies", async () => {
-    state.coordinator = { enabled: true, connected: true, listening: true, name: "Coordinator", handoff: "", awaitingSynthesis: [] };
+    state.coordinator = { enabled: true, connected: true, listening: true, name: "Coordinator", awaitingSynthesis: [] };
     mount();
     click("[data-open-coordinator]");
     const box = document.querySelector<HTMLTextAreaElement>("[data-message]")!;
@@ -288,7 +288,7 @@ describe("investigation workspace", () => {
     reset.setHours(23, 26, 0, 0);
     const until = reset.toISOString();
     const when = `11:26 PM on ${reset.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
-    state.coordinator = { enabled: true, connected: true, listening: false, paused: { until }, since: null, name: "Coordinator", handoff: "", awaitingSynthesis: [] };
+    state.coordinator = { enabled: true, connected: true, listening: false, paused: { until }, since: null, name: "Coordinator", awaitingSynthesis: [] };
     state.conversation = [{ id: "m1", author: "human", text: "hello?", at: new Date().toISOString() } as never];
     mount();
     click("[data-open-coordinator]");
@@ -303,7 +303,7 @@ describe("investigation workspace", () => {
     reset.setHours(23, 26, 0, 0);
     const until = reset.toISOString();
     const when = `11:26 PM on ${reset.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
-    state.coordinator = { enabled: true, connected: true, listening: false, paused: { until }, since: null, name: "Coordinator", handoff: "", awaitingSynthesis: [] };
+    state.coordinator = { enabled: true, connected: true, listening: false, paused: { until }, since: null, name: "Coordinator", awaitingSynthesis: [] };
     state.live = [{ role: "researcher", name: "Codex researcher", investigationId: state.investigations[0]!.id, startedAt: new Date().toISOString(), latest: null }];
     mount();
     click('[data-view="settings"]');
@@ -315,7 +315,7 @@ describe("investigation workspace", () => {
     expect(state.live).toHaveLength(1);
   });
   it("says when the coordinator stopped, and starts it again", async () => {
-    state.coordinator = { enabled: true, connected: false, name: null, handoff: "", awaitingSynthesis: [], problem: "The coordinator stopped at 4:18 AM when it lost contact with the app." };
+    state.coordinator = { enabled: true, connected: false, name: null, awaitingSynthesis: [], problem: "The coordinator stopped at 4:18 AM when it lost contact with the app." };
     mount();
     click("[data-open-coordinator]");
     const presence = () => document.querySelector(".coordinator-presence")!.textContent;
@@ -397,7 +397,6 @@ describe("investigation workspace", () => {
       attached: true,
       lastSeenSecondsAgo: 240,
       name: "Research coordinator",
-      handoff: "",
       awaitingSynthesis: [],
     };
     mount();

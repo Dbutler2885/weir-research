@@ -185,9 +185,8 @@ function questionsFrom(
       });
       continue;
     }
-    // Research without annotations: for a human message, whose words are the
-    // assignment as an annotation's are, or for an approved request or the
-    // coordinator's own judgement, whose written request is the assignment.
+    // Research without annotations: an approved request, or research the coordinator
+    // words from what the human asked or on its own judgement; the request is the assignment.
     const approval = raw.approvalMessageId
       ? next.conversation?.find((m) => m.id === raw.approvalMessageId)
       : undefined;
@@ -203,22 +202,18 @@ function questionsFrom(
         "This approved research already has a question.",
       );
     }
-    const asked = raw.messageId
-      ? next.conversation?.find((m) => m.id === raw.messageId)
-      : undefined;
-    if (raw.messageId)
-      assert(
-        asked?.author === "human" && asked.text,
-        "The message must be one the human wrote.",
-      );
-    const request = asked
-      ? asked.text!
-      : text(raw.request ?? approval?.decision?.body, "Research request", 5000);
+    // The coordinator words what is asked; a human's message is never cited by ID.
+    assert(raw.messageId === undefined, "Word the request yourself; questions no longer cite a message.");
+    const request = text(raw.request ?? approval?.decision?.body, "Research request", 5000);
+    // What the human's annotations pointed at, when it helps the work.
+    const references = (raw.references || []) as AnnotationTarget[];
+    assert(Array.isArray(references), "References must be a list.");
+    validateReferences(next, references);
     const annotation: Annotation = {
       id: id(),
-      ...(asked ? {} : { author: "coordinator" as const }),
-      target: { label: title },
-      references: [],
+      author: "coordinator",
+      target: references[0] || { label: title },
+      references,
       question: request,
       createdAt: now,
       dispatchedAt: now,
@@ -227,11 +222,10 @@ function questionsFrom(
     (batch.questions ||= []).push({
       id: id(),
       title,
-      origin: asked ? "human" : "coordinator",
+      origin: "coordinator",
       annotationIds: [annotation.id],
-      ...(asked ? {} : { explanation: request }),
+      explanation: request,
       ...(approval ? { approvalMessageId: approval.id } : {}),
-      ...(asked ? { messageId: asked.id } : {}),
       createdAt: now,
     });
   }

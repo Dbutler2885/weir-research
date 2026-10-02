@@ -45,7 +45,7 @@ try {
       );
     let data = { action, session: session.secret };
     if (action === "attach") data.name = session.name;
-    else if (action === "handoff" || action === "map")
+    else if (action === "map")
       data.notes = readFileSync(values[0], "utf8");
     else if (action === "search") {
       data.query = values[0];
@@ -57,7 +57,7 @@ try {
         throw new Error("Use the explicit attach command.");
     } else if (!["snapshot", "detach"].includes(action))
       throw new Error(
-        "Commands: attach, snapshot, search <words>, map <text-file>, handoff <text-file>, command <json-file>, detach.",
+        "Commands: attach, snapshot, search <words>, map <text-file>, command <json-file>, detach.",
       );
     const response = await fetch(`${connection.url}/api/coordinator`, {
       method: "POST",

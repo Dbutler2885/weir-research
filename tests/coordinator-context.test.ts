@@ -43,7 +43,6 @@ describe("notes on a text selection", () => {
     p.run({ type: "send", annotation: { question: "What do you mean, and why?", references: [selection] } });
     const context = buildCoordinatorContext(p.state);
     const said = "on the words “indexed excerpts, not page images” in “What remains open”";
-    expect(layer(context, "attention")).toContain(said);
     expect(layer(context, "conversation")).toContain(said);
     // A section clicked as a whole is named, without all of its text.
     expect(referenceText({ label: "What remains open", text: "What remains open Lawrence's 1914 history...", anchor: { type: "element" } })).toBe("What remains open");
@@ -51,7 +50,7 @@ describe("notes on a text selection", () => {
 });
 
 describe("coordinator startup context", () => {
-  it("orders layers by urgency and puts unplaced notes and pending requests first", () => {
+  it("orders layers by urgency, puts pending requests first, and keeps no list of annotations to place", () => {
     const p = project();
     p.open("The mill's builder", "Who built the mill?");
     const note = p.send("Was the miller related to the builder?");
@@ -59,20 +58,22 @@ describe("coordinator startup context", () => {
     const context = buildCoordinatorContext(p.state);
     expect(context.layers.map((l) => l.id)).toEqual(["attention", "queue", "orientation", "conversation", "more"]);
     const attention = layer(context, "attention");
-    expect(attention).toContain(note);
-    expect(attention).toContain("Search the 1884 register?");
-    expect(context.text.indexOf(note)).toBeLessThan(context.text.indexOf("## The queue"));
+    expect(attention).toContain('Your request "Search the 1884 register?" is waiting');
+    // An annotation is something the human said, not an item to place in a batch.
+    expect(attention).not.toContain("Was the miller related");
+    expect(context.text).not.toContain(note);
+    expect(layer(context, "conversation")).toContain('Annotation: "Was the miller related to the builder?"');
   });
 
-  it("lists the human's messages the coordinator has not answered, as after it was closed or paused", () => {
+  it("shows the recent conversation in the human's words, without IDs or reminders", () => {
     const p = project();
     p.run({ type: "send", text: "Did the mill burn in 1890?" });
     p.run({ type: "reply", text: "I will check the fire insurance maps." });
-    expect(layer(buildCoordinatorContext(p.state), "attention")).not.toContain("no reply yet");
     p.run({ type: "send", text: "Also check the newspaper." });
-    const attention = layer(buildCoordinatorContext(p.state), "attention");
-    expect(attention).toContain('has no reply yet: "Also check the newspaper."');
-    expect(attention).not.toContain("Did the mill burn");
+    const context = buildCoordinatorContext(p.state);
+    expect(layer(context, "conversation")).toContain("Also check the newspaper.");
+    expect(layer(context, "attention")).not.toContain("no reply yet");
+    for (const m of p.state.conversation!) expect(context.text).not.toContain(m.id);
   });
 
   it("describes each open batch once, with its number, brief and next action", () => {

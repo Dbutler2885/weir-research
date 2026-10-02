@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildSample } from "../server/sample-project.mjs";
 import { WorkspaceStore } from "../server/store.mjs";
-import { Coordinator } from "../server/coordinator.mjs";
+import { inbox } from "../server/coordinator-inbox.mjs";
 import { describeReference } from "../src/domain/references";
 import { buildCoordinatorContext } from "../src/domain/coordinator-context";
 
@@ -95,16 +95,13 @@ describe("a note sent on the graph", () => {
     const s = sample();
     const reference = { table: "nodes", recordId: "edith", label: "Edith Marrow", selector: "g.node:nth-of-type(1)", screen: { view: "research", focusId: "edith" } };
     s.store.command({ type: "send", annotation: { question: "Is this the same Edith as in the 1881 list?", references: [reference] } });
-    const coordinator = new Coordinator(s.store);
-    const session = "fictional-coordinator-session-01";
-    coordinator.attach("Test coordinator", session);
-    const note = coordinator.snapshot(session).conversation.unassignedAnnotations.at(-1)!;
-    expect(note.references).toEqual([
-      { about: "the person “Edith Marrow” on the graph", seenOn: "the graph, centred on “Edith Marrow”", ids: { record: "nodes/edith" } },
-    ]);
+    // The coordinator receives it as an annotation on that record, where it was seen.
+    const [message] = inbox(s.store.state, { messages: s.store.state.conversation.filter((m: any) => m.author === "human").slice(-1) });
+    const said = "the person “Edith Marrow” on the graph (record nodes/edith), seen on the graph, centred on “Edith Marrow”";
+    expect(message!.text).toContain(said);
     // Its startup context says the same, and never the page's structure.
-    const attention = buildCoordinatorContext(s.store.state).layers.find((l) => l.id === "attention")!.text;
-    expect(attention).toContain("on the person “Edith Marrow” on the graph (record nodes/edith), seen on the graph, centred on “Edith Marrow”");
-    expect(attention).not.toContain("nth-of-type");
+    const conversation = buildCoordinatorContext(s.store.state).layers.find((l) => l.id === "conversation")!.text;
+    expect(conversation).toContain(`on ${said}`);
+    expect(message!.text + conversation).not.toContain("nth-of-type");
   });
 });

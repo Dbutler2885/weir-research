@@ -155,14 +155,9 @@ try {
     notes:
       "Purpose: local workflow verification. Relevant entity nodes/alex; no new historical research.",
   });
-  await command({
-    action: "handoff",
-    notes:
-      "Resume the existing identity investigation from its local checkpoint.",
-  });
   await run("coordinator", ["detach", "--session", sessionFile]);
   await assert.rejects(
-    command({ action: "handoff", notes: "late" }),
+    command({ action: "map", notes: "late" }),
     /expired/,
   );
   const recovered = await run("coordinator", [
@@ -174,7 +169,6 @@ try {
   sessionFile = recovered.sessionFile;
   // The researcher's result is still there for the next coordinator to publish.
   assert.equal(recovered.investigations[0].checkpointCount, 1);
-  assert.ok(recovered.coordinator.handoff.includes("local checkpoint"));
   assert.equal(recovered.candidates[0].id, candidate.id);
   const published = await command({
     action: "publish",

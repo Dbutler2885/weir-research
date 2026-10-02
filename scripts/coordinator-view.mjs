@@ -23,7 +23,7 @@ export function snapshotView(result, sessionFile, snapshotFile) {
     candidates: result.candidates,
     conversation: result.conversation,
     instruction:
-      "Read the snapshot, answer new messages and sent annotations in the conversation, act on dispatched work and returned findings, and save a handoff.",
+      "Read the snapshot, answer new messages and sent annotations in the conversation, and act on dispatched work and returned findings.",
   };
 }
 

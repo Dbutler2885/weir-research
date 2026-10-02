@@ -116,7 +116,7 @@ describe("research coordination", () => {
     expect(status).toMatchObject({ attached: true, connected: false, name: "First" });
     expect(status.lastSeenSecondsAgo).toBeGreaterThanOrEqual(0);
     // Its own commands still work; only its liveness lapsed.
-    f.run({ action: "handoff", notes: "Still mine." });
+    f.run({ action: "map", notes: "Still mine." });
     expect(f.coordinator.status()).toMatchObject({ attached: true, connected: true });
   });
 
@@ -380,15 +380,11 @@ describe("research coordination", () => {
       { id, token: claimed.investigation.lease.token },
       proposal,
     );
-    f.run({
-      action: "handoff",
-      notes:
-        "Compare this identity with the second investigation before publication.",
-    });
+    f.run({ action: "map", notes: "Compare this identity with the second investigation before publication." });
     const recovered = new Coordinator(new WorkspaceStore(f.directory, dataset));
     const index = recovered.attach("Replacement", randomUUID());
     expect(index.candidates).toHaveLength(1);
-    expect(index.coordinator.handoff).toContain("second investigation");
+    expect(recovered.store.state.coordination.researchMap).toContain("second investigation");
     expect(index.investigations[0]!.status).toBe("running");
   });
   it("keeps unsent feedback out of assignments and invalidates a brief on newly dispatched feedback", () => {
