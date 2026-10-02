@@ -51,7 +51,7 @@ describe("a reference, as the coordinator reads it", () => {
     expect(d.ids).toEqual({ batch: s.batch.id, record: "nodes/thomas", graphReview: s.review.id });
   });
 
-  it("names findings, reports, batches and their questions by what they say", () => {
+  it("names findings, reports, batches and their research passes by what they say", () => {
     const s = sample();
     const finding = s.proposal.findings[0];
     expect(describeReference(s.state, { label: "", proposalId: s.proposal.id, findingId: finding.id })).toMatchObject({
@@ -61,11 +61,11 @@ describe("a reference, as the coordinator reads it", () => {
     });
     expect(describeReference(s.state, { label: s.proposal.title, proposalId: s.proposal.id }).about).toBe(`the report “${s.proposal.title}” in batch 1`);
     expect(describeReference(s.state, { label: s.batch.title, investigationId: s.batch.id }).about).toBe(`batch 1, “${s.batch.title}”`);
-    const question = s.batch.questions[0];
-    expect(describeReference(s.state, { label: question.title, investigationId: s.batch.id, questionId: question.id })).toMatchObject({
-      kind: "Batch 1 · question",
-      about: `the question “${question.title}” in batch 1`,
-      ids: { batch: s.batch.id, question: question.id },
+    const pass = s.batch.assignments[0];
+    expect(describeReference(s.state, { label: pass.title, investigationId: s.batch.id, assignmentId: pass.id })).toMatchObject({
+      kind: "Batch 1 · research pass",
+      about: `the research pass “${pass.title}” in batch 1`,
+      ids: { batch: s.batch.id, assignment: pass.id },
     });
   });
 

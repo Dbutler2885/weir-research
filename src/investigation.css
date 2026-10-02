@@ -573,7 +573,7 @@
   margin: 0 0 6px;
   font-size: 15px;
 }
-#max-workers {
+#researchers-per-batch {
   width: 85px;
   padding: 10px;
   border: 1px solid var(--line);
@@ -582,7 +582,7 @@
   color: var(--ink);
   font: inherit;
 }
-#max-workers-form .page-context {
+#researchers-per-batch-form .page-context {
   margin: 12px 0 0;
 }
 /* A link that leads elsewhere, sized as the buttons beside it. */

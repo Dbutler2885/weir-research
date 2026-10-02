@@ -35,7 +35,7 @@ The Coordinator button opens the sidebar where you talk with the coordinator; it
 The Annotate switch, or Command/Control + I, lets you select elements or passages on any surface, and opens the sidebar's Annotations tab with the note you are writing.
 You can also write an annotation there with no selection.
 The sidebar docks beside the surface, preserves drafts when closed, and supports editing queued annotations before you send them together.
-Only research objects can be annotated: nodes and connections on the graph, and the gaps in a node's details, batches and their questions, reports, findings, walkthroughs and sources.
+Only research objects can be annotated: nodes and connections on the graph, and the gaps in a node's details, batches and their research passes, reports, findings, walkthroughs and sources.
 Each reference reaches the coordinator as that object, with its ids and the screen it was picked from, never as page structure.
 Developer mode, in Research settings, is for work on Weir itself and applies to every project.
 With it on, any part of the app can be annotated, and Interface feedback records product observations separately from historical research.
@@ -92,10 +92,14 @@ npm run workspace -- sign-in codex
 ```
 
 Every agent runs in its own folder under its CLI's sandbox, with any command and the web available there, and nothing else on your computer within reach.
+Researchers can also read the project's research library, which they cannot change: every batch's brief, every research pass with its direction, published findings and checkpoints, the walkthroughs, the graph as tables, the sources and the saved documents.
+It leaves out your conversation, your annotations, and findings the coordinator has not yet published.
 It loads the app's skills from its folder, never your personal instructions, hooks, skills or MCP servers, and an agent CLI started from inside one is stopped and reported.
 Researchers working on the web share one research browser: Google Chrome with the app's own profile, separate from your browsers, reached through Chrome DevTools MCP.
 Open it from Research settings and sign in to archives once; every researcher can then use those sign-ins, each in its own tab.
-The coordinator runs at most four workers at once unless you set another number in Research settings or ask it for more on one job.
+The coordinator divides each batch into assignments, one per researcher, each with a title and a brief; Findings shows every research pass under its title and the coordinator's brief.
+At most four researchers work one batch at once, unless you set another number in Research settings; further assignments wait their turn, and other batches are not held back.
+Researchers in a batch post what the others should know on the batch's board, and the coordinator can post there for all of them; each batch's board closes it in Findings, and the Board tab shows every batch's.
 The Queue tab in Investigations shows the batches in the order they are worked; move one up or down, or hold it.
 Research settings also offers an optional limit in whole minutes for each research pass; running passes keep the limit they started with.
 The coordinator can ask to resume paused work, with a reason shown in the investigation; research waits for you to choose Resume research or Keep paused.

@@ -86,13 +86,15 @@ export class Coordinator {
       awaitingSynthesis: this.candidates().map((c) => c.investigationId),
     };
   }
+  // Researcher results not yet judged, whose assignment is still waiting on them;
+  // while the human has a batch paused, its results wait too.
   candidates() {
     return (this.store.state.coordination?.candidates || []).filter((c) =>
       this.store.state.investigations.some(
         (i) =>
           i.id === c.investigationId &&
-          i.status === "running" &&
-          i.lease?.token === c.token,
+          i.status !== "paused" &&
+          (i.assignments || []).some((a) => a.status === "returned" && a.lease?.token === c.token),
       ),
     );
   }
@@ -117,21 +119,10 @@ export class Coordinator {
       this.store.update((next) => {
         next.coordination = {
           enabled: true,
-          assignments: {},
           candidates: [],
         };
       });
     return this.snapshot(secret);
-  }
-  requeue(id, message) {
-    this.store.update((next) => {
-      const i = next.investigations.find((i) => i.id === id);
-      i.status = "queued";
-      delete i.lease;
-      if (next.coordination?.assignments)
-        delete next.coordination.assignments[id];
-      i.events.push({ at: new Date().toISOString(), message });
-    });
   }
   require(secret) {
     if (!this.owner() || this.session.secret !== secret)
@@ -159,8 +150,18 @@ export class Coordinator {
         const { findings, ...rest } = investigationIndex(i);
         return { ...rest, findingCount: findings.length };
       });
+    const boardPosts = state.investigations.flatMap((i) =>
+      // Its own posts are not news to the coordinator.
+      (i.board || []).slice(changed.boardFrom?.get(i.id) ?? 0).filter((p) => p.author !== "coordinator").map((p) => ({
+        investigationId: i.id,
+        assignmentId: p.assignmentId,
+        from: i.assignments?.find((a) => a.id === p.assignmentId)?.title,
+        text: p.text,
+      })),
+    );
     if (
       !messages.length &&
+      !boardPosts.length &&
       !investigations.length &&
       !changed.removedInvestigationIds.length &&
       !changed.decisionsChanged &&
@@ -175,6 +176,7 @@ export class Coordinator {
         // The human's own messages, as sent; the inbox shapes them for the coordinator.
         messages,
         investigations,
+        ...(boardPosts.length ? { boardPosts } : {}),
         ...(changed.removedInvestigationIds.length
           ? { removedInvestigationIds: changed.removedInvestigationIds }
           : {}),
@@ -183,7 +185,7 @@ export class Coordinator {
         // Who does which job, when the human changed it in settings.
         ...(changed.dispatchChanged ? { dispatch: state.dispatch } : {}),
         ...(changed.candidatesChanged
-          ? { candidates: this.candidates().map((c) => ({ id: c.id, investigationId: c.investigationId, title: c.proposal.title })) }
+          ? { candidates: this.candidates().map((c) => ({ id: c.id, investigationId: c.investigationId, assignmentId: c.assignmentId, title: c.proposal.title })) }
           : {}),
       },
     };
@@ -204,6 +206,7 @@ export class Coordinator {
       candidates: this.candidates().map((c) => ({
         id: c.id,
         investigationId: c.investigationId,
+        assignmentId: c.assignmentId,
         title: c.proposal.title,
         summary: c.proposal.summary.slice(0, 600),
       })),
@@ -213,20 +216,14 @@ export class Coordinator {
       context: buildCoordinatorContext(state, { workers: this.workers(), skills: this.skills }),
     };
   }
-  assignment(id) {
-    return this.store.state.coordination?.assignments?.[id];
-  }
-  ready(i) {
-    const a = this.assignment(i.id);
-    return (
-      a &&
-      a.phase === (i.phase || "research") &&
-      a.graphRequestedAt === i.graphRequest?.at &&
-      JSON.stringify(a.annotationIds) ===
-        JSON.stringify(
-          i.annotations.filter((a) => a.dispatchedAt).map((a) => a.id),
-        )
-    );
+  // Who does an assignment: what the coordinator names wins; otherwise the project's
+  // dispatch rules decide.
+  choose(data) {
+    const choice = this.dispatch?.choose("researcher", data.engine ? { agent: data.engine, model: data.model, effort: data.effort } : null)
+      ?? (data.engine || this.store.state.engine ? { agent: data.engine || this.store.state.engine } : null);
+    if (!["codex", "claude"].includes(choice?.agent))
+      throw new Error("Choose codex or claude for a managed researcher.");
+    return { engine: choice.agent, model: choice.model ?? null, effort: choice.effort ?? null };
   }
   command(data) {
     this.require(data.session);
@@ -247,6 +244,9 @@ export class Coordinator {
       return organize(this.store, data);
     if (coordinatorConversationCommands.has(data.action)) {
       const { action, session, ...command } = data;
+      // Each assignment of a new batch is given to an agent as it is made.
+      if (action === "open-batch" && Array.isArray(command.assignments))
+        command.assignments = command.assignments.map((a) => ({ ...a, choice: this.choose(a || {}) }));
       const result = this.store.command({ ...command, type: action });
       if (action === "batch-ready") autoReview(this.store, data.investigationId);
       return result;
@@ -272,9 +272,45 @@ export class Coordinator {
       });
       return { saved: true };
     }
+    // An assignment is named by its ID; inspect the batch to list them.
+    if (["steer", "stop-researcher", "revise"].includes(data.action) && typeof data.assignmentId !== "string")
+      throw new Error("Name the assignment with assignmentId; inspecting the batch lists its assignments.");
+    if (data.action === "steer") return this.researchers.steer(data.assignmentId, data.message);
+    if (data.action === "stop-researcher") return this.researchers.halt(data.assignmentId, data.reason);
+    if (data.action === "revise") {
+      const candidate = this.candidates().find((c) => c.assignmentId === data.assignmentId);
+      if (candidate)
+        this.store.command({
+          type: "checkpoint",
+          investigationId: candidate.investigationId,
+          token: candidate.token,
+          summary: "Coordinator requested another pass",
+          findings: String(data.notes || ""),
+          nextSteps: String(data.notes || ""),
+        });
+      const result = this.store.command({ type: "revise-assignment", assignmentId: data.assignmentId, notes: data.notes });
+      // Sent back with another agent, when the coordinator names one.
+      if (data.engine) {
+        const choice = this.choose(data);
+        this.store.update((next) => {
+          for (const i of next.investigations) for (const a of i.assignments || []) if (a.id === data.assignmentId) a.choice = choice;
+        });
+      }
+      return result;
+    }
+    if (data.action === "publish") {
+      const candidate = this.candidates().find((c) => c.id === data.candidateId);
+      // Only a researcher's current result is published; the coordinator reconciles it first.
+      if (!candidate) throw new Error("Publish a current researcher result, named by its candidateId.");
+      return this.store.command({
+        type: "propose",
+        investigationId: candidate.investigationId,
+        token: candidate.token,
+        proposal: data.proposal || candidate.proposal,
+      });
+    }
     if (!i) throw new Error("Unknown investigation.");
-    if (data.action === "steer") return this.researchers.steer(id, data.message);
-    if (data.action === "stop-researcher") return this.researchers.halt(id, data.reason);
+    if (data.action === "post") return this.researchers.announce(id, data.text);
     if (data.action === "request-resume") {
       if (i.status !== "paused")
         throw new Error("Only paused investigations need resume approval.");
@@ -308,74 +344,14 @@ export class Coordinator {
       return { awaitingApproval: true, requestId };
     }
     if (data.action === "assign") {
-      if (i.status !== "queued")
-        throw new Error(
-          "Only dispatched, queued investigations can be assigned.",
-        );
-      if (
-        typeof data.brief !== "string" ||
-        !data.brief.trim() ||
-        data.brief.length > 50_000
-      )
-        throw new Error("A bounded research brief is required.");
-      // What the coordinator names wins; otherwise the project's dispatch rules decide.
-      const choice = this.dispatch?.choose("researcher", data.engine ? { agent: data.engine, model: data.model, effort: data.effort } : null)
-        ?? (data.engine || this.store.state.engine ? { agent: data.engine || this.store.state.engine } : null);
-      if (!["codex", "claude"].includes(choice?.agent))
-        throw new Error("Choose codex or claude for a managed researcher.");
-      this.store.update((next) => {
-        next.coordination.assignments[id] = {
-          engine: choice.agent,
-          model: choice.model ?? null,
-          effort: choice.effort ?? null,
-          phase: i.phase || "research",
-          graphRequestedAt: i.graphRequest?.at,
-          brief: data.brief,
-          annotationIds: i.annotations
-            .filter((a) => a.dispatchedAt)
-            .map((a) => a.id),
-        };
-        next.investigations
-          .find((i) => i.id === id)
-          .events.push({
-            at: new Date().toISOString(),
-            message: "Coordinator prepared a research assignment.",
-          });
-      });
-      return { assigned: true };
-    }
-    if (data.action === "publish") {
-      const candidate = this.candidates().find(
-        (c) => c.id === data.candidateId && c.investigationId === id,
-      );
-      // Only a researcher's current result is published; the coordinator reconciles it first.
-      if (!candidate) throw new Error("Publish a current researcher result, named by its candidateId.");
-      const result = this.store.command({
-        type: "propose",
+      if (i.closedAt) throw new Error("This batch is closed. Open a new batch for further work.");
+      return this.store.command({
+        type: "assign",
         investigationId: id,
-        token: candidate.token,
-        proposal: data.proposal || candidate.proposal,
+        title: data.title,
+        brief: data.brief,
+        choice: this.choose(data),
       });
-      return result;
-    }
-    if (data.action === "revise") {
-      if (!this.candidates().some((c) => c.investigationId === id))
-        throw new Error("No current researcher result to revise.");
-      if (typeof data.notes !== "string" || !data.notes.trim())
-        throw new Error("Record why another pass is needed.");
-      this.store.command({
-        type: "checkpoint",
-        investigationId: id,
-        token: i.lease.token,
-        summary: "Coordinator requested another pass",
-        findings: data.notes,
-        nextSteps: data.notes,
-      });
-      this.requeue(
-        id,
-        "Coordinator requested another bounded research pass; unsent feedback remains queued.",
-      );
-      return { queued: true };
     }
     throw new Error(
       "Unknown coordinator action. Coordinators cannot accept research changes.",
@@ -385,26 +361,21 @@ export class Coordinator {
     // Validate exactly as a proposal, but retain the result for coordinating judgment first.
     transition(this.store.state, {
       type: "propose",
-      investigationId: task.id,
+      investigationId: task.batchId,
       token: task.token,
       proposal,
     });
     this.store.update((next) => {
       next.coordination.candidates.push({
         id: randomUUID(),
-        investigationId: task.id,
+        investigationId: task.batchId,
+        assignmentId: task.id,
         token: task.token,
         proposal,
         receivedAt: new Date().toISOString(),
       });
-      next.investigations
-        .find((i) => i.id === task.id)
-        .events.push({
-          at: new Date().toISOString(),
-          message:
-            "Research findings returned; coordinator synthesis is pending.",
-        });
     });
+    this.store.command({ type: "assignment-returned", assignmentId: task.id, token: task.token });
   }
 }
 
@@ -440,7 +411,7 @@ function conversationIndex(state) {
         status: i.status,
         ready: Boolean(i.readyAt),
         walkthroughRequested: Boolean(i.walkthroughRequestedAt),
-        questions: (i.questions || []).map((q) => ({ id: q.id, title: q.title, origin: q.origin })),
+        assignments: (i.assignments || []).map((a) => ({ id: a.id, title: a.title, status: a.status })),
       })),
   };
 }

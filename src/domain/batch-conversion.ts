@@ -13,7 +13,7 @@ export function convertToBatches(source: ResearchState): ResearchState {
     (i) =>
       i.annotations.length ||
       i.proposals.length ||
-      i.checkpoints.length ||
+      i.checkpoints?.length ||
       i.reviewFlow,
   );
   state.investigations.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
@@ -32,7 +32,8 @@ export function convertToBatches(source: ResearchState): ResearchState {
       i.proposals.filter((p) => p.kind === "findings").at(-1)?.title ||
       i.proposals.at(-1)?.title ||
       headline(i.title);
-    i.questions = i.annotations.map((a) => ({
+    // Headed as questions, which converting to assignments then takes up.
+    (i as typeof i & { questions?: unknown[] }).questions = i.annotations.map((a) => ({
       id: `converted-${a.id}`,
       title: headline(a.question),
       origin: "human" as const,

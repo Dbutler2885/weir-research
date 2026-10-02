@@ -13,8 +13,10 @@ const node = () => realpathSync(process.execPath);
 
 // Claude Code: sandboxed Bash that cannot read the human's home folder except
 // the agent's own folder, and permission rules keeping its file tools there.
-export function claudeSettings(folder, { web = true, browser = null, compactAt = 0 } = {}) {
+// readOnly lists folders the agent may read but not change, such as the research library.
+export function claudeSettings(folder, { web = true, browser = null, compactAt = 0, readOnly = [] } = {}) {
   const own = realpathSync(folder);
+  const shared = readOnly.map((path) => realpathSync(path));
   return {
     // The context size at which it compacts on its own, when the human set one.
     ...(compactAt ? { autoCompactWindow: compactAt } : {}),
@@ -22,11 +24,11 @@ export function claudeSettings(folder, { web = true, browser = null, compactAt =
       enabled: true,
       autoAllowBashIfSandboxed: true,
       allowUnsandboxedCommands: false,
-      filesystem: { denyRead: [homedir()], allowRead: [own, node()], allowWrite: [own] },
+      filesystem: { denyRead: [homedir()], allowRead: [own, node(), ...shared], allowWrite: [own] },
       network: { allowedDomains: ["*"] },
     },
     permissions: {
-      allow: ["Bash", `Read(/${own}/**)`, `Edit(/${own}/**)`, ...(web ? ["WebSearch", "WebFetch"] : []), ...(browser ? ["mcp__browser"] : [])],
+      allow: ["Bash", `Read(/${own}/**)`, ...shared.map((path) => `Read(/${path}/**)`), `Edit(/${own}/**)`, ...(web ? ["WebSearch", "WebFetch"] : []), ...(browser ? ["mcp__browser"] : [])],
       // Only the app starts agents, so every one of them is in the live panel.
       deny: ["Agent", "Task"],
     },
@@ -50,8 +52,9 @@ export function claudeIsolationArgs(folder, options = {}) {
 // Codex: a permission profile that reads only minimal system files and writes
 // only the agent's folder, with network access. Its homes are the app's own,
 // so it never loads the human's instructions, skills, hooks or MCP servers.
-export function codexIsolationArgs(folder, { browser = null, compactAt = 0 } = {}) {
+export function codexIsolationArgs(folder, { browser = null, compactAt = 0, readOnly = [] } = {}) {
   const own = realpathSync(folder);
+  const shared = readOnly.map((path) => `${JSON.stringify(realpathSync(path))}="read", `).join("");
   // The research browser's MCP server, which Codex starts outside the sandbox.
   const mcp = browser
     ? [
@@ -71,7 +74,7 @@ export function codexIsolationArgs(folder, { browser = null, compactAt = 0 } = {
     ...mcp,
     ...(compactAt ? ["-c", `model_auto_compact_token_limit=${compactAt}`] : []),
     "-c",
-    `permissions.agent.filesystem={":minimal"="read", ${JSON.stringify(node())}="read", ${JSON.stringify(own)}="write"}`,
+    `permissions.agent.filesystem={":minimal"="read", ${JSON.stringify(node())}="read", ${shared}${JSON.stringify(own)}="write"}`,
     "-c",
     "permissions.agent.network={enabled=true}",
     "-c",

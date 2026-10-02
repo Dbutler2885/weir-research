@@ -57,7 +57,7 @@ describe.each(["claude", "codex"] as const)("agent supervisor with a %s agent", 
   const { read, write } = providers[provider];
 
   it("reports each action in plain words and the end of every turn", async () => {
-    const a = start(provider, steps([read("brief.json"), read("documents/doc-1.pdf")]));
+    const a = start(provider, steps([read("brief.md"), read("documents/doc-1.pdf")]));
     expect(a.live.list()).toMatchObject([{ role: "researcher", name: "Fixture researcher", investigationId: "fixture" }]);
     expect(a.agent.busy).toBe(true);
     // The turn carries the agent's final reply.
@@ -73,7 +73,7 @@ describe.each(["claude", "codex"] as const)("agent supervisor with a %s agent", 
   });
 
   it("delivers a redirection at the agent's next step and changes what it does", async () => {
-    const a = start(provider, steps([read("brief.json", 300), read("findings.ts", 300), read("types.ts", 300)]));
+    const a = start(provider, steps([read("brief.md", 300), read("findings.ts", 300), read("types.ts", 300)]));
     await new Promise((done) => a.agent.once("action", done));
     a.agent.steer(steps([write("result.json")]));
     await a.next("turn");
@@ -83,7 +83,7 @@ describe.each(["claude", "codex"] as const)("agent supervisor with a %s agent", 
   });
 
   it("interrupts a turn and keeps the agent for its next instruction", async () => {
-    const a = start(provider, steps([read("brief.json", 5000)]));
+    const a = start(provider, steps([read("brief.md", 5000)]));
     await new Promise((done) => a.agent.once("action", done));
     a.agent.interrupt();
     expect(await a.next("turn")).toMatchObject({ outcome: "interrupted" });
@@ -92,7 +92,7 @@ describe.each(["claude", "codex"] as const)("agent supervisor with a %s agent", 
   });
 
   it("stops an agent mid-run and removes it from the live panel", async () => {
-    const a = start(provider, steps([read("brief.json", 10_000)]));
+    const a = start(provider, steps([read("brief.md", 10_000)]));
     await new Promise((done) => a.agent.once("action", done));
     const exit = a.next("exit");
     a.agent.stop();
@@ -102,7 +102,7 @@ describe.each(["claude", "codex"] as const)("agent supervisor with a %s agent", 
   });
 
   it("closes when told its work is finished, after what was already sent", async () => {
-    const a = start(provider, steps([read("brief.json", 100)]));
+    const a = start(provider, steps([read("brief.md", 100)]));
     const exit = a.next("exit");
     a.agent.finish();
     expect(await exit).toEqual({ code: 0, stopped: false });
@@ -112,13 +112,13 @@ describe.each(["claude", "codex"] as const)("agent supervisor with a %s agent", 
   });
 
   it("keeps the raw stream on disk for diagnosis, outside the agent's folder", async () => {
-    const a = start(provider, steps([read("brief.json")]));
+    const a = start(provider, steps([read("brief.md")]));
     await a.next("turn");
     expect(readFileSync(`${a.folder}.log`, "utf8")).toContain("Done.");
   });
 
   it("sets a long log aside as it grows, so the end of the run is always kept", async () => {
-    const a = start(provider, steps([read("brief.json"), read("findings.ts"), read("types.ts"), read("brief.json"), read("findings.ts")]), { logSegment: 600 });
+    const a = start(provider, steps([read("brief.md"), read("findings.ts"), read("types.ts"), read("brief.md"), read("findings.ts")]), { logSegment: 600 });
     await a.next("turn");
     expect(existsSync(`${a.folder}.log.1`)).toBe(true);
     expect(existsSync(`${a.folder}.log.6`)).toBe(false);
@@ -208,7 +208,7 @@ describe("isolation", () => {
     writeFileSync(launcher, `#!/bin/sh\n"${native}" "$@"\n`);
     chmodSync(native, 0o755);
     chmodSync(launcher, 0o755);
-    const a = start("codex", steps([providers.codex.read("brief.json", 1500)]), { executable: launcher, watchInterval: 100 });
+    const a = start("codex", steps([providers.codex.read("brief.md", 1500)]), { executable: launcher, watchInterval: 100 });
     const intruders: unknown[] = [];
     a.agent.on("intruder", (found: unknown) => intruders.push(found));
     const ended = await Promise.race([a.next("turn"), a.next("exit").then(() => "exited")]);
@@ -269,7 +269,7 @@ describe("Claude adapter", () => {
     // Recorded from Claude Code 2.1.282 on 2026-09-25, trimmed to the fields read.
     const recorded = [
       { type: "system", subtype: "init" },
-      { type: "assistant", message: { content: [{ type: "tool_use", name: "Read", input: { file_path: "/w/brief.json" } }] } },
+      { type: "assistant", message: { content: [{ type: "tool_use", name: "Read", input: { file_path: "/w/brief.md" } }] } },
       { type: "rate_limit_event", rate_limit_info: { status: "allowed" } },
       { type: "user", message: { content: [{ type: "tool_result", content: "{}" }] } },
       { type: "assistant", message: { content: [{ type: "text", text: "STEERED" }] } },
@@ -363,7 +363,7 @@ describe("Codex adapter", () => {
   it("names the commands, file changes and searches in Codex's items", () => {
     const session = codexAdapter.session({ write: () => {}, describe: fileDescriber(researcherFiles), folder: "/work" });
     const item = (method: string, item: object) => session.read({ method, params: { threadId: "t", turnId: "u", item } }).actions;
-    expect(item("item/started", { type: "commandExecution", command: "/bin/zsh -lc 'cat brief.json'" })).toEqual(["Reading its assignment"]);
+    expect(item("item/started", { type: "commandExecution", command: "/bin/zsh -lc 'cat brief.md'" })).toEqual(["Reading its assignment"]);
     expect(item("item/completed", { type: "fileChange", changes: [{ path: "/work/checkpoint.json" }] })).toEqual(["Saving its progress"]);
     expect(item("item/completed", { type: "webSearch", query: "Lubec cannery 1880" })).toEqual(["Searching the web for “Lubec cannery 1880”"]);
     expect(item("item/started", { type: "reasoning" })).toEqual([]);

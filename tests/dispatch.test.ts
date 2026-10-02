@@ -154,8 +154,9 @@ describe("dispatch rules in a project", () => {
     const p = project();
     p.rules.change({ action: "set-role", role: "researcher", agent: "codex", model: "gpt-6-sol", effort: "low" }, "human");
     const { investigationId } = p.store.command({ type: "annotate", question: "Q", target: { label: "R" }, dispatch: true }) as any;
-    p.coordinator.command({ action: "assign", session: p.session, investigationId, brief: "Look." });
-    expect(p.coordinator.assignment(investigationId)).toMatchObject({ engine: "codex", model: "gpt-6-sol", effort: "low" });
+    const { assignmentId } = p.coordinator.command({ action: "assign", session: p.session, investigationId, title: "Look", brief: "Look." }) as any;
+    const assignment = p.store.state.investigations[0].assignments.find((a: any) => a.id === assignmentId);
+    expect(assignment.choice).toEqual({ engine: "codex", model: "gpt-6-sol", effort: "low" });
   });
 });
 

@@ -46,7 +46,7 @@ export function graphPacket(state, investigation, walkthrough, updates = [], bri
   const proposalIds = walkthrough?.proposalIds || investigation.proposals.filter(p => p.kind === 'findings').map(p => p.id);
   const {evidence, findings} = evidenceRegistry(investigation, proposalIds);
   return {
-    question: walkthrough?.question || [investigation.title, ...(investigation.questions || []).map(q => q.title)].join('\n'),
+    question: walkthrough?.question || [investigation.title, ...(investigation.assignments || []).map(a => a.title)].join('\n'),
     // The coordinator's brief for this job: the human's limits on it, such as a cutoff date.
     brief,
     walkthrough: walkthrough || null,
@@ -360,7 +360,12 @@ function closeBatch(inv) {
   inv.closedAt = new Date().toISOString();
   // A closed batch takes no more work, so research queued on it is no longer waiting.
   inv.status = 'closed';
-  delete inv.lease;
+  for (const a of inv.assignments || [])
+    if (['running', 'waiting', 'paused'].includes(a.status)) {
+      a.status = 'stopped';
+      delete a.lease;
+      delete a.session;
+    }
   inv.events.push({at: inv.closedAt, message: 'Graph review completed; batch closed.'});
 }
 

@@ -12,7 +12,7 @@ export const emptyGraph: GraphDataset = {version: 3, title: 'Fictional workshop 
 export function prepareResearch(store: any) {
   const {investigationId} = store.command({type: 'annotate', question: 'Where was Example Works?', dispatch: true});
   const task = store.command({type: 'claim', investigationId, worker: 'Fixture researcher'});
-  const {proposalId} = store.command({type: 'propose', investigationId, token: task.investigation.lease.token, proposal: {
+  const {proposalId} = store.command({type: 'propose', investigationId, token: task.assignment.lease.token, proposal: {
     kind: 'findings', title: 'The fictional location', summary: 'A register reports the works in Example Bay.', ambiguity: 'The precise site is unknown.', changes: [],
     sources: [{id: 'register', title: 'Fictional register', access: 'full-text'}],
     evidence: [{id: 'passage', sourceId: 'register', quote: 'Example Works stood in Example Bay.', context: 'Fictional source.', locator: 'Page 1', interpretation: 'Reported location.', stance: 'supports'}],

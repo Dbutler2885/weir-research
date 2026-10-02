@@ -5,12 +5,13 @@ import type {
   Proposal,
   ResearchState,
 } from "../domain/research";
-import type { Question } from "../domain/conversation";
+import type { Assignment } from "../domain/assignments";
+import { researchersPerBatch } from "../domain/assignments";
 import { batchStatus } from "../domain/conversation";
 import { sourceLibrary } from "../domain/findings";
 import { html, target } from "./finding-review";
 
-export type FindingsSection = "findings" | "activity" | "queue";
+export type FindingsSection = "findings" | "activity" | "queue" | "board";
 
 const FINDINGS_SHOWN = 3;
 const when = (iso: string) =>
@@ -39,12 +40,14 @@ export function findingsPage(
   const body =
     section === "queue"
       ? queueSection(state)
+      : section === "board"
+      ? `<div class="findings-scroll">${boards(all)}</div>`
       : section === "activity"
       ? `<div class="findings-scroll">${activity(state, all)}</div>`
       : all.length
         ? `<div class="findings-layout"><nav class="findings-toc" aria-label="Contents">${contents(all)}</nav><div class="findings-scroll">${all.map((b) => batchCard(state, b, expanded)).join("")}</div></div>`
         : '<div class="findings-scroll"><div class="findings-empty"><h2>No research yet</h2><p>Write to your coordinator, or annotate what you see, from the Coordinator sidebar. Your coordinator groups the work into batches, and every report appears here.</p></div></div>';
-  return `<section class="findings-page"><header class="findings-head"><div class="findings-head-row"><div><h1>Investigations</h1><p>${section === "queue" ? "Batches waiting and in progress, in the order they are worked." : section === "activity" ? "What has happened, batch by batch." : "Everything researchers have returned, grouped by batch. Newest first."}</p></div></div><nav class="findings-tabs" aria-label="Investigations"><button type="button" data-investigation-section="findings" ${section === "findings" ? 'aria-current="page"' : ""}>Findings</button><button type="button" data-investigation-section="queue" ${section === "queue" ? 'aria-current="page"' : ""}>Queue</button><button type="button" data-investigation-section="activity" ${section === "activity" ? 'aria-current="page"' : ""}>Activity</button></nav></header>${body}</section>`;
+  return `<section class="findings-page"><header class="findings-head"><div class="findings-head-row"><div><h1>Investigations</h1><p>${section === "queue" ? "Batches waiting and in progress, in the order they are worked." : section === "activity" ? "What has happened, batch by batch." : section === "board" ? "What researchers and the coordinator posted for each batch's researchers." : "Everything researchers have returned, grouped by batch. Newest first."}</p></div></div><nav class="findings-tabs" aria-label="Investigations"><button type="button" data-investigation-section="findings" ${section === "findings" ? 'aria-current="page"' : ""}>Findings</button><button type="button" data-investigation-section="queue" ${section === "queue" ? 'aria-current="page"' : ""}>Queue</button><button type="button" data-investigation-section="activity" ${section === "activity" ? 'aria-current="page"' : ""}>Activity</button><button type="button" data-investigation-section="board" ${section === "board" ? 'aria-current="page"' : ""}>Board</button></nav></header>${body}</section>`;
 }
 
 function contents(all: Investigation[]): string {
@@ -52,11 +55,12 @@ function contents(all: Investigation[]): string {
     .map(
       (b) =>
         `<li><a class="toc-batch" href="#batch-${html(b.id)}" data-toc="batch-${html(b.id)}"><span class="toc-number">${b.number}</span>${html(b.title)}</a>${
-          b.questions?.length
-            ? `<ol>${b.questions
+          b.assignments?.length
+            ? `<ol>${[...b.assignments]
+                .reverse()
                 .map(
-                  (q) =>
-                    `<li><a href="#question-${html(q.id)}" data-toc="question-${html(q.id)}">${html(q.title)}</a></li>`,
+                  (a) =>
+                    `<li><a href="#pass-${html(a.id)}" data-toc="pass-${html(a.id)}">${html(a.title)}${a.status === "running" || a.status === "waiting" || a.status === "paused" ? ` <span class="toc-state">· ${a.status}</span>` : ""}</a></li>`,
                 )
                 .join("")}</ol>`
             : ""
@@ -73,17 +77,20 @@ function batchCard(
   const status = batchStatus(b);
   const label =
     status === "ready" ? "ready for review" : status === "closed" ? "closed" : b.status === "paused" ? "paused" : "in progress";
+  const assignments = b.assignments || [];
   const times = [
     b.createdAt,
-    ...b.annotations.map((a) => a.dispatchedAt || a.createdAt),
+    ...assignments.map((a) => a.startedAt || a.createdAt),
     ...b.proposals.map((p) => p.createdAt),
   ].sort();
   const range =
     day(times[0]!) === day(times.at(-1)!)
       ? day(times[0]!)
       : `${day(times[0]!)} to ${day(times.at(-1)!)}`;
+  const working = assignments.filter((a) => a.status === "running").length;
   const meta = [
     range,
+    working ? `${working} researcher${working === 1 ? "" : "s"} working` : "",
     b.reviewFlow?.walkthroughs.length
       ? `<button type="button" class="text-action" data-open-walkthrough>Read the walkthrough</button>`
       : "",
@@ -91,20 +98,19 @@ function batchCard(
     ["queued", "running"].includes(b.status)
       ? '<button type="button" class="text-action" data-command="pause">Pause</button>'
       : "",
-    b.status === "paused" && b.resumeRequest?.status !== "pending"
+    // A batch the human paused, or one with a researcher an interruption paused.
+    (b.status === "paused" || assignments.some((a) => a.status === "paused")) && b.resumeRequest?.status !== "pending"
       ? '<button type="button" class="text-action" data-command="resume">Resume</button>'
       : "",
   ].filter(Boolean);
-  const answers = reportQuestions(b);
-  const questions = (b.questions || [])
-    .map((q) => question(state, b, q, expanded, answers))
-    .join("");
-  const other = b.proposals.filter((p) => !answers.get(p.id)?.length);
-  return `<article class="batch-card" id="batch-${html(b.id)}" data-investigation-id="${html(b.id)}" ${target({ label: b.title, investigationId: b.id })}><div class="batch-label">Batch ${b.number} · ${label}</div><h2>${html(b.title)}</h2><p class="batch-meta">${meta.join(" · ")}</p>${requests(state, b)}${questions}${
+  // The newest research pass first, as batches are.
+  const passes = [...assignments].reverse().map((a) => pass(state, b, a, expanded)).join("");
+  const other = b.proposals.filter((p) => !p.assignmentId || !assignments.some((a) => a.id === p.assignmentId));
+  return `<article class="batch-card" id="batch-${html(b.id)}" data-investigation-id="${html(b.id)}" ${target({ label: b.title, investigationId: b.id })}><div class="batch-label">Batch ${b.number} · ${label}</div><h2>${html(b.title)}</h2><p class="batch-meta">${meta.join(" · ")}</p>${requests(state, b)}${passes}${
     other.length
-      ? `<section class="batch-question"><h3>Other reports in this batch</h3>${other.map((p, n) => report(state, b, p, n === 0, expanded, [])).join("")}</section>`
+      ? `<section class="batch-question"><h3>Other reports in this batch</h3>${other.map((p, n) => report(state, p, n === 0, expanded)).join("")}</section>`
       : ""
-  }</article>`;
+  }${board(b)}</article>`;
 }
 
 function graphStatus(b: Investigation): string {
@@ -140,101 +146,106 @@ function requests(state: ResearchState, b: Investigation): string {
   return resume + access;
 }
 
-// Each pass addresses every annotation sent to its batch so far. A report
-// answers the questions it addressed for the first time; a pass that adds
-// none revises the questions of the report before it.
-export function reportQuestions(b: Investigation): Map<string, string[]> {
-  const answers = new Map<string, string[]>();
-  const seen = new Set<string>();
-  let previous: string[] = [];
-  for (const p of [...b.proposals].sort((x, y) => x.createdAt.localeCompare(y.createdAt))) {
-    const fresh = p.addressedAnnotationIds.filter((id) => !seen.has(id));
-    p.addressedAnnotationIds.forEach((id) => seen.add(id));
-    const ids = (b.questions || [])
-      .filter((q) => q.annotationIds.some((id) => fresh.includes(id)))
-      .map((q) => q.id);
-    answers.set(p.id, ids.length ? ids : previous);
-    if (ids.length) previous = ids;
-  }
-  return answers;
+const passStates: Record<Assignment["status"], string> = {
+  waiting: "Waiting",
+  running: "running",
+  returned: "returned; your coordinator is checking it",
+  done: "returned",
+  paused: "paused",
+  stopped: "stopped",
+};
+
+// Where a research pass stands: who did it and when.
+function passState(state: ResearchState, b: Investigation, a: Assignment): string {
+  if (a.status === "waiting")
+    return (b.assignments || []).filter((x) => x.status === "running").length >= researchersPerBatch(state)
+      ? "Waiting. This batch already has as many researchers working as your setting allows; this starts when one finishes."
+      : "Waiting for a researcher.";
+  if (!a.startedAt) return a.status === "stopped" ? "Not started." : passStates[a.status];
+  const who = a.worker?.startsWith("Coordinator") ? "Your coordinator" : a.worker || "A researcher";
+  if (a.status === "paused") return `${who} · paused. Resume the batch to carry on.`;
+  const at = a.status === "running" ? `since ${when(a.startedAt)}` : a.endedAt ? when(a.endedAt) : when(a.startedAt);
+  return `${who} · ${passStates[a.status]} ${at}`;
 }
 
-function question(
-  state: ResearchState,
-  b: Investigation,
-  q: Question,
-  expanded: ReadonlySet<string>,
-  answers: Map<string, string[]>,
-): string {
-  const notes = b.annotations.filter((a) => q.annotationIds.includes(a.id));
-  const reports = b.proposals
-    .filter((p) => answers.get(p.id)?.includes(q.id))
-    .reverse();
-  const others = (p: Proposal) =>
-    (b.questions || []).filter(
-      (other) => other.id !== q.id && answers.get(p.id)?.includes(other.id),
-    );
-  const pending = ["queued", "running"].includes(b.status)
-    ? "A researcher is working on this now."
-    : "No report yet.";
-  return `<section class="batch-question" id="question-${html(q.id)}" ${target({ label: q.title, investigationId: b.id, questionId: q.id })}><h3>${html(q.title)}</h3>${asked(state, b, q, notes)}${
-    reports.length
-      ? reports.map((p, n) => report(state, b, p, n === 0, expanded, others(p))).join("")
-      : `<p class="report-pending">${pending}</p>`
-  }</section>`;
-}
+// The longest brief shown in full; a longer one opens on request.
+const BRIEF_SHOWN = 600;
 
-function asked(
-  state: ResearchState,
-  b: Investigation,
-  q: Question,
-  notes: Annotation[],
-): string {
-  if (q.messageId) {
-    const message = state.conversation?.find((m) => m.id === q.messageId);
-    return `<div class="asked"><span class="eyebrow">You asked</span><p>In the conversation you wrote:</p><blockquote ${target({ label: message?.text || q.title })}>${html(message?.text)}</blockquote></div>`;
+// What the pass was asked: the coordinator's brief, or, for a pass from before briefs,
+// the annotations it was started from.
+function direction(state: ResearchState, b: Investigation, a: Assignment, expanded: ReadonlySet<string>): string {
+  if (a.brief) {
+    const whole = expanded.has(`brief:${a.id}`) || a.brief.length <= BRIEF_SHOWN;
+    return `<div class="asked"><p class="asked-label">The coordinator's brief</p><blockquote class="${whole ? "" : "is-clipped"}" ${target({ label: a.brief, investigationId: b.id, assignmentId: a.id })}>${html(a.brief)}</blockquote>${whole ? "" : `<button type="button" class="text-action" data-whole-brief="${html(a.id)}">Show the whole brief</button>`}</div>`;
   }
-  if (q.origin === "coordinator") {
-    const approval = state.conversation?.find((m) => m.id === q.approvalMessageId);
-    return `<div class="asked asked-coordinator"><span class="eyebrow">The coordinator asked</span>${approval ? "<p>After research returned:</p>" : ""}<blockquote>${html(q.explanation)}</blockquote>${approval?.decision?.decidedAt ? `<p class="asked-note">You approved this research on ${html(when(approval.decision.decidedAt))}.</p>` : ""}</div>`;
-  }
+  const notes = b.annotations.filter((x) => a.annotationIds?.includes(x.id));
+  if (!notes.length) return "";
   const written = b.reviewFlow?.walkthroughs[0]?.createdAt;
-  return `<div class="asked"><span class="eyebrow">You asked</span>${notes
-    .map((a) => {
-      const ref = a.references?.[0] || a.target;
+  return `<div class="asked"><p class="asked-label">Started from your annotations</p>${notes
+    .map((x) => {
+      const ref = x.references?.[0] || x.target;
       const about =
         ref && ref.label && ref.label !== state.dataset.title
           ? `On "${html(ref.label)}" you wrote:`
           : "You wrote:";
       const late =
-        written && a.dispatchedAt && a.dispatchedAt > written
-          ? `<p class="asked-note">Sent ${html(when(a.dispatchedAt))}, after the walkthrough was written.</p>`
+        written && x.dispatchedAt && x.dispatchedAt > written
+          ? `<p class="asked-note">Sent ${html(when(x.dispatchedAt))}, after the walkthrough was written.</p>`
           : "";
-      return `<p>${about}</p><blockquote ${target({ label: a.question })}>${html(a.question)}</blockquote>${late}`;
+      return `<p>${about}</p><blockquote ${target({ label: x.question })}>${html(x.question)}</blockquote>${late}`;
     })
     .join("")}</div>`;
 }
 
+// One research pass: its title and direction, any steering, and what it returned.
+function pass(state: ResearchState, b: Investigation, a: Assignment, expanded: ReadonlySet<string>): string {
+  const reports = b.proposals.filter((p) => p.assignmentId === a.id).reverse();
+  const steering = a.steering.length
+    ? `<ul class="steering">${a.steering.map((s) => `<li><time datetime="${html(s.at)}">The coordinator redirected it, ${html(when(s.at))}</time>${html(s.message)}</li>`).join("")}</ul>`
+    : "";
+  const pending =
+    a.status === "running"
+      ? '<p class="report-pending">The researcher is working on this now.</p>'
+      : a.status === "returned"
+        ? '<p class="report-pending">The researcher has returned its findings; your coordinator is checking them.</p>'
+        : "";
+  return `<section class="batch-question" id="pass-${html(a.id)}" ${target({ label: a.title, investigationId: b.id, assignmentId: a.id })}><h3>${html(a.title)}</h3><p class="pass-state">${passState(state, b, a)}</p>${direction(state, b, a, expanded)}${steering}${
+    reports.map((p, n) => report(state, p, n === 0, expanded)).join("") || pending
+  }</section>`;
+}
+
+// What the batch's researchers told each other, for the human to look into.
+function board(b: Investigation): string {
+  const posts = b.board || [];
+  if (!posts.length) return "";
+  return `<details class="batch-board"><summary>What the researchers told each other · ${posts.length} post${posts.length === 1 ? "" : "s"}</summary><p>Researchers in this batch post here when they find something the others should know. Researchers who start later read these first.</p>${postList(b)}</details>`;
+}
+
+// A batch's posts, each with who wrote it.
+function postList(b: Investigation): string {
+  const title = (id?: string) => b.assignments?.find((a) => a.id === id)?.title || "a research pass";
+  return `<ol class="board-posts">${(b.board || [])
+    .map((p) => `<li><span class="board-who">${p.author === "coordinator" ? "Your coordinator" : `The researcher on "${html(title(p.assignmentId))}"`} · ${html(when(p.at))}</span>${html(p.text)}</li>`)
+    .join("")}</ol>`;
+}
+
+// Every batch's board, newest batch first, to see how researchers use it.
+function boards(all: Investigation[]): string {
+  const posted = all.filter((b) => b.board?.length);
+  return posted.length
+    ? posted.map((b) => `<section class="board-batch"><h2><span class="activity-batch">Batch ${b.number}</span> ${html(b.title)}</h2>${postList(b)}</section>`).join("")
+    : '<p class="findings-empty">Posts appear here when researchers in a batch tell each other what they found.</p>';
+}
+
 function report(
   state: ResearchState,
-  b: Investigation,
   p: Proposal,
   open: boolean,
   expanded: ReadonlySet<string>,
-  alsoAnswers: Question[],
 ): string {
-  const execution = (b.executions || [])
-    .filter((e) => e.at <= p.createdAt)
-    .at(-1);
-  const by = execution?.worker.startsWith("Coordinator")
-    ? "the coordinator"
-    : execution?.worker || "a researcher";
   const findings = p.findings || [];
   const shown = expanded.has(p.id) ? findings : findings.slice(0, FINDINGS_SHOWN);
-  const also = alsoAnswers.length
-    ? ` Also answers ${alsoAnswers.map((q) => `<a href="#question-${html(q.id)}" data-toc="question-${html(q.id)}">${html(q.title)}</a>`).join(", ")}.`
-    : "";
-  return `<details class="report" data-proposal-id="${html(p.id)}" ${target({ label: p.title, proposalId: p.id })} ${open ? "open" : ""}><summary>${html(p.title)}</summary><p class="report-by">Returned by ${html(by)}, ${html(when(p.createdAt))}.${also}</p><p class="report-summary">${html(p.summary)}</p>${
+  return `<details class="report" data-proposal-id="${html(p.id)}" ${target({ label: p.title, proposalId: p.id })} ${open ? "open" : ""}><summary>${html(p.title)}</summary><p class="report-by">Published ${html(when(p.createdAt))}.</p><p class="report-summary">${html(p.summary)}</p>${
     shown.length
       ? `<div class="finding-list">${shown
           .map(

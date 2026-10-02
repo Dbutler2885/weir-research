@@ -16,7 +16,11 @@ function invalidate(next) {
   for (const i of next.investigations) {
     if (["running", "queued", "review"].includes(i.status)) {
       i.status = "paused";
-      delete i.lease;
+      for (const a of i.assignments || [])
+        if (a.status === "running" || a.status === "waiting") {
+          a.status = "paused";
+          delete a.lease;
+        }
       for (const p of i.proposals)
         if (p.status === "pending" && p.kind !== "findings")
           p.status = "superseded";
@@ -27,7 +31,6 @@ function invalidate(next) {
       });
     }
   }
-  if (next.coordination) next.coordination.assignments = {};
 }
 export function organize(store, command) {
   if (command.action === "organization-preview") {

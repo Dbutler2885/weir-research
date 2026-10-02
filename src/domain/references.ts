@@ -122,11 +122,11 @@ export function describeReference(state: ResearchState, r: AnnotationTarget): Re
   } else if (review) {
     kind = `${capital(inBatch || "batch")} draft graph`;
     about = `${quoted(r.label, 120)} in ${inBatch}'s draft graph`;
-  } else if (r.questionId && batch) {
-    const question = batch.questions?.find((q) => q.id === r.questionId);
-    kind = `${capital(inBatch!)} · question`;
-    about = `the question ${quoted(question?.title || r.label, 160)} in ${inBatch}`;
-    ids.question = r.questionId;
+  } else if (r.assignmentId && batch) {
+    const assignment = batch.assignments?.find((a) => a.id === r.assignmentId);
+    kind = `${capital(inBatch!)} · research pass`;
+    about = `the research pass ${quoted(assignment?.title || r.label, 160)} in ${inBatch}`;
+    ids.assignment = r.assignmentId;
   } else if (r.investigationId && batch) {
     kind = capital(inBatch!);
     about = `${inBatch}, ${quoted(batch.title, 120)}`;

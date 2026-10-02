@@ -1,9 +1,11 @@
 import type { Investigation, LiveWorker, ResearchState } from "./research.ts";
+import type { Assignment } from "./assignments.ts";
 import { referenceLine } from "./references.ts";
 import type { Message } from "./conversation.ts";
 import { nextAction, currentCandidates } from "./next-action.ts";
 import { sourceLibrary } from "./findings.ts";
 import { queueOf } from "./queue.ts";
+import { researchersPerBatch } from "./assignments.ts";
 
 // What a coordinator reads when it starts, ordered by urgency so it can act
 // without reading everything. Built from saved state alone; it never writes.
@@ -116,6 +118,26 @@ function humanLine(b: Investigation) {
   return `The human sees: ${parts.join("; ")}.`;
 }
 
+const passState: Record<Assignment["status"], string> = {
+  waiting: "waiting for a free place",
+  running: "running",
+  returned: "returned, awaiting your judgment",
+  done: "published",
+  paused: "paused",
+  stopped: "stopped",
+};
+
+// One assignment: its heading, where it stands, and what an interrupted one needs.
+function assignmentLine(a: Assignment) {
+  const parts = [`- Assignment "${clip(a.title, 110)}" (${a.id}): ${passState[a.status]}`];
+  const checkpoint = a.checkpoints.at(-1);
+  if (checkpoint && ["running", "paused", "stopped"].includes(a.status))
+    parts.push(`latest checkpoint ${day(checkpoint.at)}: ${clip(checkpoint.summary, 200)}`);
+  if (a.status === "paused" && a.session)
+    parts.push(`resuming picks up its ${a.session.engine} conversation, so brief it on what changed rather than the whole pass`);
+  return `${parts.join("; ")}.`;
+}
+
 function batchBlock(state: ResearchState, b: Investigation, workers: LiveWorker[]) {
   const lines = [`### ${batchName(b)}: ${clip(b.title, 160)}`, `ID ${b.id} · status ${b.status}${b.readyAt ? " · marked ready" : ""}${b.held ? " · held by the human: start nothing on it until they release it" : ""}`];
   if (b.brief)
@@ -125,25 +147,15 @@ function batchBlock(state: ResearchState, b: Investigation, workers: LiveWorker[
       `Direction (${day(b.brief.updatedAt)}): ${clip(b.brief.direction, 500)}`,
     );
   else lines.push("No brief yet.");
-  const questions = b.questions || [];
-  if (questions.length)
-    lines.push(
-      `Questions: ${questions
-        .slice(0, 6)
-        .map((q) => `"${clip(q.title, 110)}"`)
-        .join("; ")}${questions.length > 6 ? `; and ${questions.length - 6} more` : ""}.`,
-    );
+  for (const a of (b.assignments || []).slice(-12)) lines.push(assignmentLine(a));
+  if ((b.assignments || []).length > 12) lines.push(`…and ${b.assignments!.length - 12} earlier assignments; inspect the batch for them.`);
   lines.push(`Findings: ${findingsLine(b)}`);
   const review = reviewLine(b);
   if (review) lines.push(review);
   lines.push(humanLine(b));
-  const checkpoint = b.checkpoints.at(-1);
-  if (checkpoint && ["queued", "running", "paused"].includes(b.status))
-    lines.push(`Latest checkpoint (${day(checkpoint.at)}): ${clip(checkpoint.summary, 300)}`);
   if (b.status === "paused" && b.events.length) lines.push(`Last event: ${clip(b.events.at(-1)!.message, 240)}`);
-  const session = b.researcherSession;
-  if (session && b.status !== "running")
-    lines.push(`Interrupted researcher: assigning ${session.engine} again picks up its conversation where it stopped, so brief it on what changed rather than the whole pass; another engine starts afresh from the checkpoints.`);
+  const posts = b.board || [];
+  if (posts.length) lines.push(`Board: ${posts.length} post${posts.length === 1 ? "" : "s"}; the latest: ${clip(posts.at(-1)!.text, 240)}`);
   for (const w of workers.filter((w) => w.investigationId === b.id))
     lines.push(`Worker: ${w.name}${w.latest ? `, ${clip(w.latest.text, 200)}` : ", starting"}.`);
   const candidates = currentCandidates(state, b).length;
@@ -203,7 +215,7 @@ function orientation(state: ResearchState): ContextLayer {
     `automatic walkthrough: ${state.reviewSettings?.autoWalkthrough ? "on" : "off"}`,
     `automatic graph update: ${state.reviewSettings?.autoGraph ? "on" : "off"}`,
     `research time limit: ${state.researchSettings?.timeLimitMinutes ? `${state.researchSettings.timeLimitMinutes} minutes` : "none"}`,
-    `workers at once: at most ${state.researchSettings?.maxWorkers ?? 4}, unless the human asks for more for a particular job`,
+    `researchers per batch: at most ${researchersPerBatch(state)} at once, which the app enforces; more assignments wait their turn`,
   ].join("; ");
   const coordination = (state as { coordination?: { researchMap?: string } }).coordination;
   const blocks = [

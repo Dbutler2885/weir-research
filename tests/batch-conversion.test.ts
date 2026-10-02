@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { initialState, type ResearchState } from "../src/domain/research";
+import { convertToAssignments } from "../src/domain/migration";
 import { convertToBatches, headline } from "../src/domain/batch-conversion";
 import { emptyGraph } from "../src/domain/graph-schema";
 const empty = emptyGraph();
@@ -102,14 +103,13 @@ describe("conversion to batches", () => {
     ]);
   });
 
-  it("gives every sent annotation a readable question and keeps report links", () => {
-    const [first, later] = convertToBatches(legacy()).investigations;
-    expect(first!.questions!.map((q) => q.title)).toEqual(["Who built the mill", "And when"]);
-    expect(later!.questions![0]).toMatchObject({
-      title: "Is the ledger reliable?",
-      annotationIds: ["a3"],
-    });
-    expect(later!.proposals[0]!.addressedAnnotationIds).toEqual(later!.questions![0]!.annotationIds);
+  it("heads every research pass with readable questions from the annotations it was sent, and keeps report links", () => {
+    const state = convertToBatches(legacy());
+    convertToAssignments(state);
+    const [first, later] = state.investigations;
+    expect(first!.assignments!.map((a) => a.title)).toEqual(["Who built the mill", "And when"]);
+    expect(later!.assignments![0]).toMatchObject({ title: "Is the ledger reliable?", annotationIds: ["a3"] });
+    expect(later!.proposals[0]!.assignmentId).toBe(later!.assignments![0]!.id);
   });
 
   it("rebuilds the conversation from sends and returns unsent annotations to the queue", () => {

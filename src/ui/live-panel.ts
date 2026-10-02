@@ -1,4 +1,5 @@
 import type { Investigation, LiveWorker, ResearchState } from "../domain/research";
+import type { Assignment } from "../domain/assignments";
 import { html } from "./finding-review";
 import { resetTime } from "../domain/reset-time";
 import { writerStatus } from "./review-view";
@@ -32,15 +33,11 @@ export function running(since: string, now: number): string {
   return seconds < 60 ? `${seconds} s` : elapsed(since, now);
 }
 
-// Notes sent since the coordinator last said anything, and not yet put in a batch.
-export function unansweredNotes(state: ResearchState): number {
+// Messages the human sent since the coordinator last said anything.
+export function unansweredMessages(state: ResearchState): number {
   const conversation = state.conversation || [];
   const last = conversation.map((m) => m.author).lastIndexOf("coordinator");
-  const placed = new Set(state.investigations.flatMap((i) => i.annotations.map((a) => a.id)));
-  return conversation
-    .slice(last + 1)
-    .flatMap((m) => (m.author === "human" ? m.annotations || [] : []))
-    .filter((a) => !placed.has(a.id)).length;
+  return conversation.slice(last + 1).filter((m) => m.author === "human").length;
 }
 
 const coordinatorWorking = (state: ResearchState) =>
@@ -73,7 +70,7 @@ export function contextNotice(state: ResearchState): { title: string; detail: st
 export function liveRows(state: ResearchState): LiveRow[] {
   const rows: LiveRow[] = [];
   const live = state.live || [];
-  const waiting = unansweredNotes(state);
+  const waiting = unansweredMessages(state);
   const c = state.coordinator;
   if (c?.connected && c.paused)
     rows.push({ group: "waiting", who: "Coordinator", stage: `Paused until ${resetTime(Date.parse(c.paused.until))}: the usage limit is reached. Your messages still try to reach it, in case the limit lifts sooner.` });
@@ -98,15 +95,22 @@ export function liveRows(state: ResearchState): LiveRow[] {
     rows.push({
       group: "attention",
       who: "Coordinator",
-      stage: `Not connected. ${plural(waiting, "note is", "notes are")} waiting for it.`,
+      stage: `Not connected. ${plural(waiting, "message is", "messages are")} waiting for it.`,
     });
   for (const helper of live.filter((w) => w.role === "helper"))
     rows.push({ group: "working", who: helper.name, stage: `Helping the coordinator: ${helper.task}`, ...steps(helper), since: helper.startedAt });
   for (const i of state.investigations.filter((i) => i.number && !i.closedAt)) {
     const batch = { id: i.id, number: i.number! };
-    if (i.status === "running") rows.push(researcherRow(i, live, batch));
-    else if (i.status === "queued") rows.push({ group: "waiting", who: "Researcher", batch, stage: i.held ? "Held in the queue." : "Waiting for a researcher." });
-    else if (i.status === "paused")
+    for (const a of i.assignments || []) {
+      if (a.status === "running") rows.push(researcherRow(a, live, batch));
+      else if (a.status === "waiting")
+        rows.push({ group: "waiting", who: "Researcher", batch, stage: i.held ? `Held in the queue: ${a.title}` : `Waiting for a free place: ${a.title}` });
+      else if (a.status === "paused")
+        rows.push({ group: "attention", who: "Researcher", batch, stage: `Paused: ${a.title}` });
+    }
+    if (i.status === "queued" && !(i.assignments || []).some((a) => a.status === "waiting"))
+      rows.push({ group: "waiting", who: "Researcher", batch, stage: "Waiting for the coordinator to assign researchers." });
+    if (i.status === "paused" && !(i.assignments || []).some((a) => a.status === "paused"))
       rows.push({ group: "attention", who: "Researcher", batch, stage: `Research paused. ${firstSentence(i.events.at(-1)?.message || "")}`.trim() });
     if (i.walkthroughRequestedAt) {
       const writer = live.find((w) => w.role === "writer" && w.investigationId === i.id);
@@ -148,16 +152,15 @@ const firstSentence = (text: string) => {
 // A live worker's current step and the ones before it.
 const steps = (worker: LiveWorker) => ({ latest: worker.latest?.text, trail: (worker.trail || []).map((s) => s.text) });
 
-function researcherRow(i: Investigation, live: LiveWorker[], batch: LiveRow["batch"]): LiveRow {
-  const worker = live.find((w) => w.role === "researcher" && w.investigationId === i.id);
-  const lease = i.lease?.worker || "";
+function researcherRow(a: Assignment, live: LiveWorker[], batch: LiveRow["batch"]): LiveRow {
+  const worker = live.find((w) => w.role === "researcher" && w.assignmentId === a.id);
   return {
     group: "working",
-    who: worker?.name || (lease.startsWith("Coordinator") ? "Researcher run by the coordinator" : "Researcher"),
+    who: worker?.name || "Researcher",
     batch,
-    stage: `Researching ${i.title}`,
+    stage: `Researching ${a.title}`,
     ...(worker ? steps(worker) : {}),
-    since: worker?.startedAt || i.lease?.at,
+    since: worker?.startedAt || a.startedAt,
   };
 }
 
@@ -183,7 +186,7 @@ export function runningSummary(state: ResearchState): string {
     .filter((j) => ["queued", "running", "returned"].includes(j.status)).length;
   const writing = open.filter((i) => i.walkthroughRequestedAt).length;
   const helping = (state.live || []).filter((w) => w.role === "helper").length;
-  const waiting = unansweredNotes(state);
+  const waiting = unansweredMessages(state);
   const c = state.coordinator;
   return [
     coordinatorWorking(state) ? "Coordinator working" : "",
@@ -191,7 +194,7 @@ export function runningSummary(state: ResearchState): string {
     // Why the coordinator is not running shows in the panel this opens.
     !c?.connected && c?.waiting ? "Coordinator starts when you write" : "",
     !c?.connected && !c?.waiting && c?.problem ? "Coordinator not running" : "",
-    waiting && !coordinatorWorking(state) ? `${plural(waiting, "note", "notes")} waiting for the coordinator` : "",
+    waiting && !coordinatorWorking(state) ? `${plural(waiting, "message", "messages")} waiting for the coordinator` : "",
     running ? `${plural(running, "researcher", "researchers")} working` : "",
     queued ? `${plural(queued, "batch", "batches")} waiting for a researcher` : "",
     builders ? `${plural(builders, "graph update", "graph updates")} building` : "",

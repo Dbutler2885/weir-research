@@ -22,7 +22,7 @@ Every part of the research can be annotated: a node, an edge, an empty field, a 
 An annotation is not a copy of the text.
 It records what you marked as a research object, with its IDs: the words, the finding or walkthrough step or source they sit in, the batch it belongs to, and the screen you were on.
 The coordinator looks up that exact record, with the evidence and sources behind it, and answers in the conversation with its plan.
-It either adds your question to an open batch or starts a new one, and its researchers start from what you marked.
+It either adds research to an open batch or starts a new one, and briefs each researcher on its part, naming the records you marked.
 Where the evidence is thin, you ask for more right there.
 
 ![Annotating the Tidewell Net Works node](docs/images/annotate.webp)

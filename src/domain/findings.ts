@@ -293,7 +293,7 @@ export function validateReferences(
     if (r.investigationId) {
       const batch = state.investigations.find((i) => i.id === r.investigationId);
       assert(batch, "Referenced batch no longer exists.");
-      assert(!r.questionId || batch.questions?.some((q) => q.id === r.questionId), "Referenced question does not exist in its batch.");
+      assert(!r.assignmentId || batch.assignments?.some((a) => a.id === r.assignmentId), "Referenced assignment does not exist in its batch.");
     }
     if (r.proposalId) {
       const p = state.investigations

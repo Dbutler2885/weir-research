@@ -14,7 +14,10 @@ export function currentCandidates(state: ResearchState, batch: Investigation) {
   const candidates = (state as { coordination?: { candidates?: { investigationId: string; token: string }[] } })
     .coordination?.candidates || [];
   return candidates.filter(
-    (c) => c.investigationId === batch.id && batch.status === "running" && batch.lease?.token === c.token,
+    (c) =>
+      c.investigationId === batch.id &&
+      batch.status !== "paused" &&
+      (batch.assignments || []).some((a) => a.status === "returned" && a.lease?.token === c.token),
   );
 }
 
@@ -43,21 +46,15 @@ export function nextAction(state: ResearchState, batch: Investigation): NextActi
       return next("worker", "A graph builder is preparing the draft.");
   }
   if (batch.held) return next("human", "Held by the human; start nothing on it until they release it.");
-  if (batch.status === "paused")
-    return next("human", "Paused. Leave it paused; ask with request-resume only for a new reason.");
   if (currentCandidates(state, batch).length)
     return next("coordinator", "A researcher returned findings; inspect the candidate, then publish it or ask for another pass with revise.");
-  if (batch.status === "running")
-    return batch.lease?.worker.startsWith("Coordinator:")
-      ? next("coordinator", "Claimed for native research; save checkpoints and publish the findings.")
-      : next("worker", "A researcher is working on it.");
-  if (batch.status === "queued") {
-    const assigned = (state as { coordination?: { assignments?: Record<string, unknown> } }).coordination
-      ?.assignments?.[batch.id];
-    return assigned
-      ? next("worker", "Assigned; waiting for a free researcher.")
-      : next("coordinator", "Assign a researcher with a bounded brief.");
-  }
+  if (batch.status === "paused")
+    return next("human", "Paused. Leave it paused; ask with request-resume only for a new reason.");
+  const assignments = batch.assignments || [];
+  if (assignments.some((a) => a.status === "running")) return next("worker", "Researchers are working on it.");
+  if (assignments.some((a) => a.status === "waiting")) return next("worker", "Assigned; waiting for a free researcher.");
+  if (batch.status === "queued" || batch.status === "running")
+    return next("coordinator", "Assign researchers, each with a title and a bounded brief.");
   if (batch.walkthroughRequestedAt) {
     const writer = flow?.writer;
     if (writer?.status === "returned")

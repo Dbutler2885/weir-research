@@ -60,7 +60,7 @@ if (!existsSync(join(directory, "workspace.json"))) {
   run({
     type: "checkpoint",
     investigationId,
-    token: first.investigation.lease.token,
+    token: first.assignment.lease.token,
     summary: "The relationship cites an register summary",
     findings:
       "The fictional dataset has a source record titled “Fictional workshop register.” It contains a summary but no source URL, scan, or precise passage locator. This audit has inspected only the dataset.",
@@ -70,7 +70,7 @@ if (!existsSync(join(directory, "workspace.json"))) {
   run({
     type: "propose",
     investigationId,
-    token: first.investigation.lease.token,
+    token: first.assignment.lease.token,
     proposal: {
       title: "Make the missing original evidence visible",
       summary:

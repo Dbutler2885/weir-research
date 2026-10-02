@@ -3,10 +3,11 @@ const tables = ["nodes", "claims", "sources"];
 const label = (record) =>
   record.name || record.title || record.label || record.id;
 const clip = (value, limit = 500) => String(value || "").slice(0, limit);
+// A worker's credential and its copy of the graph stay out of what the coordinator reads.
 const withoutLease = (investigation) => {
   const result = structuredClone(investigation);
-  if (result.lease)
-    result.lease = { worker: result.lease.worker, at: result.lease.at };
+  for (const a of result.assignments || [])
+    if (a.lease) a.lease = { worker: a.lease.worker, at: a.lease.at };
   return result;
 };
 export function projectIndex(state) {
@@ -80,17 +81,16 @@ export function investigationIndex(i) {
         })),
       )
       .slice(-30),
-    annotationCount: i.annotations.length,
-    unsent: i.annotations.filter((a) => !a.dispatchedAt).length,
-    checkpointCount: i.checkpoints.length,
+    assignments: (i.assignments || []).map((a) => ({
+      id: a.id,
+      title: a.title,
+      status: a.status,
+      checkpointCount: a.checkpoints.length,
+      latestCheckpoint: a.checkpoints.at(-1) ? clip(a.checkpoints.at(-1).summary) : null,
+    })),
+    boardPosts: (i.board || []).length,
     proposalCount: i.proposals.length,
     latestActivity: i.events.at(-1),
-    latestCheckpoint: i.checkpoints.at(-1)
-      ? {
-          id: i.checkpoints.at(-1).id,
-          summary: clip(i.checkpoints.at(-1).summary),
-        }
-      : null,
     latestProposal: i.proposals.at(-1)
       ? {
           id: i.proposals.at(-1).id,
@@ -226,7 +226,8 @@ export function searchContext(state, query, requestedOffset = 0) {
       JSON.stringify({
         title: i.title,
         annotations: i.annotations,
-        checkpoints: i.checkpoints,
+        assignments: (i.assignments || []).map((a) => ({ title: a.title, brief: a.brief, checkpoints: a.checkpoints })),
+        board: i.board,
         proposals: i.proposals,
         graphRequest: i.graphRequest,
       }),

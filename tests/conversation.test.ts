@@ -5,11 +5,7 @@ import {
   type ResearchCommand,
   type ResearchState,
 } from "../src/domain/research";
-import {
-  batchStatus,
-  repairClosedBatches,
-  unassignedAnnotations,
-} from "../src/domain/conversation";
+import { batchStatus, repairClosedBatches } from "../src/domain/conversation";
 import { emptyGraph } from "../src/domain/graph-schema";
 const empty = emptyGraph();
 
@@ -95,41 +91,38 @@ describe("coordinator batches", () => {
     scope: "The mill's construction only, not its later owners.",
     direction: "Start with the parish building register.",
   };
-  function sendTwo() {
-    run({ type: "queue-annotation", question: "Who built the mill?", references: [topic()] });
-    run({ type: "queue-annotation", question: "Was the builder local?", references: [] });
-    run({ type: "send", queue: true });
-    return state.conversation![0]!.annotations!.map((a) => a.id);
-  }
+  const part = (title: string, extra: object = {}) => ({ title, brief: `Research: ${title}`, ...extra });
 
-  it("opens a numbered batch from sent annotations under coordinator headings", () => {
-    const [a, b] = sendTwo();
+  it("opens a numbered batch with the coordinator's assignments, whatever the human sent", () => {
+    run({ type: "send", queue: false, text: "Who built the mill, and was the builder local?" });
     const { investigationId } = run({
       type: "open-batch",
       brief,
       title: "The mill's builder",
-      questions: [{ title: "Who built the Harbour Mill?", annotationIds: [a, b] }],
+      assignments: [part("Who built the Harbour Mill?"), part("Was the builder local?")],
     });
     const batch = state.investigations.find((i) => i.id === investigationId)!;
     expect(batch.number).toBe(1);
     expect(batch.status).toBe("queued");
-    expect(batch.annotations.map((x) => x.id)).toEqual([a, b]);
-    expect(batch.questions![0]!).toMatchObject({ title: "Who built the Harbour Mill?", origin: "human" });
-    expect(unassignedAnnotations(state)).toHaveLength(0);
+    expect(batch.annotations).toEqual([]);
+    expect(batch.assignments!.map((a) => [a.title, a.brief, a.status])).toEqual([
+      ["Who built the Harbour Mill?", "Research: Who built the Harbour Mill?", "waiting"],
+      ["Was the builder local?", "Research: Was the builder local?", "waiting"],
+    ]);
     expect(batchStatus(batch)).toBe("in progress");
+    // Questions are gone; an assignment needs its own title and brief.
+    expect(() => run({ type: "open-batch", brief, title: "Old", questions: [{ title: "Q", request: "R" }] })).toThrow("assignment with a title and a brief");
+    expect(() => run({ type: "open-batch", brief, title: "No brief", assignments: [{ title: "Q" }] })).toThrow("Assignment brief");
+  });
+
+  it("opens a batch with nothing assigned yet, waiting for the coordinator", () => {
+    const { investigationId } = run({ type: "open-batch", brief, title: "Later" });
+    expect(state.investigations.find((i) => i.id === investigationId)).toMatchObject({ status: "queued", assignments: [] });
   });
 
   it("requires a brief to open a batch and keeps it current", () => {
-    const [a] = sendTwo();
-    expect(() =>
-      run({ type: "open-batch", title: "No brief", questions: [{ title: "Q", annotationIds: [a] }] }),
-    ).toThrow("brief");
-    const { investigationId } = run({
-      type: "open-batch",
-      brief,
-      title: "The mill's builder",
-      questions: [{ title: "Who built it?", annotationIds: [a] }],
-    });
+    expect(() => run({ type: "open-batch", title: "No brief", assignments: [part("Q")] })).toThrow("brief");
+    const { investigationId } = run({ type: "open-batch", brief, title: "The mill's builder", assignments: [part("Who built it?")] });
     run({ type: "set-brief", investigationId, brief: { direction: "The register is lost; try the 1880 newspaper." } });
     const batch = state.investigations[0]!;
     expect(batch.brief).toMatchObject({
@@ -141,65 +134,35 @@ describe("coordinator batches", () => {
     expect(() => run({ type: "set-brief", investigationId, brief: { direction: "" } })).toThrow("direction");
   });
 
-  it("does not place an annotation in two batches", () => {
-    const [a] = sendTwo();
-    run({ type: "open-batch", brief, title: "One", questions: [{ title: "Q", annotationIds: [a] }] });
-    expect(() =>
-      run({ type: "open-batch", brief, title: "Two", questions: [{ title: "Q", annotationIds: [a] }] }),
-    ).toThrow("not yet placed in a batch");
-  });
-
-  it("adds a later annotation to an open batch and reopens it", () => {
-    const [a, b] = sendTwo();
-    const { investigationId } = run({
-      type: "open-batch",
-      brief,
-      title: "The mill's builder",
-      questions: [{ title: "Who built it?", annotationIds: [a] }],
-    });
+  it("adds a later assignment to an open batch and reopens it", () => {
+    const { investigationId } = run({ type: "open-batch", brief, title: "The mill's builder", assignments: [part("Who built it?")] });
     run({ type: "batch-ready", investigationId, text: "Batch 1 is done." });
-    const questionId = state.investigations[0]!.questions![0]!.id;
-    run({ type: "add-to-batch", investigationId, questions: [{ questionId, annotationIds: [b] }] });
+    const { assignmentId } = run({ type: "assign", investigationId, ...part("Was the builder local?") });
     const batch = state.investigations[0]!;
-    expect(batch.questions![0]!.annotationIds).toEqual([a, b]);
+    expect(batch.assignments!.at(-1)).toMatchObject({ id: assignmentId, title: "Was the builder local?", status: "waiting" });
     expect(batch.readyAt).toBeUndefined();
     expect(batch.status).toBe("queued");
   });
 
-  it("lets the coordinator rewrite batch and question headings", () => {
-    const [a] = sendTwo();
-    const { investigationId } = run({
-      type: "open-batch",
-      brief,
-      title: "draft title",
-      questions: [{ title: "draft question", annotationIds: [a] }],
-    });
-    const questionId = state.investigations[0]!.questions![0]!.id;
-    run({ type: "retitle", investigationId, title: "The mill's builder", questions: [{ questionId, title: "Who built the mill?" }] });
+  it("lets the coordinator rewrite batch and assignment headings", () => {
+    const { investigationId } = run({ type: "open-batch", brief, title: "draft title", assignments: [part("draft heading")] });
+    const assignmentId = state.investigations[0]!.assignments![0]!.id;
+    run({ type: "retitle", investigationId, title: "The mill's builder", assignments: [{ assignmentId, title: "Who built the mill?" }] });
     expect(state.investigations[0]!.title).toBe("The mill's builder");
-    expect(state.investigations[0]!.questions![0]!.title).toBe("Who built the mill?");
-    expect(() => run({ type: "retitle", investigationId, questions: [{ questionId: "missing", title: "x" }] })).toThrow(
+    expect(state.investigations[0]!.assignments![0]!.title).toBe("Who built the mill?");
+    expect(() => run({ type: "retitle", investigationId, assignments: [{ assignmentId: "missing", title: "x" }] })).toThrow(
       "not part of this batch",
     );
   });
 
-    it("refuses work for a closed batch", () => {
-    const [a, b] = sendTwo();
-    const { investigationId } = run({
-      type: "open-batch",
-      brief,
-      title: "Closed",
-      questions: [{ title: "Q", annotationIds: [a] }],
-    });
+  it("refuses work for a closed batch", () => {
+    const { investigationId } = run({ type: "open-batch", brief, title: "Closed", assignments: [part("Q")] });
     state.investigations[0]!.closedAt = new Date().toISOString();
-    expect(() =>
-      run({ type: "add-to-batch", investigationId, questions: [{ title: "Q2", annotationIds: [b] }] }),
-    ).toThrow("closed");
+    expect(() => run({ type: "assign", investigationId, ...part("Q2") })).toThrow("closed");
   });
 
   it("repairs a batch closed without its status", () => {
-    const [a] = sendTwo();
-    run({ type: "open-batch", brief, title: "Old", questions: [{ title: "Q", annotationIds: [a] }] });
+    run({ type: "open-batch", brief, title: "Old", assignments: [part("Q")] });
     state.investigations[0]!.closedAt = new Date().toISOString();
     expect(repairClosedBatches(state)).toBe(1);
     expect(state.investigations[0]!.status).toBe("closed");
@@ -207,80 +170,9 @@ describe("coordinator batches", () => {
   });
 
   it("announces a ready batch in the conversation", () => {
-    const [a] = sendTwo();
-    const { investigationId } = run({
-      type: "open-batch",
-      brief,
-      title: "Ready",
-      questions: [{ title: "Q", annotationIds: [a] }],
-    });
+    const { investigationId } = run({ type: "open-batch", brief, title: "Ready", assignments: [part("Q")] });
     run({ type: "batch-ready", investigationId, text: "I think this batch is done." });
     expect(batchStatus(state.investigations[0]!)).toBe("ready");
     expect(state.conversation!.at(-1)).toMatchObject({ readyBatchId: investigationId });
-  });
-
-  it("opens a batch from research the human asked for in chat, worded by the coordinator", () => {
-    const { messageId } = run({ type: "send", text: "Find out who ran the mill after 1900." });
-    expect(() =>
-      run({ type: "open-batch", brief, title: "Later owners", questions: [{ title: "Who ran the mill after 1900?", messageId }] }),
-    ).toThrow("questions no longer cite a message");
-    const { investigationId } = run({
-      type: "open-batch",
-      brief,
-      title: "Later owners",
-      questions: [{ title: "Who ran the mill after 1900?", request: "Trace who ran the mill after 1900.", references: [topic()] }],
-    });
-    const batch = state.investigations.find((i) => i.id === investigationId)!;
-    expect(batch.questions![0]).toMatchObject({ origin: "coordinator", explanation: "Trace who ran the mill after 1900." });
-    // The researcher receives the coordinator's words and what the human pointed at.
-    const assignment = batch.annotations.find((x) => x.id === batch.questions![0]!.annotationIds[0])!;
-    expect(assignment).toMatchObject({ question: "Trace who ran the mill after 1900.", author: "coordinator", references: [topic()] });
-    expect(assignment.dispatchedAt).toBeTruthy();
-    expect(() => run({ type: "add-to-batch", investigationId, questions: [{ title: "Q" }] })).toThrow("Research request");
-  });
-
-  it("opens a batch on the coordinator's own judgement", () => {
-    const { investigationId } = run({
-      type: "open-batch",
-      brief,
-      title: "Closing year",
-      questions: [{ title: "When did the mill close?", request: "Resolve the conflicting closing years." }],
-    });
-    const question = state.investigations.find((i) => i.id === investigationId)!.questions![0]!;
-    expect(question).toMatchObject({ origin: "coordinator", explanation: "Resolve the conflicting closing years." });
-    expect(question.messageId).toBeUndefined();
-  });
-
-  it("links an approved request to its coordinator question", () => {
-    const [a] = sendTwo();
-    const { investigationId } = run({
-      type: "open-batch",
-      brief,
-      title: "Mill",
-      questions: [{ title: "Q", annotationIds: [a] }],
-    });
-    const { messageId } = run({
-      type: "request-approval",
-      title: "Check the 1884 register?",
-      body: "Two sources give different closing years.",
-      investigationId,
-    });
-    expect(() =>
-      run({ type: "add-to-batch", investigationId, questions: [{ title: "When did it close?", approvalMessageId: messageId }] }),
-    ).toThrow("approved");
-    run({ type: "decide", messageId, decision: "approve" });
-    run({ type: "add-to-batch", investigationId, questions: [{ title: "When did it close?", approvalMessageId: messageId }] });
-    const question = state.investigations[0]!.questions!.at(-1)!;
-    expect(question).toMatchObject({
-      origin: "coordinator",
-      explanation: "Two sources give different closing years.",
-    });
-    const assignment = state.investigations[0]!.annotations.find((x) => x.id === question.annotationIds[0])!;
-    expect(assignment).toMatchObject({ author: "coordinator", question: "Two sources give different closing years." });
-    expect(assignment.dispatchedAt).toBeTruthy();
-    expect(() =>
-      run({ type: "add-to-batch", investigationId, questions: [{ title: "Again", approvalMessageId: messageId }] }),
-    ).toThrow("already has a question");
-    expect(() => run({ type: "decide", messageId, decision: "decline" })).toThrow("no longer waiting");
   });
 });

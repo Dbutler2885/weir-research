@@ -82,7 +82,7 @@ try {
       else printView(view);
     } else {
       // Claims contain a private lease and a large brief; keep them on disk for deliberate delegation.
-      if (result?.investigation?.lease) {
+      if (result?.assignment?.lease) {
         const briefFile = `${file}.${result.investigation.id}.brief.json`;
         save(briefFile, result);
         console.log(

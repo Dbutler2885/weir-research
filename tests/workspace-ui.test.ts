@@ -50,12 +50,7 @@ beforeEach(() => {
       direction: "Read the register entry.",
     },
     title: "The workshop's founder",
-    questions: [
-      {
-        title: "Who founded the workshop?",
-        annotationIds: [state.conversation![0]!.annotations![0]!.id],
-      },
-    ],
+    assignments: [{ title: "Who founded the workshop?", brief: "Read the fictional register entry and name the founder." }],
   }).state;
   state = transition(state, {
     type: "pause",
@@ -325,6 +320,10 @@ describe("investigation workspace", () => {
     expect(vi.mocked(fetch).mock.calls.some(([path]) => path === "/api/coordinator/fresh")).toBe(true);
   });
   it("shows research running now from every tab", async () => {
+    // A message the coordinator has not answered is shown as waiting for it.
+    expect(document.querySelector<HTMLElement>("[data-running]")!.textContent).toBe("1 message waiting for the coordinator");
+    state = transition(state, { type: "reply", text: "I've opened batch 1 for this." }).state;
+    mount();
     expect(document.querySelector<HTMLElement>("[data-running]")!.hidden).toBe(true);
     state.investigations[0]!.reviewFlow = {
       walkthroughs: [],
@@ -347,7 +346,7 @@ describe("investigation workspace", () => {
     const builder = panel.querySelector(".live-working .live-agent")!;
     expect(builder.querySelector(".live-who")!.textContent).toBe("Claude graph builderBatch 14 min");
     expect(builder.querySelector(".live-now")!.textContent).toBe("Editing the edges table");
-    expect(panel.querySelector(".live-attention")!.textContent).toBe("Batch 1: Research paused. Investigation paused; saved findings retained.Open batch 1");
+    expect(panel.querySelector(".live-attention")!.textContent).toBe("Batch 1: Paused: Who founded the workshop?Open batch 1");
     // jsdom has no popover support; the panel only needs to close.
     HTMLElement.prototype.hidePopover = vi.fn();
     panel.querySelector<HTMLElement>("[data-live-all]")!.click();
@@ -494,9 +493,12 @@ describe("investigation workspace", () => {
     );
     expect(state.investigations[0]!.status).toBe("paused");
   });
-  it("shows project-wide findings by batch and question, with reports and activity", () => {
+  it("shows project-wide findings by batch and research pass, with the coordinator's direction, reports and activity", () => {
     const batch = state.investigations[0]!;
-    batch.executions = [{ at: "2026-01-01T00:00:00.000Z", worker: "Claude Code researcher", provider: "claude", model: "" }];
+    const pass = batch.assignments![0]!;
+    Object.assign(pass, { status: "done", worker: "Claude Code researcher", startedAt: "2026-01-01T00:00:00.000Z", endedAt: "2026-01-02T00:00:00.000Z" });
+    pass.steering.push({ at: "2026-01-01T12:00:00.000Z", message: "Check the tax roll as well." });
+    batch.status = "review";
     batch.proposals.push({
       id: "report-1",
       kind: "findings",
@@ -513,31 +515,58 @@ describe("investigation workspace", () => {
         explanation: `Explanation ${n}`,
         evidenceIds: [],
       })),
-      addressedAnnotationIds: batch.annotations.map((a) => a.id),
+      addressedAnnotationIds: [],
+      assignmentId: pass.id,
       createdAt: "2026-01-02T00:00:00.000Z",
       status: "pending",
     });
+    // A second pass, waiting, with a brief too long to show whole.
+    batch.assignments!.push({ id: "second", title: "Where was the workshop?", brief: `Find the address. ${"Read every directory. ".repeat(40)}`, status: "waiting", createdAt: "2026-01-03T00:00:00.000Z", checkpoints: [], steering: [] });
+    batch.board = [{ id: "post", at: "2026-01-01T13:00:00.000Z", assignmentId: pass.id, text: "The tax roll for 1871 is missing." }];
     mount();
     click('[data-view="work"]');
     expect(document.querySelector(".investigation-picker")).toBeNull();
-    expect(document.querySelector(".batch-label")!.textContent).toBe("Batch 1 · paused");
+    expect(document.querySelector(".batch-label")!.textContent).toBe("Batch 1 · in progress");
     expect(document.querySelector(".batch-card h2")!.textContent).toBe("The workshop's founder");
     expect(document.querySelector(".findings-toc")!.textContent).toContain("Who founded the workshop?");
-    const question = document.querySelector(".batch-question")!;
-    expect(question.querySelector("h3")!.textContent).toBe("Who founded the workshop?");
-    expect(question.querySelector(".asked")!.textContent).toContain('On "Fictional register entry" you wrote:');
-    expect(question.querySelector("blockquote")!.textContent).toBe("This is the question");
+    expect(document.querySelector(".findings-toc")!.textContent).toContain("Where was the workshop? · waiting");
+    // The newest pass comes first, in the contents as on the page.
+    expect([...document.querySelectorAll(".batch-question h3")].map((h) => h.textContent)).toEqual(["Where was the workshop?", "Who founded the workshop?"]);
+    const question = document.getElementById(`pass-${pass.id}`)!;
+    expect(question.querySelector(".pass-state")!.textContent).toMatch(/^Claude Code researcher · returned /);
+    expect(question.querySelector(".asked")!.textContent).toContain("The coordinator's brief");
+    expect(question.querySelector(".asked blockquote")!.textContent).toBe("Read the fictional register entry and name the founder.");
+    expect(question.querySelector(".steering")!.textContent).toContain("Check the tax roll as well.");
     expect(question.querySelector(".report summary")!.textContent).toBe("The founder of the fictional workshop");
-    expect(question.querySelector(".report-by")!.textContent).toContain("Returned by Claude Code researcher");
     expect(question.querySelector(".report-summary")!.textContent).toBe(
       "The register names the founder; the tax roll agrees.",
     );
     expect(question.querySelectorAll(".finding-list article")).toHaveLength(3);
     click("[data-more-findings]");
     expect(document.querySelectorAll(".batch-question .finding-list article")).toHaveLength(5);
+    // A long brief opens on request.
+    const second = () => document.getElementById("pass-second")!;
+    expect(second().querySelector(".pass-state")!.textContent).toBe("Waiting for a researcher.");
+    expect(second().querySelector("blockquote.is-clipped")).not.toBeNull();
+    click("[data-whole-brief]");
+    expect(second().querySelector("blockquote.is-clipped")).toBeNull();
+    expect(second().querySelector("[data-whole-brief]")).toBeNull();
+    // What the researchers told each other closes the batch.
+    expect(document.querySelector(".batch-board summary")!.textContent).toBe("What the researchers told each other · 1 post");
+    expect(document.querySelector(".batch-board li")!.textContent).toContain("The tax roll for 1871 is missing.");
     click('[data-investigation-section="activity"]');
-    expect(document.querySelector(".activity-list")!.textContent).toContain("paused");
+    expect(document.querySelector(".activity-list")!.textContent).toContain("Coordinator opened this batch.");
     expect(document.querySelector(".activity-list")!.textContent).toContain("Batch 1");
+    // The Board tab gathers every batch's board, with who wrote each post.
+    state.investigations[0]!.board!.push({ id: "c", at: "2026-01-01T14:00:00.000Z", author: "coordinator", text: "Use the 1871 census instead." });
+    mount();
+    click('[data-view="work"]');
+    click('[data-investigation-section="board"]');
+    expect(document.querySelector(".board-batch h2")!.textContent).toBe("Batch 1 The workshop's founder");
+    expect([...document.querySelectorAll(".board-batch .board-who")].map((w) => w.textContent!.split(" · ")[0])).toEqual([
+      'The researcher on "Who founded the workshop?"',
+      "Your coordinator",
+    ]);
   });
   it("lists batches in Review and requests a walkthrough and one graph update at a time", async () => {
     const batch = state.investigations[0]!;

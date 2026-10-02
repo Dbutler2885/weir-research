@@ -71,7 +71,7 @@ describe("the queue", () => {
     expect(p.store.state.investigations[0].status).toBe("queued");
   });
 
-  it("lets the coordinator run more workers than the setting when the human asks for more on a job", async () => {
+  it("limits researchers per batch, so other batches start beside a full one", async () => {
     const { Coordinator } = await import("../server/coordinator.mjs");
     const p = project();
     let launches = 0;
@@ -84,11 +84,12 @@ describe("the queue", () => {
     coordinator.attach("Test", session);
     const pool = new ResearcherPool(p.store, p.directory, resolve("."), { launch: launch as any, findExecutable: (n: string) => `/test/${n}`, coordinator } as any);
     cleanups.push(() => pool.stop());
-    pool.configure({ maxWorkers: 1 });
-    for (const id of p.ids) coordinator.command({ action: "assign", session, investigationId: id, engine: "claude", brief: "One agent per person, as the human asked." });
+    pool.configure({ researchersPerBatch: 1 });
+    for (const id of p.ids) coordinator.command({ action: "assign", session, investigationId: id, engine: "claude", title: "One person", brief: "One agent per person, as the human asked." });
+    coordinator.command({ action: "assign", session, investigationId: p.ids[0], engine: "claude", title: "Another person", brief: "Waits for the first." });
     pool.pump();
-    // The setting guides the coordinator; the app does not cap what it assigns.
     expect(launches).toBe(3);
+    expect(p.store.state.investigations[0].assignments.map((a: any) => a.status)).toEqual(["running", "waiting"]);
   });
 
   it("is what the coordinator reads, in the human's order with held batches marked", () => {
@@ -98,7 +99,7 @@ describe("the queue", () => {
     const text = buildCoordinatorContext(p.store.state).layers.find((l) => l.id === "queue")!.text;
     expect(text.indexOf("Ledger")).toBeLessThan(text.indexOf("Mill"));
     expect(text).toContain("held by the human: start nothing on it until they release it");
-    expect(buildCoordinatorContext(p.store.state).text).toContain("workers at once: at most 4, unless the human asks for more for a particular job");
+    expect(buildCoordinatorContext(p.store.state).text).toContain("researchers per batch: at most 4 at once, which the app enforces; more assignments wait their turn");
   });
 
   it("shows the human each batch in order, with controls to move and hold it", () => {
