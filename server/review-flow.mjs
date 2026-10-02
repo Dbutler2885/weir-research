@@ -183,28 +183,23 @@ export function flowCommand(store, command, actor = 'coordinator') {
     });
     return {requested: true};
   }
-  // A graph update starts only because the human asked: from Review, which waits for the
-  // coordinator's brief, or in the conversation, which the coordinator cites with its brief.
+  // A graph update starts only because the human asked: from Review, where it waits for the
+  // coordinator's brief, or in the conversation, where the coordinator starts it with one.
   if (action === 'request-graph') {
     // A finished graph review ends the batch; later work belongs to a new one.
     fail(!graphWorkFinished(i), "This batch's graph update is finished. Open a new batch for later work.");
     fail(i.proposals.some(p => p.kind === 'findings'), 'This batch has no findings to represent yet.');
-    const asked = actor === 'coordinator' ? (store.state.conversation || []).find(m => m.id === command.messageId) : null;
-    if (actor === 'coordinator') {
-      fail(asked?.author === 'human', 'Start a graph update only when the human asked for one: cite their message as messageId.');
-      const cited = store.state.investigations.some(x => (x.reviewFlow?.jobs || []).some(j => j.requestedIn === asked.id));
-      fail(!cited, 'That message already started a graph update. Cite the human\'s new request.');
-      fail(text(command.brief), 'Give the graph builder a brief: what the human asked, and any limits on it.');
-    }
+    const byCoordinator = actor === 'coordinator';
+    if (byCoordinator) fail(text(command.brief), 'Give the graph builder a brief: what the human asked, and any limits on it.');
     const blocker = graphBlocker(store.state);
     fail(!blocker, blocker);
-    const choice = pick(store.state, 'graph-builder', actor === 'coordinator' ? command : undefined);
+    const choice = pick(store.state, 'graph-builder', byCoordinator ? command : undefined);
     const jobId = randomUUID(), at = new Date().toISOString(), engine = choice?.agent || 'manual';
-    const brief = asked ? command.brief.trim() : null;
+    const brief = byCoordinator ? command.brief.trim() : null;
     store.update(next => {
       const inv = next.investigations.find(x => x.id === i.id), flow = flowFor(inv), w = flow.walkthroughs.at(-1);
-      flow.jobs.push({id: jobId, format: 'tables', ...(w ? {walkthroughId: w.id} : {}), status: 'queued', engine, model: choice?.model ?? null, effort: choice?.effort ?? null, ...(asked ? {brief, requestedIn: asked.id} : {awaitingBrief: true}), progress: asked ? 'Graph preparation is queued.' : 'Waiting for the coordinator to brief a graph builder.', createdAt: at, attempt: 0, updates: [], consumedUpdateSequence: 0, packet: graphPacket(next, inv, w, [], brief), baseDataset: structuredClone(next.dataset)});
-      inv.events.push({at, message: asked ? `Coordinator started the graph update you asked for: "${asked.text?.trim().slice(0, 200) || 'your message'}"` : 'Graph update requested.'});
+      flow.jobs.push({id: jobId, format: 'tables', ...(w ? {walkthroughId: w.id} : {}), status: 'queued', engine, model: choice?.model ?? null, effort: choice?.effort ?? null, ...(byCoordinator ? {brief} : {awaitingBrief: true}), progress: byCoordinator ? 'Graph preparation is queued.' : 'Waiting for the coordinator to brief a graph builder.', createdAt: at, attempt: 0, updates: [], consumedUpdateSequence: 0, packet: graphPacket(next, inv, w, [], brief), baseDataset: structuredClone(next.dataset)});
+      inv.events.push({at, message: byCoordinator ? 'Coordinator started the graph update you asked for.' : 'Graph update requested.'});
     });
     return {jobId};
   }
@@ -215,8 +210,6 @@ export function flowCommand(store, command, actor = 'coordinator') {
     fail(!i.closedAt, 'This batch is closed.');
     fail(!(i.reviewFlow?.jobs || []).length, 'This batch already has graph work; open a new batch for the reorganization.');
     fail(text(command.message), 'Say what the human asked the reorganization to do.');
-    const asked = (store.state.conversation || []).find(m => m.id === command.messageId);
-    fail(asked?.author === 'human', 'Reorganize the graph only when the human asked for it: cite their message as messageId.');
     const blocker = graphBlocker(store.state);
     fail(!blocker, blocker);
     const choice = pick(store.state, 'graph-builder');
@@ -224,7 +217,7 @@ export function flowCommand(store, command, actor = 'coordinator') {
     store.update(next => {
       const inv = next.investigations.find(x => x.id === i.id), flow = flowFor(inv);
       const updates = [{id: randomUUID(), sequence: 1, message: `${REORGANIZATION}\n\n${command.message}`, annotationIds: [], at}];
-      flow.jobs.push({id: jobId, format: 'tables', reorganization: true, status: 'queued', engine, model: choice?.model ?? null, effort: choice?.effort ?? null, requestedIn: asked.id, progress: engine === 'manual' ? 'Waiting for the coordinator to assign a graph builder.' : 'Graph reorganization is queued.', createdAt: at, attempt: 0, updates, consumedUpdateSequence: 0, packet: graphPacket(next, inv, undefined, updates), baseDataset: structuredClone(next.dataset)});
+      flow.jobs.push({id: jobId, format: 'tables', reorganization: true, status: 'queued', engine, model: choice?.model ?? null, effort: choice?.effort ?? null, progress: engine === 'manual' ? 'Waiting for the coordinator to assign a graph builder.' : 'Graph reorganization is queued.', createdAt: at, attempt: 0, updates, consumedUpdateSequence: 0, packet: graphPacket(next, inv, undefined, updates), baseDataset: structuredClone(next.dataset)});
       inv.events.push({at, message: 'Graph reorganization requested.'});
     });
     return {jobId};

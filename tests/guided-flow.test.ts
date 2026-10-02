@@ -54,9 +54,7 @@ describe('reorganizing the graph',()=>{
     const {investigationId}: any = store.command({type:'open-batch',title:'Reorganize the graph',brief:{purpose:'Organize the graph as it stands.',scope:'The whole graph.',direction:'No new research.'},questions:[{title:'Reorganize the graph with summaries.',annotationIds:[annotationId]}]});
     expect(()=>flowCommand(store,{action:'reorganize-graph',investigationId,message:'x'},'human')).toThrow('other review role');
     expect(()=>flowCommand(store,{action:'reorganize-graph',investigationId,message:' '})).toThrow('Say what the human asked');
-    expect(()=>flowCommand(store,{action:'reorganize-graph',investigationId,message:'Tidy the graph.'})).toThrow('only when the human asked for it');
-    const messageId = store.state.conversation.at(-1).id;
-    const {jobId}: any = flowCommand(store,{action:'reorganize-graph',investigationId,messageId,message:'The human asked for summaries and a timeline of names.'});
+    const {jobId}: any = flowCommand(store,{action:'reorganize-graph',investigationId,message:'The human asked for summaries and a timeline of names.'});
     const job = () => store.state.investigations.find((i: any)=>i.id===investigationId).reviewFlow.jobs[0];
     expect(job()).toMatchObject({reorganization:true,status:'queued',consumedUpdateSequence:0});
     expect(job().updates[0].message).toMatch(/^Reorganize the graph as it stands; there is no new research to add\..*\n\nThe human asked for summaries/s);
@@ -111,25 +109,17 @@ describe('a graph update the human asked for',()=>{
     expect(readFileSync(join(work,'AGENTS.md'),'utf8')).toContain("packet.json's brief is the coordinator's brief for this job");
   });
 
-  it('from the conversation, starts only for the human message the coordinator cites, with its brief', ()=>{
+  it('from the conversation, starts with the coordinator\'s brief, which the builder follows', ()=>{
     const a = asked();
-    a.store.command({type:'send',text:'Can you start the graph update for this batch, up to 1900?'});
-    const human = a.store.state.conversation.at(-1).id;
-    a.store.command({type:'reply',text:'I will.'});
-    const reply = a.store.state.conversation.at(-1).id;
-    const request = (data: any) => flowCommand(a.store, {action:'request-graph',investigationId:a.investigationId,brief:'Only through 1900.',...data});
-    expect(()=>request({})).toThrow('only when the human asked for one');
-    expect(()=>request({messageId:reply})).toThrow('only when the human asked for one');
-    expect(()=>request({messageId:human,brief:' '})).toThrow('Give the graph builder a brief');
-    request({messageId:human});
-    expect(a.job()).toMatchObject({status:'queued',brief:'Only through 1900.',requestedIn:human});
+    const request = (data: any) => flowCommand(a.store, {action:'request-graph',investigationId:a.investigationId,...data});
+    expect(()=>request({})).toThrow('Give the graph builder a brief');
+    request({brief:'Only through 1900.'});
+    expect(a.job()).toMatchObject({status:'queued',brief:'Only through 1900.'});
     expect(a.job().awaitingBrief).toBeUndefined();
-    expect(a.store.state.investigations[0].events.at(-1).message).toBe('Coordinator started the graph update you asked for: "Can you start the graph update for this batch, up to 1900?"');
+    expect(a.job().packet.brief).toBe('Only through 1900.');
+    expect(a.store.state.investigations[0].events.at(-1).message).toBe('Coordinator started the graph update you asked for.');
     a.pool.pump();
     expect(a.launched).toEqual(['builder']);
-    // One request starts one graph update.
-    a.store.update((next: any)=>{next.investigations[0].reviewFlow.jobs.at(-1).status='superseded';});
-    expect(()=>request({messageId:human})).toThrow('already started a graph update');
   });
 });
 
@@ -259,7 +249,7 @@ describe('guided research flow',()=>{
     const {jobId}: any = flowCommand(store,{action:'request-graph',investigationId:research.investigationId},'human');
     expect(store.state.investigations[0].reviewFlow.jobs[0].packet.walkthrough.title).toBe('Locating Example Works');
     expect(()=>flowCommand(store,{action:'request-graph',investigationId:research.investigationId},'human')).toThrow('still in preparation');
-    expect(()=>flowCommand(store,{action:'request-graph',investigationId:research.investigationId})).toThrow('only when the human asked for one');
+    expect(()=>flowCommand(store,{action:'request-graph',investigationId:research.investigationId})).toThrow('Give the graph builder a brief');
     expect(jobId).toBeTruthy();
   });
   it('builds a graph from a batch without a walkthrough and closes the batch when its draft is decided',()=>{

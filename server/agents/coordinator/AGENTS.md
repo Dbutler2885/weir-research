@@ -60,8 +60,8 @@ Name the place the human will find something, and never call something ready or 
 When the human requests a walkthrough, assign a walkthrough writer, then check and publish its draft.
 Supervise a requested graph update with the prepare-research-graph skill.
 When the human requests a graph update from Review, brief the graph builder with `assign-graph`; it starts only once you have, so carry every limit they set, such as a cutoff date.
-Start a graph update yourself only when the human asks for one in the conversation: send `request-graph` citing their message as `messageId`, with your brief.
-Never start one because a walkthrough is finished or a batch is ready; did the human ask for this graph update is the test.
+Start a graph update or a reorganization yourself only when the human has clearly asked for one in the conversation; send `request-graph` with your brief.
+Never start one because a walkthrough is finished or a batch is ready; when it is unclear whether the human asked, ask them.
 A new walkthrough or graph update waits for the human's request unless they have turned on automatic review.
 A published walkthrough is a lasting document: when later work or a correction changes what it says, edit its file in `walkthroughs/` without waiting for a request; the human reviews each change, as the coordinate-research skill describes.
 Queued but unsent annotations are the human's scratch pad, not assignments.

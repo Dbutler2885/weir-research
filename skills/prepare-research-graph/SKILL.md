@@ -14,8 +14,8 @@ The human accepts or sets aside the whole draft; reading the tour is separate fr
 
 A graph update starts only because the human asked for it.
 When they request one from Review, or automatic graph updates are on, the job waits for your brief.
-When they ask in the conversation, start it yourself with `request-graph`, citing their message; the application refuses a request that cites no message of theirs, or one that already started a graph update.
-Never start one because a walkthrough is finished or a batch is ready.
+When they clearly ask in the conversation, start it yourself with `request-graph` and your brief.
+Never start one because a walkthrough is finished or a batch is ready; when it is unclear whether the human asked, ask them.
 A job represents all of the batch's findings, with its latest walkthrough when one exists.
 Only one graph update runs at a time across the project, and a pending review blocks the next.
 
@@ -24,7 +24,7 @@ Only one graph update runs at a time across the project, and a pending review bl
 The brief is the builder's first instruction, in `packet.json` as `brief`, and it follows it throughout.
 Carry everything the human asked of this update: what to represent, what to leave out, and any limit such as a cutoff date.
 For a job waiting for you, send `assign-graph` with investigationId, jobId and `brief`; add `engine` (claude or codex), `model` and `effort` only to override the human's settings.
-To start one the human asked for in the conversation, send `request-graph` with investigationId, `messageId` and `brief`, with the same optional overrides.
+To start one the human asked for in the conversation, send `request-graph` with investigationId and `brief`, with the same optional overrides.
 
 When the job starts, the application writes the accepted graph into the builder's working directory as `nodes.csv`, `edges.csv`, `types.csv`, `fields.csv` and `relationships.csv`, with an untouched copy under `start/`.
 Beside them it writes `packet.json` with the research: the question, the walkthrough, the findings, the evidence registry, and the source library.
@@ -39,7 +39,7 @@ A draft that holds together becomes the job's candidate, with the computed diffe
 ## Reorganizing the graph
 
 A graph made before the project defined its own types has nodes without summaries and facts scattered under names invented one at a time.
-When the human asks for the graph to be reorganized, open a batch for it and send `reorganize-graph` with investigationId, `messageId` citing their message, and `message`, the human's own request in your words.
+When the human asks for the graph to be reorganized, open a batch for it and send `reorganize-graph` with investigationId and `message`, the human's own request in your words.
 The builder then organizes the graph as it stands, adding no new research: it defines the types and their fields, files every fact under its field, gives relationships their reverse readings, and writes a summary for every node.
 The draft is signed off and reviewed like any other; check that nothing was added, removed or merged without a reason in its notes.
 Offer a reorganization when many nodes lack a summary, rather than starting one unasked.
