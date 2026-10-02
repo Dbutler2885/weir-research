@@ -270,11 +270,10 @@ export function conversationTransition(
       return { removed: true };
     }
     case "send": {
-      // Send now carries one inline annotation; Send queue carries the queue.
-      const ids = command.annotation
-        ? ((command.annotationIds as string[] | undefined) ?? [])
-        : (command.annotationIds as string[] | undefined);
-      const chosen = ids ? queue.filter((a) => ids.includes(a.id)) : queue;
+      // A chat message carries only its text; Send now carries one inline annotation;
+      // Send queue carries the queue, or the queued annotations it names.
+      const ids = command.annotationIds as string[] | undefined;
+      const chosen = ids ? queue.filter((a) => ids.includes(a.id)) : command.queue === true ? queue : [];
       if (ids)
         assert(
           chosen.length === ids.length,

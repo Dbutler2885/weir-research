@@ -170,6 +170,18 @@ describe("investigation workspace", () => {
     expect(document.querySelector<HTMLTextAreaElement>("[data-note]")!.value).toBe("");
     expect(document.querySelector(".app-shell")!.getAttribute("data-workspace-view")).toBe("work");
   });
+  it("sends a chat message without the annotations waiting in the queue", async () => {
+    state = transition(state, { type: "queue-annotation", question: "Check the workshop register", references: [] }).state;
+    mount();
+    click("[data-open-coordinator]");
+    const box = document.querySelector<HTMLTextAreaElement>("[data-message]")!;
+    box.value = "A quick question first.";
+    box.dispatchEvent(new Event("input", { bubbles: true }));
+    click('[data-message-form] button[type="submit"]');
+    await vi.waitFor(() => expect(state.conversation!.at(-1)!.text).toBe("A quick question first."));
+    expect(state.conversation!.at(-1)!.annotations).toBeUndefined();
+    expect(state.queue!.map((a) => a.question)).toEqual(["Check the workshop register"]);
+  });
   it("sends the queue as one message and shows coordinator replies and decisions", async () => {
     for (const question of ["Check the workshop register", "Check another workshop"])
       state = transition(state, { type: "queue-annotation", question, references: [] }).state;

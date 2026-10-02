@@ -426,7 +426,7 @@ ${this.tab === "conversation" ? this.conversation(state) : this.queue(state)}`;
       if (await this.run(() => this.host.command({ type: "remove-queued", annotationId })))
         this.render();
     } else if (button.hasAttribute("data-send-queue")) {
-      if (await this.run(() => this.host.command({ type: "send" })))
+      if (await this.run(() => this.host.command({ type: "send", queue: true })))
         this.show("conversation");
     } else if (button.closest("[data-message-form]") && button.type === "submit") {
       event.preventDefault();

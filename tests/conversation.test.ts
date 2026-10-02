@@ -38,27 +38,35 @@ describe("project-wide queue and conversation", () => {
     const { annotationId } = run({ type: "queue-annotation", question: "Draft", references: [] });
     run({ type: "edit-queued", annotationId, question: "Revised", references: [topic()] });
     expect(state.queue![0]!.question).toBe("Revised");
-    run({ type: "send" });
+    run({ type: "send", queue: true });
     expect(() => run({ type: "edit-queued", annotationId, question: "Late", references: [] })).toThrow(
       "already been sent",
     );
     expect(() => run({ type: "remove-queued", annotationId })).toThrow("already been sent");
   });
 
-  it("sends the whole queue with an optional message as one human message", () => {
+  it("sends a chat message alone, leaving the annotation queue as it was", () => {
+    run({ type: "queue-annotation", question: "First thought", references: [] });
+    run({ type: "send", text: "A quick question while I keep collecting." });
+    expect(state.conversation![0]!).toMatchObject({ author: "human", text: "A quick question while I keep collecting." });
+    expect(state.conversation![0]!.annotations).toBeUndefined();
+    expect(state.queue!.map((a) => a.question)).toEqual(["First thought"]);
+  });
+
+  it("sends the whole queue only when the queue is sent", () => {
     run({ type: "queue-annotation", question: "First thought", references: [] });
     run({ type: "queue-annotation", question: "A second, contradictory thought", references: [] });
-    run({ type: "send", text: "These go together." });
+    run({ type: "send", queue: true });
     const message = state.conversation![0]!;
     expect(message.author).toBe("human");
-    expect(message.text).toBe("These go together.");
+    expect(message.text).toBeUndefined();
     expect(message.annotations!.map((a) => a.question)).toEqual([
       "First thought",
       "A second, contradictory thought",
     ]);
     expect(message.annotations!.every((a) => a.dispatchedAt)).toBe(true);
     expect(state.queue).toHaveLength(0);
-    expect(unassignedAnnotations(state)).toHaveLength(2);
+    expect(() => run({ type: "send", queue: true })).toThrow("Write a message");
   });
 
   it("sends one annotation immediately without touching the rest of the queue", () => {
@@ -90,7 +98,7 @@ describe("coordinator batches", () => {
   function sendTwo() {
     run({ type: "queue-annotation", question: "Who built the mill?", references: [topic()] });
     run({ type: "queue-annotation", question: "Was the builder local?", references: [] });
-    run({ type: "send" });
+    run({ type: "send", queue: true });
     return state.conversation![0]!.annotations!.map((a) => a.id);
   }
 
