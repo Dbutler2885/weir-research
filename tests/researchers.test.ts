@@ -187,6 +187,23 @@ describe("local researcher supervision", () => {
     writeLibrary(f.store.state, f.directory);
     expect(readFileSync(join(f.directory, "library", "batches", `investigation-${id}`, "board.md"), "utf8")).toContain("The 1881 register is missing");
   });
+  it("posts the coordinator's word to every researcher at work on the batch, and keeps it from the coordinator's own news", async () => {
+    const f = fixture();
+    const id = f.queue();
+    const coordinator = assignQueued(f.store, f.pool, "claude");
+    coordinator.researchers = f.pool;
+    coordinator.command({ action: "assign", session: coordinator.session.secret, investigationId: id, engine: "claude", title: "Second part", brief: "Look elsewhere." });
+    f.pool.pump();
+    const inputs = f.launches.map(() => [] as string[]);
+    f.launches.forEach((l, n) => l.child.stdin.on("data", (chunk: Buffer) => inputs[n]!.push(chunk.toString())));
+    const before = f.store.state.revision;
+    coordinator.command({ action: "post", session: coordinator.session.secret, investigationId: id, text: "The human has added the 1891 directory to Sources." });
+    await new Promise((done) => setImmediate(done));
+    for (const input of inputs) expect(input.join("")).toContain("A post on your batch's board, from the coordinator:");
+    expect(f.store.state.investigations[0].board).toEqual([expect.objectContaining({ author: "coordinator", text: "The human has added the 1891 directory to Sources." })]);
+    expect(coordinator.delta(coordinator.session.secret, before).changed?.boardPosts).toBeUndefined();
+    expect(coordinator.status().latest!.text).toBe("Posting to a batch's board");
+  });
   it("saves checkpoints and holds a worker's result for the coordinator, applying nothing", () => {
     const f = fixture();
     f.queue();

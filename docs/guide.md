@@ -99,7 +99,7 @@ Researchers working on the web share one research browser: Google Chrome with th
 Open it from Research settings and sign in to archives once; every researcher can then use those sign-ins, each in its own tab.
 The coordinator divides each batch into assignments, one per researcher, each with a title and a brief; Findings shows every research pass under its title and the coordinator's brief.
 At most four researchers work one batch at once, unless you set another number in Research settings; further assignments wait their turn, and other batches are not held back.
-Researchers in a batch post what the others should know on the batch's board, which closes each batch in Findings.
+Researchers in a batch post what the others should know on the batch's board, and the coordinator can post there for all of them; each batch's board closes it in Findings, and the Board tab shows every batch's.
 The Queue tab in Investigations shows the batches in the order they are worked; move one up or down, or hold it.
 Research settings also offers an optional limit in whole minutes for each research pass; running passes keep the limit they started with.
 The coordinator can ask to resume paused work, with a reason shown in the investigation; research waits for you to choose Resume research or Keep paused.

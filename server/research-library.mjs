@@ -15,7 +15,7 @@ Everything this project has produced so far, kept current by the app while you w
 You can read and search it; you cannot change it.
 
 - \`batches/batch-N/brief.md\`: what each batch is for, from the coordinator.
-- \`batches/batch-N/board.md\`: what the batch's researchers posted for each other.
+- \`batches/batch-N/board.md\`: what the batch's researchers, and the coordinator, posted for its researchers.
 - \`batches/batch-N/pass-K/\`: one folder per research pass, in the order the coordinator made them.
   \`assignment.md\` is the coordinator's direction and any steering that followed, \`findings.md\` the findings it returned once the coordinator published them, with their evidence, and \`checkpoints.md\` the researcher's saved progress, including dead ends.
 - \`walkthroughs/batch-N.md\`: how each batch's research was explained to the human.
@@ -60,7 +60,7 @@ function boardFile(b) {
   return lines(
     `# Board for ${b.number ? `batch ${b.number}` : b.title}`,
     posts.length
-      ? posts.map((p) => `## ${p.at.slice(0, 16).replace("T", " ")}, from the researcher on "${title(p.assignmentId)}"\n\n${p.text}`).join("\n\n")
+      ? posts.map((p) => `## ${p.at.slice(0, 16).replace("T", " ")}, from ${p.author === "coordinator" ? "the coordinator" : `the researcher on "${title(p.assignmentId)}"`}\n\n${p.text}`).join("\n\n")
       : "Nothing posted yet.",
   );
 }

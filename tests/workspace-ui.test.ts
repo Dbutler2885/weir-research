@@ -530,8 +530,9 @@ describe("investigation workspace", () => {
     expect(document.querySelector(".batch-card h2")!.textContent).toBe("The workshop's founder");
     expect(document.querySelector(".findings-toc")!.textContent).toContain("Who founded the workshop?");
     expect(document.querySelector(".findings-toc")!.textContent).toContain("Where was the workshop? · waiting");
-    const question = document.querySelector(".batch-question")!;
-    expect(question.querySelector("h3")!.textContent).toBe("Who founded the workshop?");
+    // The newest pass comes first, in the contents as on the page.
+    expect([...document.querySelectorAll(".batch-question h3")].map((h) => h.textContent)).toEqual(["Where was the workshop?", "Who founded the workshop?"]);
+    const question = document.getElementById(`pass-${pass.id}`)!;
     expect(question.querySelector(".pass-state")!.textContent).toMatch(/^Claude Code researcher · returned /);
     expect(question.querySelector(".asked")!.textContent).toContain("The coordinator's brief");
     expect(question.querySelector(".asked blockquote")!.textContent).toBe("Read the fictional register entry and name the founder.");
@@ -544,7 +545,7 @@ describe("investigation workspace", () => {
     click("[data-more-findings]");
     expect(document.querySelectorAll(".batch-question .finding-list article")).toHaveLength(5);
     // A long brief opens on request.
-    const second = () => document.querySelectorAll(".batch-question")[1]!;
+    const second = () => document.getElementById("pass-second")!;
     expect(second().querySelector(".pass-state")!.textContent).toBe("Waiting for a researcher.");
     expect(second().querySelector("blockquote.is-clipped")).not.toBeNull();
     click("[data-whole-brief]");
@@ -556,6 +557,16 @@ describe("investigation workspace", () => {
     click('[data-investigation-section="activity"]');
     expect(document.querySelector(".activity-list")!.textContent).toContain("Coordinator opened this batch.");
     expect(document.querySelector(".activity-list")!.textContent).toContain("Batch 1");
+    // The Board tab gathers every batch's board, with who wrote each post.
+    state.investigations[0]!.board!.push({ id: "c", at: "2026-01-01T14:00:00.000Z", author: "coordinator", text: "Use the 1871 census instead." });
+    mount();
+    click('[data-view="work"]');
+    click('[data-investigation-section="board"]');
+    expect(document.querySelector(".board-batch h2")!.textContent).toBe("Batch 1 The workshop's founder");
+    expect([...document.querySelectorAll(".board-batch .board-who")].map((w) => w.textContent!.split(" · ")[0])).toEqual([
+      'The researcher on "Who founded the workshop?"',
+      "Your coordinator",
+    ]);
   });
   it("lists batches in Review and requests a walkthrough and one graph update at a time", async () => {
     const batch = state.investigations[0]!;

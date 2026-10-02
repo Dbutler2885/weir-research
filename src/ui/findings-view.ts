@@ -11,7 +11,7 @@ import { batchStatus } from "../domain/conversation";
 import { sourceLibrary } from "../domain/findings";
 import { html, target } from "./finding-review";
 
-export type FindingsSection = "findings" | "activity" | "queue";
+export type FindingsSection = "findings" | "activity" | "queue" | "board";
 
 const FINDINGS_SHOWN = 3;
 const when = (iso: string) =>
@@ -40,12 +40,14 @@ export function findingsPage(
   const body =
     section === "queue"
       ? queueSection(state)
+      : section === "board"
+      ? `<div class="findings-scroll">${boards(all)}</div>`
       : section === "activity"
       ? `<div class="findings-scroll">${activity(state, all)}</div>`
       : all.length
         ? `<div class="findings-layout"><nav class="findings-toc" aria-label="Contents">${contents(all)}</nav><div class="findings-scroll">${all.map((b) => batchCard(state, b, expanded)).join("")}</div></div>`
         : '<div class="findings-scroll"><div class="findings-empty"><h2>No research yet</h2><p>Write to your coordinator, or annotate what you see, from the Coordinator sidebar. Your coordinator groups the work into batches, and every report appears here.</p></div></div>';
-  return `<section class="findings-page"><header class="findings-head"><div class="findings-head-row"><div><h1>Investigations</h1><p>${section === "queue" ? "Batches waiting and in progress, in the order they are worked." : section === "activity" ? "What has happened, batch by batch." : "Everything researchers have returned, grouped by batch. Newest first."}</p></div></div><nav class="findings-tabs" aria-label="Investigations"><button type="button" data-investigation-section="findings" ${section === "findings" ? 'aria-current="page"' : ""}>Findings</button><button type="button" data-investigation-section="queue" ${section === "queue" ? 'aria-current="page"' : ""}>Queue</button><button type="button" data-investigation-section="activity" ${section === "activity" ? 'aria-current="page"' : ""}>Activity</button></nav></header>${body}</section>`;
+  return `<section class="findings-page"><header class="findings-head"><div class="findings-head-row"><div><h1>Investigations</h1><p>${section === "queue" ? "Batches waiting and in progress, in the order they are worked." : section === "activity" ? "What has happened, batch by batch." : section === "board" ? "What researchers and the coordinator posted for each batch's researchers." : "Everything researchers have returned, grouped by batch. Newest first."}</p></div></div><nav class="findings-tabs" aria-label="Investigations"><button type="button" data-investigation-section="findings" ${section === "findings" ? 'aria-current="page"' : ""}>Findings</button><button type="button" data-investigation-section="queue" ${section === "queue" ? 'aria-current="page"' : ""}>Queue</button><button type="button" data-investigation-section="activity" ${section === "activity" ? 'aria-current="page"' : ""}>Activity</button><button type="button" data-investigation-section="board" ${section === "board" ? 'aria-current="page"' : ""}>Board</button></nav></header>${body}</section>`;
 }
 
 function contents(all: Investigation[]): string {
@@ -54,7 +56,8 @@ function contents(all: Investigation[]): string {
       (b) =>
         `<li><a class="toc-batch" href="#batch-${html(b.id)}" data-toc="batch-${html(b.id)}"><span class="toc-number">${b.number}</span>${html(b.title)}</a>${
           b.assignments?.length
-            ? `<ol>${b.assignments
+            ? `<ol>${[...b.assignments]
+                .reverse()
                 .map(
                   (a) =>
                     `<li><a href="#pass-${html(a.id)}" data-toc="pass-${html(a.id)}">${html(a.title)}${a.status === "running" || a.status === "waiting" || a.status === "paused" ? ` <span class="toc-state">· ${a.status}</span>` : ""}</a></li>`,
@@ -100,7 +103,8 @@ function batchCard(
       ? '<button type="button" class="text-action" data-command="resume">Resume</button>'
       : "",
   ].filter(Boolean);
-  const passes = assignments.map((a) => pass(state, b, a, expanded)).join("");
+  // The newest research pass first, as batches are.
+  const passes = [...assignments].reverse().map((a) => pass(state, b, a, expanded)).join("");
   const other = b.proposals.filter((p) => !p.assignmentId || !assignments.some((a) => a.id === p.assignmentId));
   return `<article class="batch-card" id="batch-${html(b.id)}" data-investigation-id="${html(b.id)}" ${target({ label: b.title, investigationId: b.id })}><div class="batch-label">Batch ${b.number} · ${label}</div><h2>${html(b.title)}</h2><p class="batch-meta">${meta.join(" · ")}</p>${requests(state, b)}${passes}${
     other.length
@@ -214,10 +218,23 @@ function pass(state: ResearchState, b: Investigation, a: Assignment, expanded: R
 function board(b: Investigation): string {
   const posts = b.board || [];
   if (!posts.length) return "";
-  const title = (id: string) => b.assignments?.find((a) => a.id === id)?.title || "a research pass";
-  return `<details class="batch-board"><summary>What the researchers told each other · ${posts.length} post${posts.length === 1 ? "" : "s"}</summary><p>Researchers in this batch post here when they find something the others should know. Researchers who start later read these first.</p><ol>${posts
-    .map((p) => `<li><span class="board-who">The researcher on "${html(title(p.assignmentId))}" · ${html(when(p.at))}</span>${html(p.text)}</li>`)
-    .join("")}</ol></details>`;
+  return `<details class="batch-board"><summary>What the researchers told each other · ${posts.length} post${posts.length === 1 ? "" : "s"}</summary><p>Researchers in this batch post here when they find something the others should know. Researchers who start later read these first.</p>${postList(b)}</details>`;
+}
+
+// A batch's posts, each with who wrote it.
+function postList(b: Investigation): string {
+  const title = (id?: string) => b.assignments?.find((a) => a.id === id)?.title || "a research pass";
+  return `<ol class="board-posts">${(b.board || [])
+    .map((p) => `<li><span class="board-who">${p.author === "coordinator" ? "Your coordinator" : `The researcher on "${html(title(p.assignmentId))}"`} · ${html(when(p.at))}</span>${html(p.text)}</li>`)
+    .join("")}</ol>`;
+}
+
+// Every batch's board, newest batch first, to see how researchers use it.
+function boards(all: Investigation[]): string {
+  const posted = all.filter((b) => b.board?.length);
+  return posted.length
+    ? posted.map((b) => `<section class="board-batch"><h2><span class="activity-batch">Batch ${b.number}</span> ${html(b.title)}</h2>${postList(b)}</section>`).join("")
+    : '<p class="findings-empty">Posts appear here when researchers in a batch tell each other what they found.</p>';
 }
 
 function report(

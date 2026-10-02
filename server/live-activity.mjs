@@ -217,6 +217,7 @@ export function coordinatorAction(data, state) {
     case "steer": return `Redirecting the researcher on ${pass(data.assignmentId)}`;
     case "stop-researcher": return `Stopping the researcher on ${pass(data.assignmentId)}`;
     case "publish": return "Publishing a researcher's findings";
+    case "post": return `Posting to ${batch(data.investigationId)}'s board`;
     case "revise": return `Sending back ${pass(data.assignmentId)} for another pass`;
     case "request-resume": return `Asking to resume ${batch(data.investigationId)}`;
     case "ask-helper": return "Handing a small task to a helper";

@@ -243,20 +243,30 @@
   color: var(--ink-soft);
   font-size: 14px;
 }
-.batch-board ol {
+.board-posts {
   list-style: none;
   margin: 8px 0 0;
   padding: 0;
 }
-.batch-board li {
+.board-posts li {
   padding: 12px 0;
   border-bottom: 1px solid #e3dccd;
   font-size: 15px;
   line-height: 1.6;
   white-space: pre-wrap;
 }
-.batch-board li:last-child {
+.board-posts li:last-child {
   border-bottom: 0;
+}
+.board-batch {
+  max-width: 868px;
+  margin: 0 0 28px 8px;
+}
+.board-batch h2 {
+  margin: 0 0 4px;
+  font-family: Georgia, serif;
+  font-size: 22px;
+  font-weight: 500;
 }
 .board-who {
   display: block;

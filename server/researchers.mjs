@@ -202,6 +202,14 @@ export class ResearcherPool {
       if (other !== task && other.batchId === task.batchId && other.agent && !other.terminated && this.current(other))
         other.agent.steer(`A post on your batch's board, from the researcher on "${task.title}":\n\n${text.slice(0, 5000)}`);
   }
+  // The coordinator's post goes on the board and to every researcher at work on the batch.
+  announce(batchId, text) {
+    const result = this.store.command({ type: "coordinator-post", investigationId: batchId, text });
+    for (const task of this.active.values())
+      if (task.batchId === batchId && task.agent && !task.terminated && this.current(task))
+        task.agent.steer(`A post on your batch's board, from the coordinator:\n\n${String(text).trim()}`);
+    return result;
+  }
   pump() {
     if (this.stopped) return;
     for (const task of this.active.values()) {

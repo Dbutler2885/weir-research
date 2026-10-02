@@ -151,7 +151,8 @@ export class Coordinator {
         return { ...rest, findingCount: findings.length };
       });
     const boardPosts = state.investigations.flatMap((i) =>
-      (i.board || []).slice(changed.boardFrom?.get(i.id) ?? 0).map((p) => ({
+      // Its own posts are not news to the coordinator.
+      (i.board || []).slice(changed.boardFrom?.get(i.id) ?? 0).filter((p) => p.author !== "coordinator").map((p) => ({
         investigationId: i.id,
         assignmentId: p.assignmentId,
         from: i.assignments?.find((a) => a.id === p.assignmentId)?.title,
@@ -309,6 +310,7 @@ export class Coordinator {
       });
     }
     if (!i) throw new Error("Unknown investigation.");
+    if (data.action === "post") return this.researchers.announce(id, data.text);
     if (data.action === "request-resume") {
       if (i.status !== "paused")
         throw new Error("Only paused investigations need resume approval.");

@@ -371,6 +371,7 @@ export interface ResearchCommand {
     | "stop-assignment"
     | "revise-assignment"
     | "post"
+    | "coordinator-post"
     | "batch-ready"
     | "request-approval"
     | "retitle"

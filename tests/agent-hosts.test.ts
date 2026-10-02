@@ -130,7 +130,8 @@ describe("agents under their own host process", () => {
     await new Promise((done) => agent.once("action", done));
     // The human quits, keeping workers running.
     first.supervisor.keep();
-    await new Promise((done) => setTimeout(done, 100));
+    // The app closes only once the host has recorded that it keeps running.
+    await until(() => first.supervisor.hosted().length && first.supervisor.hosted().every((r: any) => r.kept));
     clearInterval(first.supervisor.beat);
     agent.socket.destroy();
     agent.ended = true;
@@ -164,7 +165,8 @@ describe("a worker kept running while the app is closed", () => {
     const agent = start(first.supervisor, p.folder, steps([read("brief.md", 300), { quota: 1 }]));
     await new Promise((done) => agent.once("action", done));
     first.supervisor.keep();
-    await new Promise((done) => setTimeout(done, 100));
+    // The app closes only once the host has recorded that it keeps running.
+    await until(() => first.supervisor.hosted().length && first.supervisor.hosted().every((r: any) => r.kept));
     clearInterval(first.supervisor.beat);
     agent.socket.destroy();
     agent.ended = true;
@@ -200,7 +202,8 @@ describe("a researcher pool opening again", () => {
     expect(assignmentOf(store, id).session).toMatchObject({ engine: "claude", id: expect.any(String) });
     // The human quits, keeping the researcher running.
     first.supervisor.keep();
-    await new Promise((done) => setTimeout(done, 100));
+    // The app closes only once the host has recorded that it keeps running.
+    await until(() => first.supervisor.hosted().length && first.supervisor.hosted().every((r: any) => r.kept));
     clearInterval(first.supervisor.beat);
     clearInterval(pool.timer);
     for (const task of pool.active.values()) {

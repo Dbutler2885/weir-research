@@ -47,11 +47,13 @@ export interface Assignment {
   steering: { at: string; message: string }[];
 }
 
-// What a researcher posted for the others in its batch.
+// What a researcher, or the coordinator, posted for the researchers in a batch.
 export interface BoardPost {
   id: string;
   at: string;
-  assignmentId: string;
+  // The researcher's assignment; absent for the coordinator's post.
+  assignmentId?: string;
+  author?: "coordinator";
   text: string;
 }
 
@@ -64,6 +66,7 @@ export const assignmentCommands = new Set([
   "stop-assignment",
   "revise-assignment",
   "post",
+  "coordinator-post",
 ]);
 
 const text = (value: unknown, label: string, max: number): string => {
@@ -131,6 +134,14 @@ export function assignmentTransition(
   now: string,
   id: () => string,
 ): unknown {
+  if (command.type === "coordinator-post") {
+    const batch = next.investigations.find((i) => i.id === command.investigationId);
+    assert(batch, "Unknown batch.");
+    assert(!batch.closedAt, "This batch is closed.");
+    const post: BoardPost = { id: id(), at: now, author: "coordinator", text: text(command.text, "A board post", 5000) };
+    (batch.board ||= []).push(post);
+    return { postId: post.id };
+  }
   if (command.type === "assign") {
     const batch = next.investigations.find((i) => i.id === command.investigationId);
     assert(batch, "Unknown batch.");
