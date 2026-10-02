@@ -136,7 +136,7 @@ function graphStatus(b: Investigation): string {
 function accessActions(state: ResearchState, url?: string): string {
   const page = url && /^https?:\/\//.test(url) ? url : "";
   const browser = state.researchBrowser;
-  const resume = '<button type="button" data-command="resolve-access">Access is ready, resume</button>';
+  const resume = '<button type="button" data-command="resolve-access">Access is ready, resume</button><button type="button" data-command="resolve-access" data-outcome="unavailable">I can\'t get access</button>';
   if (!browser?.available)
     return `<div class="batch-request-actions">${page ? `<a href="${html(page)}" target="_blank" rel="noopener">Open source</a>` : ""}${resume}</div>`;
   return `<p class="batch-request-note">Sign in in the research browser, the separate ${html(browser.name || "browser")} window researchers use. Sign-ins in your everyday browser do not reach them.</p><div class="batch-request-actions"><button type="button" class="primary" data-open-research-browser-page="${html(page)}">Open in the research browser</button>${resume}</div>`;

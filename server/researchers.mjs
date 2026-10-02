@@ -350,6 +350,9 @@ export class ResearcherPool {
       a.brief
         ? `## The coordinator's brief\n\n${a.brief}`
         : `## What to investigate\n\nNo brief was written for this assignment. Investigate these questions:\n\n${annotations.map((x) => `- ${x.question}`).join("\n")}`,
+      a.unreachable?.length
+        ? `## Access the human could not get\n\nYou asked for help reaching these, and the human could not get in. Do not ask for them again; carry on with other sources, and record each gap in your findings.\n\n${a.unreachable.map((u) => `- ${u.url ? `${u.url}: ` : ""}${u.instruction}`).join("\n")}`
+        : "",
       a.steering.length
         ? `## Since then\n\nThe coordinator added, most recent last:\n\n${a.steering.map((s) => `- ${s.message}`).join("\n")}`
         : "",

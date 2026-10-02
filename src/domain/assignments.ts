@@ -44,6 +44,8 @@ export interface Assignment {
   // interrupted researcher picks up its conversation where it stopped.
   session?: SavedSession;
   checkpoints: Checkpoint[];
+  // Sources it asked the human to open that the human could not get into.
+  unreachable?: { instruction: string; url?: string; at: string }[];
   // The coordinator's redirections while it ran, and its notes when it sent it back.
   steering: { at: string; message: string }[];
 }

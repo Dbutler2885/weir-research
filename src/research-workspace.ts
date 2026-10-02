@@ -1331,6 +1331,7 @@ export function mountResearchWorkspace(
         investigationId: selectedInvestigation,
         requestId: button.dataset.resumeRequest,
         decision: button.dataset.resumeDecision,
+        outcome: button.dataset.outcome,
       })
         .then(() => message("Research state saved."))
         .catch((error) => message(error.message));

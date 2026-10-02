@@ -130,6 +130,18 @@ describe("assignments in a batch", () => {
     expect(statuses()).toEqual(["waiting", "running", "waiting"]);
   });
 
+  it("lets the human say they could not get access, so the researcher carries on without the source", () => {
+    const token = claim(ids[0]!);
+    const ask = { instruction: "Clear the fictional deed portal's verification.", url: "https://deeds.example/search" };
+    run({ type: "checkpoint", investigationId: batch().id, token, summary: "Needs the portal", findings: "Bot check", nextSteps: "Search deeds", accessRequest: ask });
+    run({ type: "resolve-access", investigationId: batch().id, outcome: "unavailable" });
+    expect(batch().assignments![0]).toMatchObject({ status: "waiting", unreachable: [{ ...ask, at: expect.any(String) }] });
+    expect(batch().accessRequest).toMatchObject({ outcome: "unavailable", resolvedAt: expect.any(String) });
+    expect(batch().events.at(-1)!.message).toBe(
+      'You could not get the access the researcher on "Leases" asked for (https://deeds.example/search); it carries on without that source and records the gap.',
+    );
+  });
+
   it("records a researcher's board post on its batch, only while its lease is current", () => {
     const token = claim(ids[0]!);
     run({ type: "post", assignmentId: ids[0], token, text: "Vol. 5 is missing from the scans." });

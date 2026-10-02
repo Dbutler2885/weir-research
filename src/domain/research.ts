@@ -132,7 +132,7 @@ export interface Investigation {
   };
   phase?: "research" | "graph";
   graphRequest?: { refs: FindingRef[]; at: string };
-  accessRequest?: { instruction: string; url?: string; resolvedAt?: string; assignmentId?: string };
+  accessRequest?: { instruction: string; url?: string; resolvedAt?: string; assignmentId?: string; outcome?: "unavailable" };
   executions?: {
     at: string;
     worker: string;
@@ -634,15 +634,21 @@ export function transition(
         "No access request is waiting.",
       );
       i.accessRequest.resolvedAt = now;
-      // The researcher who asked carries on with its conversation.
+      // The researcher who asked carries on with its conversation. When the human could
+      // not get access, it carries on without the source, and is told not to ask again.
+      const unavailable = command.outcome === "unavailable";
+      if (unavailable) i.accessRequest.outcome = "unavailable";
       const asked = i.assignments?.find((a) => a.id === i.accessRequest!.assignmentId && a.status === "paused");
+      if (asked && unavailable) (asked.unreachable ||= []).push({ instruction: i.accessRequest.instruction, ...(i.accessRequest.url ? { url: i.accessRequest.url } : {}), at: now });
       if (asked) {
         asked.status = "waiting";
         settle(i);
       } else i.status = "queued";
       i.events.push({
         at: now,
-        message: "Source access assistance completed; queued to resume.",
+        message: unavailable
+          ? `You could not get the access the researcher${asked ? ` on "${asked.title}"` : ""} asked for${i.accessRequest.url ? ` (${i.accessRequest.url})` : ""}; it carries on without that source and records the gap.`
+          : "Source access assistance completed; queued to resume.",
       });
     } else {
       const a = i.annotations.find((a) => a.id === command.annotationId);
