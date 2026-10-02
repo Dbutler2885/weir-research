@@ -1324,7 +1324,15 @@ dialog .muted {
   color: var(--ink-soft);
   font-size: 12px;
 }
+/* A long assignment title is cut short rather than pushing the time out. */
+.live-who .live-task {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
 .live-who time {
+  flex: none;
   margin-left: auto;
   font-variant-numeric: tabular-nums;
 }

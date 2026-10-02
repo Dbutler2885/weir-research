@@ -386,6 +386,10 @@ describe("investigation workspace", () => {
     HTMLDialogElement.prototype.showModal = function () {
       this.open = true;
     };
+    // Its row names the assignment, telling researchers in one batch apart.
+    const panel = document.getElementById("live-panel")!;
+    panel.dispatchEvent(Object.assign(new Event("beforetoggle"), { newState: "open" }));
+    expect(panel.querySelector(".live-working .live-who")!.textContent).toMatch(/^Claude researcherBatch 1 · Who founded the workshop\?\d+ s$/);
     // The batch offers the same controls as the live panel.
     click('[data-view="work"]');
     const pass = document.querySelector(`#pass-${assignmentId} .pass-state`)!;

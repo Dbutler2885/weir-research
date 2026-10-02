@@ -12,6 +12,8 @@ export interface LiveRow {
   group: "working" | "attention" | "waiting";
   who: string;
   batch?: { id: string; number: number };
+  // A researcher's assignment title, which tells researchers in one batch apart.
+  task?: string;
   stage: string;
   latest?: string;
   // The steps before the latest, most recent first.
@@ -167,6 +169,7 @@ function researcherRow(a: Assignment, live: LiveWorker[], batch: LiveRow["batch"
     group: "working",
     who: worker?.name || "Researcher",
     batch,
+    task: a.title,
     stage: `Researching ${a.title}`,
     ...(worker ? steps(worker) : {}),
     since: worker?.startedAt || a.startedAt,
@@ -229,7 +232,7 @@ const GROUPS: [LiveRow["group"], string][] = [["working", "Working now"], ["atte
 export function livePanel(state: ResearchState, now = Date.now()): string {
   const rows = liveRows(state);
   const working = (r: LiveRow) =>
-    `<li class="live-agent"${r.batch ? ` data-live-open="${html(r.batch.id)}"` : ""}><div class="live-who"><strong>${html(r.who)}</strong>${r.batch ? `<span>Batch ${r.batch.number}</span>` : ""}${r.since ? `<time datetime="${html(r.since)}" data-elapsed>${html(running(r.since, now))}</time>` : ""}</div><p class="live-now${r.latest ? "" : " is-quiet"}${r.who === "Coordinator" && state.coordinator?.listening ? " is-listening" : ""}">${html(r.latest || r.stage)}</p>${r.trail?.length ? `<ul class="live-trail">${r.trail.map((t) => `<li>${html(t)}</li>`).join("")}</ul>` : ""}${switching(r)}${agentButtons(r.agent)}</li>`;
+    `<li class="live-agent"${r.batch ? ` data-live-open="${html(r.batch.id)}"` : ""}><div class="live-who"><strong>${html(r.who)}</strong>${r.batch ? `<span class="live-task"${r.task ? ` title="${html(r.task)}"` : ""}>Batch ${r.batch.number}${r.task ? ` · ${html(r.task)}` : ""}</span>` : ""}${r.since ? `<time datetime="${html(r.since)}" data-elapsed>${html(running(r.since, now))}</time>` : ""}</div><p class="live-now${r.latest ? "" : " is-quiet"}${r.who === "Coordinator" && state.coordinator?.listening ? " is-listening" : ""}">${html(r.latest || r.stage)}</p>${r.trail?.length ? `<ul class="live-trail">${r.trail.map((t) => `<li>${html(t)}</li>`).join("")}</ul>` : ""}${switching(r)}${agentButtons(r.agent)}</li>`;
   const line = (r: LiveRow) =>
     `<li><span>${html(r.batch ? `Batch ${r.batch.number}: ${r.stage}` : r.stage)}</span>${r.batch ? `<button type="button" class="text-action" data-live-open="${html(r.batch.id)}">Open batch ${r.batch.number}</button>` : ""}${agentButtons(r.agent)}</li>`;
   // A coordinator asked to switch while it works switches once its turn is over.
