@@ -47,6 +47,9 @@ export interface GraphJob {
   walkthroughId?: string;
   status: 'queued' | 'running' | 'paused' | 'returned' | 'published' | 'superseded';
   engine: 'manual' | 'codex' | 'claude';
+  // The coordinator's brief for the builder; a job the human asked for from Review waits for it.
+  brief?: string;
+  awaitingBrief?: boolean;
   progress: string;
   // The builder's own status note, kept beside the app's plain progress line.
   note?: string;

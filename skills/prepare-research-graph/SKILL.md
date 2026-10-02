@@ -12,16 +12,25 @@ The human accepts or sets aside the whole draft; reading the tour is separate fr
 
 ## How a graph job runs
 
-A graph job is queued when the human requests a batch's graph update from Review, or automatically when they have turned that on.
-It represents all of the batch's findings, with its latest walkthrough when one exists.
+A graph update starts only because the human asked for it.
+When they request one from Review, or automatic graph updates are on, the job waits for your brief.
+When they clearly ask in the conversation, start it yourself with `request-graph` and your brief.
+Never start one because a walkthrough is finished or a batch is ready; when it is unclear whether the human asked, ask them.
+A job represents all of the batch's findings, with its latest walkthrough when one exists.
 Only one graph update runs at a time across the project, and a pending review blocks the next.
+
+## Brief the builder before it starts
+
+The brief is the builder's first instruction, in `packet.json` as `brief`, and it follows it throughout.
+Carry everything the human asked of this update: what to represent, what to leave out, and any limit such as a cutoff date.
+For a job waiting for you, send `assign-graph` with investigationId, jobId and `brief`; add `engine` (claude or codex), `model` and `effort` only to override the human's settings.
+To start one the human asked for in the conversation, send `request-graph` with investigationId and `brief`, with the same optional overrides.
 
 When the job starts, the application writes the accepted graph into the builder's working directory as `nodes.csv`, `edges.csv`, `types.csv`, `fields.csv` and `relationships.csv`, with an untouched copy under `start/`.
 Beside them it writes `packet.json` with the research: the question, the walkthrough, the findings, the evidence registry, and the source library.
 [The builder contract](references/contract.md) describes the tables, and [the builder system prompt](references/graph-builder-system.md) is its standing instruction.
 
-Jobs start automatically with the saved provider preference.
-For a job waiting for a builder, send `assign-graph` with investigationId, jobId and `engine` of claude or codex.
+A briefed job starts with the human's settings for the graph-builder role.
 
 When the builder finishes, the application reads the tables back.
 A draft that does not hold together goes straight back to the builder with every problem listed, up to three times.

@@ -556,7 +556,7 @@ describe("investigation workspace", () => {
     await vi.waitFor(() => expect(row().textContent).toContain("Waiting for your coordinator to assign a writer."));
     click('[data-review-request="graph"]');
     await vi.waitFor(() => expect(state.investigations[0]!.reviewFlow!.jobs).toHaveLength(1));
-    await vi.waitFor(() => expect(row().textContent).toContain("Waiting for the coordinator to assign a graph builder."));
+    await vi.waitFor(() => expect(row().textContent).toContain("Waiting for the coordinator to brief a graph builder."));
     expect(document.querySelector('[data-review-request="graph"]')).toBeNull();
     const toggle = document.querySelector<HTMLInputElement>('[data-auto="autoWalkthrough"]')!;
     toggle.checked = true;
