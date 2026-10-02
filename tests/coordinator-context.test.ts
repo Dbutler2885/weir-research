@@ -28,7 +28,7 @@ function project() {
       type: "open-batch",
       brief,
       title,
-      questions: [{ title: question, annotationIds: [send(question)] }],
+      assignments: [{ title: question, brief: `Answer: ${question}` }],
     }).investigationId as string;
   return { run, send, open, get state() { return state; }, set state(s) { state = s; } };
 }
@@ -85,7 +85,13 @@ describe("coordinator startup context", () => {
     expect(queue).toContain("### Batch 1: The mill's builder");
     expect(queue).toContain("### Batch 2: The miller's family");
     expect(queue).toContain(`Purpose: ${brief.purpose}`);
-    expect(queue).toContain("Next (waiting on coordinator): Assign a researcher");
+    // Each assignment is listed with where it stands.
+    const assignmentId = p.state.investigations[0]!.assignments![0]!.id;
+    expect(queue).toContain(`- Assignment "Who built the mill?" (${assignmentId}): waiting for a free place.`);
+    expect(queue).toContain("Next (waiting on worker): Assigned; waiting for a free researcher.");
+    // A batch with nothing assigned waits for the coordinator.
+    p.run({ type: "open-batch", brief, title: "Later" });
+    expect(layer(buildCoordinatorContext(p.state), "queue")).toContain("Next (waiting on coordinator): Assign researchers");
   });
 
   it("never shows a closed batch as active, even one closed without its status", () => {

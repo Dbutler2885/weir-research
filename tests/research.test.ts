@@ -72,7 +72,7 @@ function fixture() {
 describe("research lifecycle", () => {
   it("keeps three proposal annotations in one investigation and preserves accepted research", () => {
     const f = fixture();
-    const lease = f.claim().investigation.lease;
+    const lease = f.claim().assignment.lease;
     const { proposalId } = f.run({
       type: "propose",
       investigationId: f.investigationId,
@@ -94,7 +94,7 @@ describe("research lifecycle", () => {
     ).toThrow("newer feedback");
     f.run({ type: "dispatch", investigationId: f.investigationId });
     expect(f.state.investigations[0]!.proposals[0]!.status).toBe("superseded");
-    const nextLease = f.claim().investigation.lease;
+    const nextLease = f.claim().assignment.lease;
     const revised = f.run({
       type: "propose",
       investigationId: f.investigationId,
@@ -137,15 +137,14 @@ describe("research lifecycle", () => {
       question: "Start this now",
       dispatch: true,
     });
-    const lease = f.claim().investigation.lease;
-    expect(lease.annotationIds).toHaveLength(2);
+    expect(f.claim().assignment.annotationIds).toHaveLength(2);
     expect(
       f.state.investigations[0]!.annotations[1]!.dispatchedAt,
     ).toBeUndefined();
   });
   it("fences replaced workers while handing checkpoints to their replacement", () => {
     const f = fixture();
-    const first = f.claim().investigation.lease;
+    const first = f.claim().assignment.lease;
     f.run({
       type: "checkpoint",
       investigationId: f.investigationId,
@@ -156,10 +155,10 @@ describe("research lifecycle", () => {
     });
     f.run({ type: "resume", investigationId: f.investigationId });
     const replacement = f.claim();
-    expect(replacement.investigation.checkpoints[0].nextSteps).toBe(
+    expect(replacement.assignment.checkpoints[0].nextSteps).toBe(
       "Inspect next year",
     );
-    expect(replacement.investigation.lease.token).not.toBe(first.token);
+    expect(replacement.assignment.lease.token).not.toBe(first.token);
     expect(() =>
       f.run({
         type: "propose",
@@ -181,7 +180,7 @@ describe("research lifecycle", () => {
   });
   it("rejects an already claimed task and fences a paused worker", () => {
     const f = fixture();
-    const lease = f.claim().investigation.lease;
+    const lease = f.claim().assignment.lease;
     expect(() => f.claim()).toThrow("not queued");
     f.run({ type: "pause", investigationId: f.investigationId });
     expect(() =>
@@ -196,7 +195,7 @@ describe("research lifecycle", () => {
   it("does not overwrite an accepted change when another proposal becomes stale", () => {
     const f = fixture();
     const original = f.proposal();
-    const lease = f.claim().investigation.lease;
+    const lease = f.claim().assignment.lease;
     const first = f.run({
       type: "propose",
       investigationId: f.investigationId,
@@ -213,7 +212,7 @@ describe("research lifecycle", () => {
       type: "claim",
       worker: "another",
       investigationId: second.investigationId,
-    }).investigation.lease;
+    }).assignment.lease;
     const secondProposal = f.run({
       type: "propose",
       investigationId: second.investigationId,
@@ -236,7 +235,7 @@ describe("research lifecycle", () => {
   });
   it("rejects missing evidence and invalid graph references before review", () => {
     const f = fixture();
-    const token = f.claim().investigation.lease.token;
+    const token = f.claim().assignment.lease.token;
     const p = f.proposal();
     p.changes[0]!.evidenceIds = ["missing"];
     expect(() =>
@@ -261,7 +260,7 @@ describe("research lifecycle", () => {
   });
   it("records an unresolved outcome without changing the graph", () => {
     const f = fixture();
-    const token = f.claim().investigation.lease.token;
+    const token = f.claim().assignment.lease.token;
     const p = f.proposal();
     p.changes = [];
     p.evidence = [];
@@ -308,7 +307,7 @@ describe("durable state", () => {
         worker: "old provider",
         investigationId: result.investigationId,
       });
-      const token = first.state.investigations[0]!.lease!.token;
+      const token = first.state.investigations[0]!.assignments!.at(-1)!.lease!.token;
       first.command({
         type: "checkpoint",
         investigationId: result.investigationId,
@@ -318,7 +317,7 @@ describe("durable state", () => {
         nextSteps: "Inspect page",
       });
       const recovered = new WorkspaceStore(dir, dataset);
-      expect(recovered.state.investigations[0]!.checkpoints[0]!.nextSteps).toBe(
+      expect(recovered.state.investigations[0]!.assignments![0]!.checkpoints[0]!.nextSteps).toBe(
         "Inspect page",
       );
       expect(JSON.stringify(recovered.publicState())).not.toContain(token);

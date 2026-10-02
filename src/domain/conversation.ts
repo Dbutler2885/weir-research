@@ -1,4 +1,6 @@
 import { assert, validateReferences } from "./findings.ts";
+import { newAssignment } from "./assignments.ts";
+import type { Choice } from "./assignments.ts";
 import type {
   Annotation,
   AnnotationTarget,
@@ -6,20 +8,6 @@ import type {
   ResearchCommand,
   ResearchState,
 } from "./research.ts";
-
-// A question inside a batch: a coordinator-written heading over the human's
-// annotations or plain message, or over a request the coordinator wrote itself.
-export interface Question {
-  id: string;
-  title: string;
-  origin: "human" | "coordinator";
-  annotationIds: string[];
-  explanation?: string;
-  approvalMessageId?: string;
-  // The human's plain message this question takes up, in place of annotations.
-  messageId?: string;
-  createdAt: string;
-}
 
 // What a batch is for, kept current by the coordinator so a fresh one can pick it up.
 export interface Brief {
@@ -61,7 +49,6 @@ export const humanConversationCommands = new Set([
 export const coordinatorConversationCommands = new Set([
   "reply",
   "open-batch",
-  "add-to-batch",
   "batch-ready",
   "request-approval",
   "retitle",
@@ -76,18 +63,6 @@ const text = (value: unknown, label: string, max = 50_000): string => {
   return (value as string).trim();
 };
 
-export function sentAnnotations(state: ResearchState): Annotation[] {
-  return (state.conversation || []).flatMap((m) => m.annotations || []);
-}
-
-// Sent annotations the coordinator has not yet placed in a batch.
-export function unassignedAnnotations(state: ResearchState): Annotation[] {
-  const placed = new Set(
-    state.investigations.flatMap((i) => i.annotations.map((a) => a.id)),
-  );
-  return sentAnnotations(state).filter((a) => !placed.has(a.id));
-}
-
 export function batchStatus(
   i: Investigation,
 ): "in progress" | "ready" | "closed" {
@@ -100,10 +75,7 @@ export function repairClosedBatches(state: ResearchState): number {
   const stale = state.investigations.filter(
     (i) => i.closedAt && i.status !== "closed",
   );
-  for (const i of stale) {
-    i.status = "closed";
-    delete i.lease;
-  }
+  for (const i of stale) i.status = "closed";
   return stale.length;
 }
 
@@ -140,95 +112,12 @@ function annotationFrom(
   };
 }
 
-function questionsFrom(
-  next: ResearchState,
-  batch: Investigation,
-  input: unknown,
-  now: string,
-  id: () => string,
-): void {
-  assert(
-    Array.isArray(input) && input.length > 0,
-    "Add at least one question.",
-  );
-  const unassigned = new Map(
-    unassignedAnnotations(next).map((a) => [a.id, a]),
-  );
-  for (const raw of input as Record<string, unknown>[]) {
-    const annotationIds = (raw.annotationIds || []) as string[];
-    assert(Array.isArray(annotationIds), "Annotation IDs must be a list.");
-    for (const annotationId of annotationIds) {
-      const annotation = unassigned.get(annotationId);
-      assert(
-        annotation,
-        "Each annotation must be a sent annotation not yet placed in a batch.",
-      );
-      batch.annotations.push(structuredClone(annotation));
-      unassigned.delete(annotationId);
-    }
-    const existing = raw.questionId
-      ? batch.questions?.find((q) => q.id === raw.questionId)
-      : undefined;
-    if (raw.questionId) {
-      assert(existing, "Question is not part of this batch.");
-      existing.annotationIds.push(...annotationIds);
-      continue;
-    }
-    const title = text(raw.title, "Question heading", 300);
-    if (annotationIds.length) {
-      (batch.questions ||= []).push({
-        id: id(),
-        title,
-        origin: "human",
-        annotationIds,
-        createdAt: now,
-      });
-      continue;
-    }
-    // Research without annotations: an approved request, or research the coordinator
-    // words from what the human asked or on its own judgement; the request is the assignment.
-    const approval = raw.approvalMessageId
-      ? next.conversation?.find((m) => m.id === raw.approvalMessageId)
-      : undefined;
-    if (raw.approvalMessageId) {
-      assert(
-        approval?.decision?.status === "approved",
-        "That request is not one the human approved.",
-      );
-      assert(
-        !next.investigations.some((i) =>
-          i.questions?.some((q) => q.approvalMessageId === approval.id),
-        ),
-        "This approved research already has a question.",
-      );
-    }
-    // The coordinator words what is asked; a human's message is never cited by ID.
-    assert(raw.messageId === undefined, "Word the request yourself; questions no longer cite a message.");
-    const request = text(raw.request ?? approval?.decision?.body, "Research request", 5000);
-    // What the human's annotations pointed at, when it helps the work.
-    const references = (raw.references || []) as AnnotationTarget[];
-    assert(Array.isArray(references), "References must be a list.");
-    validateReferences(next, references);
-    const annotation: Annotation = {
-      id: id(),
-      author: "coordinator",
-      target: references[0] || { label: title },
-      references,
-      question: request,
-      createdAt: now,
-      dispatchedAt: now,
-    };
-    batch.annotations.push(annotation);
-    (batch.questions ||= []).push({
-      id: id(),
-      title,
-      origin: "coordinator",
-      annotationIds: [annotation.id],
-      explanation: request,
-      ...(approval ? { approvalMessageId: approval.id } : {}),
-      createdAt: now,
-    });
-  }
+// The researchers' parts of a new batch, each with the coordinator's title and brief.
+function assignmentsFrom(batch: Investigation, input: unknown, now: string, id: () => string): void {
+  if (input === undefined) return;
+  assert(Array.isArray(input), "Assignments must be a list.");
+  for (const raw of input as Record<string, unknown>[])
+    (batch.assignments ||= []).push(newAssignment(raw, raw.choice as Choice | undefined, now, id()));
 }
 
 export function conversationTransition(
@@ -373,32 +262,14 @@ export function conversationTransition(
         status: "queued",
         scope,
         annotations: [],
-        questions: [],
-        checkpoints: [],
+        assignments: [],
         proposals: [],
         events: [],
       };
-      questionsFrom(next, batch, command.questions, now, id);
+      assert(command.questions === undefined, "Batches no longer take questions; give each researcher's part as an assignment with a title and a brief.");
+      assignmentsFrom(batch, command.assignments, now, id);
       batch.events.push({ at: now, message: "Coordinator opened this batch." });
       next.investigations.push(batch);
-      return { investigationId: batch.id };
-    }
-    case "add-to-batch": {
-      const batch = next.investigations.find(
-        (i) => i.id === command.investigationId,
-      );
-      assert(batch, "Unknown batch.");
-      assert(
-        !batch.closedAt,
-        "This batch is closed. Open a new batch for further work.",
-      );
-      questionsFrom(next, batch, command.questions, now, id);
-      if (!["running", "paused"].includes(batch.status)) {
-        batch.status = "queued";
-        delete batch.lease;
-      }
-      delete batch.readyAt;
-      batch.events.push({ at: now, message: "Coordinator added work to this batch." });
       return { investigationId: batch.id };
     }
     case "retitle": {
@@ -408,10 +279,10 @@ export function conversationTransition(
       assert(batch, "Unknown batch.");
       if (command.title !== undefined)
         batch.title = text(command.title, "Batch title", 300);
-      for (const raw of (command.questions || []) as Record<string, unknown>[]) {
-        const question = batch.questions?.find((q) => q.id === raw.questionId);
-        assert(question, "Question is not part of this batch.");
-        question.title = text(raw.title, "Question heading", 300);
+      for (const raw of (command.assignments || []) as Record<string, unknown>[]) {
+        const assignment = batch.assignments?.find((a) => a.id === raw.assignmentId);
+        assert(assignment, "Assignment is not part of this batch.");
+        assignment.title = text(raw.title, "Assignment title", 300);
       }
       return { investigationId: batch.id };
     }

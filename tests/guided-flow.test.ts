@@ -50,8 +50,7 @@ describe('reorganizing the graph',()=>{
     const store = new WorkspaceStore(directory, graph);
     // The human asks; the coordinator opens a batch for it.
     store.command({type:'send',text:'Please reorganize the graph.',annotation:{question:'Reorganize the graph with summaries.',references:[]}});
-    const annotationId = store.state.conversation.at(-1).annotations[0].id;
-    const {investigationId}: any = store.command({type:'open-batch',title:'Reorganize the graph',brief:{purpose:'Organize the graph as it stands.',scope:'The whole graph.',direction:'No new research.'},questions:[{title:'Reorganize the graph with summaries.',annotationIds:[annotationId]}]});
+    const {investigationId}: any = store.command({type:'open-batch',title:'Reorganize the graph',brief:{purpose:'Organize the graph as it stands.',scope:'The whole graph.',direction:'No new research.'}});
     expect(()=>flowCommand(store,{action:'reorganize-graph',investigationId,message:'x'},'human')).toThrow('other review role');
     expect(()=>flowCommand(store,{action:'reorganize-graph',investigationId,message:' '})).toThrow('Say what the human asked');
     const {jobId}: any = flowCommand(store,{action:'reorganize-graph',investigationId,message:'The human asked for summaries and a timeline of names.'});

@@ -155,7 +155,7 @@
   scroll-margin-top: 16px;
 }
 .batch-question > h3 {
-  margin: 0 0 14px;
+  margin: 0 0 4px;
   font-family: Georgia, serif;
   font-size: 23px;
   font-weight: 500;
@@ -183,6 +183,86 @@
 }
 .asked .asked-note {
   font-size: 0.9rem;
+}
+/* A pass with nothing under its direction ends at the next pass's rule. */
+.asked:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+.asked .asked-label {
+  margin: 0 0 4px;
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+/* A long brief shows its first lines until the human opens the rest. */
+.asked blockquote.is-clipped {
+  max-height: 8.5em;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(#000 60%, transparent);
+  mask-image: linear-gradient(#000 60%, transparent);
+}
+.pass-state {
+  margin: 0 0 14px;
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+.findings-toc .toc-state {
+  font-size: 12.5px;
+}
+.steering {
+  margin: 4px 0 12px;
+  padding: 0;
+  list-style: none;
+}
+.steering li {
+  margin: 10px 0;
+  padding-left: 20px;
+  border-left: 3px solid var(--line);
+  font-size: 15px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+.steering time {
+  display: block;
+  font-size: 13px;
+  color: var(--ink-soft);
+  white-space: normal;
+}
+.batch-board {
+  margin-top: 26px;
+  padding-top: 22px;
+  border-top: 1px solid var(--line);
+}
+.batch-board > summary {
+  cursor: pointer;
+  font-family: Georgia, serif;
+  font-size: 20px;
+}
+.batch-board > p {
+  margin: 10px 0;
+  color: var(--ink-soft);
+  font-size: 14px;
+}
+.batch-board ol {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+.batch-board li {
+  padding: 12px 0;
+  border-bottom: 1px solid #e3dccd;
+  font-size: 15px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+.batch-board li:last-child {
+  border-bottom: 0;
+}
+.board-who {
+  display: block;
+  font-size: 13px;
+  color: var(--ink-soft);
+  white-space: normal;
 }
 .report {
   margin: 18px 0;

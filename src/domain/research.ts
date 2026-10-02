@@ -24,7 +24,9 @@ import {
   humanConversationCommands,
   coordinatorConversationCommands,
 } from "./conversation.ts";
-import type { Brief, Message, Question } from "./conversation.ts";
+import type { Brief, Message } from "./conversation.ts";
+import { assignmentCommands, assignmentTransition, assignmentsOf, leased, runningIn, settle } from "./assignments.ts";
+import type { Assignment, BoardPost, Checkpoint } from "./assignments.ts";
 
 export type Table = "nodes" | "claims" | "sources";
 export interface AnnotationTarget {
@@ -41,9 +43,9 @@ export interface AnnotationTarget {
   proposalId?: string;
   findingId?: string;
   groupId?: string;
-  // A batch, or one of its questions, as a whole.
+  // A batch, or one of its assignments, as a whole.
   investigationId?: string;
-  questionId?: string;
+  assignmentId?: string;
   // The screen it was picked from; see describeScreen.
   screen?: { view: string; investigationId?: string; sourceId?: string; focusId?: string };
   // In developer mode, where on the page it was, for feedback about Weir itself:
@@ -99,6 +101,8 @@ export interface Proposal {
   evidence: Evidence[];
   changes: Change[];
   addressedAnnotationIds: string[];
+  // The assignment whose researcher returned it; absent before assignments.
+  assignmentId?: string;
   createdAt: string;
   status: "pending" | "accepted" | "rejected" | "superseded";
   decidedAt?: string;
@@ -108,7 +112,10 @@ export interface Proposal {
 export interface Investigation {
   number?: number;
   brief?: Brief;
-  questions?: Question[];
+  // Each researcher's part of the batch, in the order the coordinator made them.
+  assignments?: Assignment[];
+  // What the batch's researchers posted for each other.
+  board?: BoardPost[];
   readyAt?: string;
   closedAt?: string;
   walkthroughRequestedAt?: string;
@@ -125,12 +132,13 @@ export interface Investigation {
   };
   phase?: "research" | "graph";
   graphRequest?: { refs: FindingRef[]; at: string };
-  accessRequest?: { instruction: string; url?: string; resolvedAt?: string };
+  accessRequest?: { instruction: string; url?: string; resolvedAt?: string; assignmentId?: string };
   executions?: {
     at: string;
     worker: string;
     provider: string;
     model: string;
+    assignmentId?: string;
   }[];
   id: string;
   title: string;
@@ -138,26 +146,10 @@ export interface Investigation {
   createdAt: string;
   scope: string[];
   annotations: Annotation[];
-  checkpoints: {
-    id: string;
-    at: string;
-    worker: string;
-    summary: string;
-    findings: string;
-    nextSteps: string;
-  }[];
+  // Checkpoints from before assignments, which converting a project moves into them.
+  checkpoints?: Checkpoint[];
   proposals: Proposal[];
   events: { at: string; message: string }[];
-  lease?: {
-    token: string;
-    worker: string;
-    at: string;
-    annotationIds: string[];
-    dataset: GraphDataset;
-  };
-  // The researcher's session with its CLI, kept until it hands in its result, so a pass
-  // the app's closing or a crash interrupted picks up its conversation where it stopped.
-  researcherSession?: { engine: string; id: string; directory: string; at: string };
 }
 export interface SourceCollection {
   id: string;
@@ -219,7 +211,7 @@ export interface ResearchState {
     };
   }[];
   engine?: "manual" | "codex" | "claude";
-  researchSettings?: { timeLimitMinutes: number | null; maxWorkers?: number; compactAt?: number };
+  researchSettings?: { timeLimitMinutes: number | null; researchersPerBatch?: number; compactAt?: number };
   reviewSettings?: { autoWalkthrough: boolean; autoGraph: boolean };
   organization?: {
     history: {
@@ -286,6 +278,8 @@ export interface LiveWorker {
   name: string;
   // Absent for a helper, whose task belongs to no batch.
   investigationId?: string;
+  // The assignment a researcher works on.
+  assignmentId?: string;
   task?: string;
   jobId?: string;
   startedAt: string;
@@ -369,7 +363,14 @@ export interface ResearchCommand {
     | "decide"
     | "reply"
     | "open-batch"
-    | "add-to-batch"
+    | "assign"
+    | "steered"
+    | "assignment-session"
+    | "assignment-returned"
+    | "assignment-paused"
+    | "stop-assignment"
+    | "revise-assignment"
+    | "post"
     | "batch-ready"
     | "request-approval"
     | "retitle"
@@ -391,6 +392,11 @@ export function transition(
     coordinatorConversationCommands.has(command.type)
   ) {
     const result = conversationTransition(next, command, now, id);
+    next.revision++;
+    return { state: next, result };
+  }
+  if (assignmentCommands.has(command.type)) {
+    const result = assignmentTransition(next, command, now, id);
     next.revision++;
     return { state: next, result };
   }
@@ -439,7 +445,7 @@ export function transition(
   if (command.type === "reclassify-annotation") {
     assert(investigation, "Unknown investigation.");
     assert(
-      investigation.status === "paused" && !investigation.lease,
+      investigation.status === "paused" && !runningIn(investigation).length,
       "Pause the investigation before reclassifying an annotation.",
     );
     const original = investigation.annotations.find(
@@ -560,7 +566,7 @@ export function transition(
           ? "pending"
           : "accepted";
       }
-      if (!i.lease && i.status !== "queued")
+      if (!active(i) && i.status !== "queued")
         i.status = i.proposals.some((p) => p.status === "pending")
           ? "review"
           : "closed";
@@ -570,7 +576,7 @@ export function transition(
       });
     } else if (command.type === "build-graph") {
       assert(
-        !i.lease,
+        !active(i),
         "Pause the current pass before requesting graph construction.",
       );
       const refs = command.refs as FindingRef[];
@@ -603,7 +609,7 @@ export function transition(
       if (p.groups!.every((g) => g.status !== "pending")) {
         p.status = "accepted";
         p.decidedAt = now;
-        if (!i.lease && i.status !== "queued")
+        if (!active(i) && i.status !== "queued")
           i.status = i.proposals.some((p) => p.status === "pending")
             ? "review"
             : "closed";
@@ -618,8 +624,12 @@ export function transition(
         "No access request is waiting.",
       );
       i.accessRequest.resolvedAt = now;
-      i.status = "queued";
-      delete i.lease;
+      // The researcher who asked carries on with its conversation.
+      const asked = i.assignments?.find((a) => a.id === i.accessRequest!.assignmentId && a.status === "paused");
+      if (asked) {
+        asked.status = "waiting";
+        settle(i);
+      } else i.status = "queued";
       i.events.push({
         at: now,
         message: "Source access assistance completed; queued to resume.",
@@ -750,7 +760,7 @@ export function transition(
         ? "graph"
         : "research";
       // A replacement pass gets the new context; fence any old worker immediately.
-      delete investigation.lease;
+      fence(investigation, now);
       investigation.status = "queued";
       for (const p of investigation.proposals)
         if (p.status === "pending" && p.kind !== "findings")
@@ -769,17 +779,38 @@ export function transition(
       ? investigation
       : next.investigations.find((i) => i.status === "queued");
     if (!investigation) return { state, result: null };
-    requireThat(
-      investigation.status === "queued",
-      "Investigation is not queued. Resume it to replace the worker.",
-    );
-    investigation.lease = {
+    let assignment = command.assignmentId
+      ? investigation.assignments?.find((a) => a.id === command.assignmentId)
+      : undefined;
+    if (command.assignmentId)
+      requireThat(assignment?.status === "waiting", "This assignment is not waiting for a researcher.");
+    else assignment = investigation.assignments?.find((a) => a.status === "waiting");
+    if (!assignment) {
+      requireThat(
+        investigation.status === "queued",
+        "Investigation is not queued. Resume it to replace the worker.",
+      );
+      // Work sent without the coordinator becomes an assignment of its own,
+      // started from the annotations sent so far.
+      assignment = {
+        id: id(),
+        title: investigation.title,
+        brief: "",
+        annotationIds: investigation.annotations.filter((a) => a.dispatchedAt).map((a) => a.id),
+        status: "waiting",
+        createdAt: now,
+        checkpoints: [],
+        steering: [],
+      };
+      assignmentsOf(investigation).push(assignment);
+    }
+    assignment!.status = "running";
+    assignment!.startedAt = now;
+    assignment!.worker = command.worker;
+    assignment!.lease = {
       token: id(),
       worker: command.worker,
       at: now,
-      annotationIds: investigation.annotations
-        .filter((a) => a.dispatchedAt)
-        .map((a) => a.id),
       dataset: structuredClone(next.dataset),
     };
     (investigation.executions ||= []).push({
@@ -787,14 +818,16 @@ export function transition(
       worker: command.worker,
       provider: String(command.provider || "coordinator/native"),
       model: String(command.model || "Runtime configured; not reported"),
+      assignmentId: assignment!.id,
     });
-    investigation.status = "running";
+    settle(investigation);
     investigation.events.push({
       at: now,
       message: `Research claimed by ${command.worker}.`,
     });
     result = {
       investigation,
+      assignment,
       sources: registeredSources(next),
       collections: next.collections.filter((c) =>
         investigation!.scope.includes(c.id),
@@ -805,12 +838,11 @@ export function transition(
     };
   } else {
     requireThat(investigation, "Unknown investigation.");
+    const assignment = leased(investigation, command.token);
     if (["checkpoint", "propose"].includes(command.type))
       requireThat(
-        investigation.status === "running" &&
-          investigation.lease &&
-          investigation.lease.token === command.token,
-        "Worker lease is no longer current. Read the saved handoff before claiming work again.",
+        assignment && ["running", "returned"].includes(assignment.status),
+        "Worker lease is no longer current. Read the saved checkpoints before claiming work again.",
       );
     if (command.type === "dispatch" || command.type === "resume") {
       if (investigation.resumeRequest?.status === "pending") {
@@ -832,8 +864,22 @@ export function transition(
       investigation.annotations.forEach((a) => {
         a.dispatchedAt ??= now;
       });
+      if (command.type === "resume") {
+        // Interrupted researchers pick up their conversations, and the others carry on;
+        // with none interrupted, a running one is replaced.
+        const paused = (investigation.assignments || []).filter((a) => a.status === "paused");
+        for (const a of paused) a.status = "waiting";
+        if (!paused.length)
+          for (const a of investigation.assignments || [])
+            if (a.status === "running") {
+              a.status = "waiting";
+              delete a.lease;
+              delete a.session;
+            }
+      } else fence(investigation, now);
+      // With no assignment to take up, the batch waits for one.
       investigation.status = "queued";
-      delete investigation.lease;
+      if (active(investigation)) settle(investigation);
       investigation.proposals.forEach((p) => {
         if (p.status === "pending" && p.kind !== "findings")
           p.status = "superseded";
@@ -846,12 +892,17 @@ export function transition(
             : "Queued annotations dispatched together.",
       });
     } else if (command.type === "pause") {
+      // Paused researchers keep their sessions; a returned result still waits for the coordinator.
+      for (const a of investigation.assignments || [])
+        if (a.status === "running" || a.status === "waiting") {
+          a.status = "paused";
+          delete a.lease;
+        }
       investigation.status = "paused";
       if (investigation.resumeRequest?.status === "pending") {
         investigation.resumeRequest.status = "declined";
         investigation.resumeRequest.decidedAt = now;
       }
-      delete investigation.lease;
       investigation.events.push({
         at: now,
         message: "Investigation paused; saved findings retained.",
@@ -871,19 +922,20 @@ export function transition(
             /^https?:\/\//.test(access.url),
             "Access URL must use HTTP or HTTPS.",
           );
-        investigation.accessRequest = access;
+        investigation.accessRequest = { ...access, assignmentId: assignment!.id };
       }
-      investigation.checkpoints.push({
+      assignment!.checkpoints.push({
         id: id(),
         at: now,
-        worker: investigation.lease!.worker,
+        worker: assignment!.lease!.worker,
         summary: command.summary,
         findings: command.findings,
         nextSteps: command.nextSteps,
       });
       if (command.accessRequest) {
-        investigation.status = "paused";
-        delete investigation.lease;
+        assignment!.status = "paused";
+        delete assignment!.lease;
+        settle(investigation);
         investigation.events.push({
           at: now,
           message:
@@ -921,7 +973,7 @@ export function transition(
         if (!prior) (next.library ||= []).push(source);
       }
       const candidate = applyChanges(
-        { ...investigation.lease!.dataset, sources: registeredSources(next) },
+        { ...assignment!.lease!.dataset, sources: registeredSources(next) },
         p.changes,
       );
       // Also verify against current accepted research. Never publish a misleading stale preview.
@@ -988,7 +1040,8 @@ export function transition(
         ambiguity: p.ambiguity,
         evidence: p.evidence,
         changes: p.changes,
-        addressedAnnotationIds: [...investigation.lease!.annotationIds],
+        addressedAnnotationIds: [...(assignment!.annotationIds || [])],
+        assignmentId: assignment!.id,
         createdAt: now,
         status: "pending",
       };
@@ -997,8 +1050,11 @@ export function transition(
           old.status = "superseded";
       });
       investigation.proposals.push(proposal);
-      investigation.status = "review";
-      delete investigation.lease;
+      assignment!.status = "done";
+      assignment!.endedAt ??= now;
+      delete assignment!.lease;
+      delete assignment!.session;
+      settle(investigation);
       investigation.events.push({
         at: now,
         message: `Proposal revision ${proposal.revision} is ready to review.`,
@@ -1020,10 +1076,14 @@ export function transition(
         investigation.status === "review",
         "Finish or resume the investigation before deciding on this proposal.",
       );
+      // A pass sent from annotations must have seen every annotation sent since; one the
+      // coordinator briefed answers its brief.
+      const pass = investigation.assignments?.find((a) => a.id === p.assignmentId);
       requireThat(
-        investigation.annotations.every((a) =>
-          p.addressedAnnotationIds.includes(a.id),
-        ),
+        (pass && !pass.annotationIds) ||
+          investigation.annotations.every((a) =>
+            p.addressedAnnotationIds.includes(a.id),
+          ),
         "There is newer feedback on this investigation. Dispatch it and review a revised proposal first.",
       );
       if (command.type === "accept") {
@@ -1044,4 +1104,20 @@ export function transition(
   }
   next.revision++;
   return { state: next, result };
+}
+
+// A researcher is at work on the batch, or its result waits for the coordinator.
+function active(i: Investigation): boolean {
+  return (i.assignments || []).some((a) => ["running", "returned", "waiting"].includes(a.status));
+}
+
+// New instructions replace whatever researchers were doing.
+function fence(i: Investigation, now: string): void {
+  for (const a of i.assignments || [])
+    if (["running", "returned", "waiting", "paused"].includes(a.status)) {
+      a.status = "stopped";
+      a.endedAt = now;
+      delete a.lease;
+      delete a.session;
+    }
 }

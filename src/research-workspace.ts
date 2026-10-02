@@ -747,7 +747,7 @@ export function mountResearchWorkspace(
     if (next) next.scrollTop = top;
     markContents();
   }
-  // Highlight the question being read in the contents.
+  // Highlight the research pass being read in the contents.
   function markContents() {
     const scroller = surface.querySelector<HTMLElement>(".findings-scroll");
     if (!scroller) return;
@@ -932,13 +932,13 @@ export function mountResearchWorkspace(
         message((error as Error).message);
       }
     });
-    surface.querySelector<HTMLFormElement>("#max-workers-form")?.addEventListener("submit", async (event) => {
+    surface.querySelector<HTMLFormElement>("#researchers-per-batch-form")?.addEventListener("submit", async (event) => {
       event.preventDefault();
-      const maxWorkers = surface.querySelector<HTMLInputElement>("#max-workers")!.valueAsNumber;
+      const researchersPerBatch = surface.querySelector<HTMLInputElement>("#researchers-per-batch")!.valueAsNumber;
       try {
-        await request("/api/research-settings", { maxWorkers });
+        await request("/api/research-settings", { researchersPerBatch });
         await refresh();
-        message(`Your coordinator runs at most ${maxWorkers} ${maxWorkers === 1 ? "worker" : "workers"} at once.`);
+        message(`At most ${researchersPerBatch} ${researchersPerBatch === 1 ? "researcher works" : "researchers work"} one batch at once.`);
       } catch (error) {
         message((error as Error).message);
       }
@@ -1195,6 +1195,11 @@ export function mountResearchWorkspace(
     }
     if (button.dataset.moreFindings) {
       expandedReports.add(button.dataset.moreFindings);
+      renderFindings();
+      return;
+    }
+    if (button.dataset.wholeBrief) {
+      expandedReports.add(`brief:${button.dataset.wholeBrief}`);
       renderFindings();
       return;
     }

@@ -129,11 +129,11 @@ export function buildSample(directory) {
   const store = new WorkspaceStore(directory, graph);
   // The visitor's question, as it would have come in, and the coordinator's batch for it.
   store.command({type: 'send', text: 'I\'d like to know more about Edith\'s family.', annotation: {question: QUESTION, references: [{table: 'nodes', recordId: 'edith', label: 'Edith Marrow'}]}});
-  const annotationId = store.state.conversation.at(-1).annotations[0].id;
   store.command({type: 'reply', text: 'I\'ll look for Edith\'s baptism first, then follow her parents through the household lists and any marriage notice.', references: []});
-  const {investigationId} = store.command({type: 'open-batch', title: 'Edith\'s parents', brief: {purpose: 'Find who Edith Marrow\'s parents were and where they came from.', scope: 'Her parents and their birthplaces, not earlier generations.', direction: 'Start with the Tidewell baptisms.'}, questions: [{title: QUESTION, annotationIds: [annotationId]}]});
-  const task = store.command({type: 'claim', investigationId, worker: 'Sample researcher'});
-  const {proposalId} = store.command({type: 'propose', investigationId, token: task.investigation.lease.token, proposal: {
+  const {investigationId} = store.command({type: 'open-batch', title: 'Edith\'s parents', brief: {purpose: 'Find who Edith Marrow\'s parents were and where they came from.', scope: 'Her parents and their birthplaces, not earlier generations.', direction: 'Start with the Tidewell baptisms.'}, assignments: [{title: QUESTION, brief: 'Find Edith Marrow\'s baptism in the Tidewell register, then follow her parents through the household lists and any marriage notice. Say where the lists disagree.'}]});
+  const assignmentId = store.state.investigations.find(i => i.id === investigationId).assignments[0].id;
+  const task = store.command({type: 'claim', investigationId, assignmentId, worker: 'Sample researcher'});
+  const {proposalId} = store.command({type: 'propose', investigationId, token: task.assignment.lease.token, proposal: {
     kind: 'findings',
     title: 'Edith\'s parents and their two towns',
     summary: 'A baptism, two household lists and a marriage notice name Edith\'s parents, Thomas and Ann Marrow, and connect the family to Tidewell and Saltmere.',

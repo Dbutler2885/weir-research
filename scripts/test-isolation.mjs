@@ -17,11 +17,15 @@ if (spawnSync("codex", ["--version"]).error) {
 const app = mkdtempSync(join(resolve(".research"), "isolation-"));
 const folder = join(app, "agents", "one");
 const other = join(app, "agents", "two");
+// The project's research library, which researchers read but cannot change.
+const library = join(app, "library");
 mkdirSync(folder, { recursive: true });
 mkdirSync(other, { recursive: true });
+mkdirSync(library, { recursive: true });
+writeFileSync(join(library, "README.md"), "Fictional research library.\n");
 writeFileSync(join(folder, "AGENTS.md"), "Fictional agent instructions.\n");
 const homes = agentHomes(app);
-const server = spawn("codex", codexAdapter.args({ folder }), {
+const server = spawn("codex", codexAdapter.args({ folder, readOnly: [library] }), {
   cwd: folder,
   env: codexAdapter.env({ ...process.env }, { homes }),
   stdio: ["pipe", "pipe", "ignore"],
@@ -60,9 +64,12 @@ try {
     assert.notEqual(listed.exitCode, 0, `${outside} must be out of reach`);
   }
   assert.notEqual((await exec("/bin/sh", "-c", `echo x > ${other}/written.txt`)).exitCode, 0, "another agent's folder is not writable");
+  assert.equal((await exec("/bin/cat", join(realpathSync(library), "README.md"))).stdout, "Fictional research library.\n", "the library is readable");
+  assert.notEqual((await exec("/bin/sh", "-c", `echo x > ${realpathSync(library)}/README.md`)).exitCode, 0, "the library is not writable");
+  assert.notEqual((await exec("/bin/sh", "-c", `echo x > ${realpathSync(library)}/new.md`)).exitCode, 0, "nothing can be added to the library");
   const web = await exec("/usr/bin/curl", "-sS", "-o", "/dev/null", "-w", "%{http_code}", "https://example.com");
   assert.equal(web.stdout, "200", "the web is reachable");
-  console.log("Codex isolation: own folder, node and the web reachable; home, Codex sign-in and other agents' folders out of reach: passed.");
+  console.log("Codex isolation: own folder, node and the web reachable; the library readable but not writable; home, Codex sign-in and other agents' folders out of reach: passed.");
 } finally {
   // Codex writes to its home as it closes; remove the folders once it has exited.
   const exited = new Promise((resolve) => server.once("exit", resolve));

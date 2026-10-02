@@ -11,7 +11,7 @@ import {
 import { join } from "node:path";
 import { IMPORTS_DESCRIPTION, initialState, transition } from "../src/domain/research.ts";
 import { needsGraphUpgrade, upgradeGraphState } from "../src/domain/graph-upgrade.ts";
-import { convertToAppWorkers } from "../src/domain/migration.ts";
+import { convertToAppWorkers, convertToAssignments } from "../src/domain/migration.ts";
 import { repairClosedBatches } from "../src/domain/conversation.ts";
 
 export class WorkspaceStore {
@@ -34,6 +34,12 @@ export class WorkspaceStore {
       this.save(upgradeGraphState(this.state));
     }
     if (repairClosedBatches(this.state)) this.save(this.state);
+    // A project from before assignments keeps a copy and converts in place.
+    if (convertToAssignments(this.state)) {
+      const backup = join(directory, "workspace.before-assignments.json");
+      if (!existsSync(backup)) writeFileSync(backup, readFileSync(this.path), { mode: 0o600 });
+      this.save(this.state);
+    }
     // A project from before the app ran every worker converts in place.
     if (convertToAppWorkers(this.state)) this.save(this.state);
     // A project from before PDFs were read says so no longer.
@@ -64,6 +70,7 @@ export class WorkspaceStore {
       candidates: (state.coordination?.candidates || []).length,
       dispatch: JSON.stringify(state.dispatch ?? null),
       investigations: new Map(state.investigations.map((i) => [i.id, fingerprint(i)])),
+      boards: new Map(state.investigations.map((i) => [i.id, (i.board || []).length])),
     });
     if (this.marks.length > 300) this.marks.shift();
   }
@@ -85,6 +92,8 @@ export class WorkspaceStore {
         ([id, status]) => now.decisions.get(id) !== status,
       ),
       candidatesChanged: now.candidates !== mark.candidates,
+      // What researchers posted on their batches' boards since.
+      boardFrom: mark.boards,
       dispatchChanged: now.dispatch !== mark.dispatch,
     };
   }
@@ -111,11 +120,6 @@ export class WorkspaceStore {
         job.progress = "Paused with the investigation. Saved graph files are retained.";
       }
     }
-    if (
-      command.type === "reclassify-annotation" &&
-      state.coordination?.assignments
-    )
-      delete state.coordination.assignments[command.investigationId];
     if (state !== this.state) this.save(state);
     return result;
   }
@@ -129,7 +133,7 @@ export class WorkspaceStore {
   publicState() {
     const state = structuredClone(this.state);
     for (const i of state.investigations)
-      if (i.lease) i.lease = { worker: i.lease.worker, at: i.lease.at };
+      for (const a of i.assignments || []) if (a.lease) a.lease = { worker: a.lease.worker, at: a.lease.at };
     for (const i of state.investigations) for (const job of i.reviewFlow?.jobs || []) {
       for (const key of ["packet", "baseDataset", "candidate", "submissions", "runToken", "directory"]) delete job[key];
     }
@@ -140,7 +144,6 @@ export class WorkspaceStore {
       );
     }
     if (state.coordination) {
-      delete state.coordination.assignments;
       delete state.coordination.candidates;
     }
     return state;
@@ -163,12 +166,11 @@ function fingerprint(i) {
     i.annotations.length,
     i.annotations.filter((a) => a.dispatchedAt).length,
     i.proposals.length,
-    i.checkpoints.length,
     i.events.length,
-    (i.questions || []).length,
+    (i.assignments || []).map((a) => `${a.id}:${a.status}:${a.checkpoints.length}:${a.title}`).join(),
+    (i.board || []).length,
     i.accessRequest?.resolvedAt ?? i.accessRequest?.at,
     i.resumeRequest?.status,
-    i.lease?.token,
     i.graphRequest?.at,
     flow?.walkthroughs.length,
     flow?.jobs.map((j) => `${j.status}:${j.updates.length}:${j.resumeRequest?.status}`).join(),

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { initialState, type Investigation, type ResearchState } from "../src/domain/research";
 import { nextAction } from "../src/domain/next-action";
+import type { Assignment } from "../src/domain/assignments";
 import { emptyGraph } from "../src/domain/graph-schema";
 const empty = emptyGraph();
 
@@ -20,6 +21,16 @@ function batch(extra: Partial<Investigation> = {}): Investigation {
   };
 }
 const findings = { kind: "findings", id: "p1", status: "pending", findings: [] } as never;
+const pass = (status: Assignment["status"], extra: Partial<Assignment> = {}): Assignment => ({
+  id: `pass-${status}`,
+  title: "A fictional part",
+  brief: "Look.",
+  status,
+  createdAt: "2026-01-01T00:00:00.000Z",
+  checkpoints: [],
+  steering: [],
+  ...extra,
+});
 const flow = (jobs: object[] = [], graphReviews: object[] = [], walkthroughs: object[] = []) =>
   ({ jobs, graphReviews, walkthroughs }) as never;
 
@@ -49,14 +60,15 @@ describe("next action for a batch", () => {
     expect(waitingOn(batch({ reviewFlow: flow([{ status: "queued", engine: "manual" }]) }))).toBe("coordinator");
     expect(waitingOn(batch({ walkthroughRequestedAt: "2026-01-02", proposals: [findings] }))).toBe("coordinator");
     expect(waitingOn(batch({ proposals: [findings] }))).toBe("coordinator");
-    const running = batch({ status: "running", lease: { token: "t", worker: "Codex researcher", at: "a", annotationIds: [], dataset: {} as never } });
-    expect(waitingOn(running, { coordination: { candidates: [{ investigationId: "batch-1", token: "t" }] } })).toBe("coordinator");
+    const returned = batch({ status: "running", assignments: [pass("returned", { lease: { token: "t", worker: "Codex researcher", at: "a", dataset: {} as never } }), pass("running")] });
+    expect(waitingOn(returned, { coordination: { candidates: [{ investigationId: "batch-1", token: "t" }] } })).toBe("coordinator");
     // A result from a fenced lease is stale and does not count.
-    expect(waitingOn(running, { coordination: { candidates: [{ investigationId: "batch-1", token: "old" }] } })).toBe("worker");
+    expect(waitingOn(returned, { coordination: { candidates: [{ investigationId: "batch-1", token: "old" }] } })).toBe("worker");
   });
 
   it("waits on a worker while research or a graph draft is under way", () => {
-    expect(waitingOn(batch({ status: "queued" }), { coordination: { assignments: { "batch-1": {} } } })).toBe("worker");
+    expect(waitingOn(batch({ status: "queued", assignments: [pass("waiting")] }))).toBe("worker");
+    expect(waitingOn(batch({ status: "running", assignments: [pass("running"), pass("done")] }))).toBe("worker");
     expect(waitingOn(batch({ reviewFlow: flow([{ status: "running", engine: "claude" }]) }))).toBe("worker");
     expect(waitingOn(batch({ reviewFlow: flow([], [{ status: "pending", revisingSince: "t" }]) }))).toBe("worker");
   });

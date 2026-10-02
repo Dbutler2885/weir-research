@@ -151,9 +151,9 @@ describe("research coordination", () => {
         reason: "Duplicate request",
       }).requestId,
     ).toBe(requested.requestId);
-    expect(() =>
-      f.run({ action: "assign", investigationId: id, engine: "claude", brief: "Continue" }),
-    ).toThrow("queued");
+    // Work assigned to a paused batch waits with it.
+    f.run({ action: "assign", investigationId: id, title: "Fixture assignment", engine: "claude", brief: "Continue" });
+    expect(f.store.state.investigations[0].assignments.at(-1).status).toBe("paused");
     expect(() => f.run({ action: "resume", investigationId: id })).toThrow(
       "Unknown coordinator action",
     );
@@ -188,6 +188,7 @@ describe("research coordination", () => {
       decision: "approve",
     });
     expect(f.store.state.investigations[0].status).toBe("queued");
+    expect(f.store.state.investigations[0].assignments.at(-1).status).toBe("waiting");
     expect(f.store.state.investigations[0].resumeRequest.status).toBe(
       "approved",
     );
@@ -195,6 +196,7 @@ describe("research coordination", () => {
       f.run({
         action: "assign",
         investigationId: id,
+        title: "Fixture assignment",
         engine: "claude",
         brief: "Prepare review from saved evidence",
       }),
@@ -230,6 +232,7 @@ describe("research coordination", () => {
     f.run({
       action: "assign",
       investigationId: id,
+      title: "Fixture assignment",
       engine: "claude",
       brief: "Check the source",
     });
@@ -244,21 +247,14 @@ describe("research coordination", () => {
     expect(f.store.state.interfaceFeedback[0].origin.annotation).toEqual(
       original,
     );
-    expect(f.store.state.coordination.assignments[id]).toBeUndefined();
     expect(() => f.store.command(move)).toThrow("Unknown annotation");
     const reopened = new WorkspaceStore(f.directory, dataset);
     expect(reopened.state.interfaceFeedback[0].origin.annotation).toEqual(
       original,
     );
+    // The researcher works from the coordinator's brief, never from the moved annotation.
     f.store.command({ type: "resume", investigationId: id });
-    f.run({
-      action: "assign",
-      investigationId: id,
-      engine: "claude",
-      brief: "Continue the research",
-    });
-    // The replacement researcher is given only the research annotation.
-    expect(f.store.state.coordination.assignments[id].annotationIds).toEqual([f.store.state.investigations[0].annotations[0].id]);
+    expect(f.store.state.investigations[0].assignments.at(-1)).toMatchObject({ status: "waiting", brief: "Check the source" });
   });
   it("requires exclusive live ownership, and a takeover ends the previous session", () => {
     const f = fixture();
@@ -334,13 +330,13 @@ describe("research coordination", () => {
       worker: "Codex researcher",
     }) as any;
     f.coordinator.receive(
-      { id, token: claimed.investigation.lease.token },
+      { batchId: id, id: claimed.assignment.id, token: claimed.assignment.lease.token },
       proposal,
     );
     expect(f.store.state.investigations[0]!.proposals).toHaveLength(0);
     expect(f.coordinator.snapshot(f.secret).candidates).toHaveLength(1);
     expect(JSON.stringify(f.store.publicState())).not.toContain(
-      claimed.investigation.lease.token,
+      claimed.assignment.lease.token,
     );
     const candidate = f.coordinator.candidates()[0]!;
     const result = f.run({
@@ -377,7 +373,7 @@ describe("research coordination", () => {
       worker: "Claude Code researcher",
     }) as any;
     f.coordinator.receive(
-      { id, token: claimed.investigation.lease.token },
+      { batchId: id, id: claimed.assignment.id, token: claimed.assignment.lease.token },
       proposal,
     );
     f.run({ action: "map", notes: "Compare this identity with the second investigation before publication." });
@@ -387,27 +383,7 @@ describe("research coordination", () => {
     expect(recovered.store.state.coordination.researchMap).toContain("second investigation");
     expect(index.investigations[0]!.status).toBe("running");
   });
-  it("keeps unsent feedback out of assignments and invalidates a brief on newly dispatched feedback", () => {
-    const f = fixture();
-    const id = f.queue();
-    f.run({
-      action: "assign",
-      investigationId: id,
-      engine: "codex",
-      brief: "First annotation only",
-    });
-    f.store.command({
-      type: "annotate",
-      investigationId: id,
-      target: { label: "More" },
-      question: "Saved only",
-      dispatch: false,
-    });
-    expect(f.coordinator.ready(f.store.state.investigations[0])).toBe(true);
-    f.store.command({ type: "dispatch", investigationId: id });
-    expect(f.coordinator.ready(f.store.state.investigations[0])).toBe(false);
-  });
-  it("rejects stale candidates after user pause and preserves user-paused work on takeover", () => {
+  it("holds a returned result while the human has the batch paused, and preserves user-paused work on takeover", () => {
     const f = fixture();
     const id = f.queue();
     const claimed = f.store.command({
@@ -416,7 +392,7 @@ describe("research coordination", () => {
       worker: "Codex researcher",
     }) as any;
     f.coordinator.receive(
-      { id, token: claimed.investigation.lease.token },
+      { batchId: id, id: claimed.assignment.id, token: claimed.assignment.lease.token },
       proposal,
     );
     const candidate = f.coordinator.candidates()[0]!;
@@ -429,7 +405,11 @@ describe("research coordination", () => {
       }),
     ).toThrow("current researcher");
     f.advance();
-    f.coordinator.attach("Replacement", randomUUID());
+    const replacement = randomUUID();
+    f.coordinator.attach("Replacement", replacement);
     expect(f.store.state.investigations[0]!.status).toBe("paused");
+    // Resumed, the result is the coordinator's to publish again.
+    f.store.command({ type: "resume", investigationId: id });
+    expect(f.coordinator.command({ action: "publish", session: replacement, candidateId: candidate.id })).toHaveProperty("proposalId");
   });
 });

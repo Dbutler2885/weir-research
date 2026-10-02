@@ -100,7 +100,7 @@ describe("an agent that reaches its usage limit", () => {
       existsSync(join(folder, "received.jsonl")) ? readFileSync(join(folder, "received.jsonl"), "utf8").split("\n").slice(0, -1).map((l) => JSON.parse(l).text) : [];
     return { agent, live, supervisor, events, received, folder };
   }
-  const read = `steps:${JSON.stringify([{ tool: "Read", input: { file_path: "brief.json" } }])}`;
+  const read = `steps:${JSON.stringify([{ tool: "Read", input: { file_path: "brief.md" } }])}`;
 
   it("pauses with the reason and reset time, holds the app's messages, and carries on with them at the reset", async () => {
     const a = start();

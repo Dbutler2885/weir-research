@@ -19,9 +19,9 @@ export function appServerVersion(userAgent) {
 // started once with the folder, sandbox, approval policy and model; each message
 // then starts a turn, or steers the running turn.
 export const codexAdapter = {
-  /** @param {{folder: string, browser?: {command: string, args: string[], env?: Record<string, string>} | null, compactAt?: number}} options */
-  args({ folder, browser = null, compactAt = 0 }) {
-    return ["app-server", ...codexIsolationArgs(folder, { browser, compactAt })];
+  /** @param {{folder: string, browser?: {command: string, args: string[], env?: Record<string, string>} | null, compactAt?: number, readOnly?: string[]}} options */
+  args({ folder, browser = null, compactAt = 0, readOnly = [] }) {
+    return ["app-server", ...codexIsolationArgs(folder, { browser, compactAt, readOnly })];
   },
   // Codex agents use the app's own Codex home and home folder, never the human's.
   env(base, { homes }) {

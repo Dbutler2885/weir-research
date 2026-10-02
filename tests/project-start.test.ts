@@ -138,7 +138,7 @@ describe("topic-first research projects", () => {
       store.command({
         type: "checkpoint",
         investigationId,
-        token: brief.investigation.lease.token,
+        token: brief.assignment.lease.token,
         summary: "late",
         findings: "late",
         nextSteps: "late",

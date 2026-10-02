@@ -17,7 +17,7 @@ function setup() {
     dispatch: true,
   }).investigationId;
   const claim = () => {
-    token = run({ type: "claim", worker: "Fixture researcher" }).investigation
+    token = run({ type: "claim", worker: "Fixture researcher" }).assignment
       .lease.token;
   };
   claim();
@@ -258,7 +258,7 @@ it("pauses for browser access assistance and fences the previous researcher", ()
   const f = setup();
   f.run({ type: "annotate", question: "Inspect the original", dispatch: true });
   f.claim();
-  const token = f.state().investigations[0]!.lease!.token;
+  const token = f.state().investigations[0]!.assignments!.at(-1)!.lease!.token;
   f.run({
     type: "checkpoint",
     token,

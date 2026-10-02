@@ -11,8 +11,8 @@ Keep user-facing output attached to the relevant research objects.
 
 ## Start and claim work
 
-The app opens a project and starts its coordinator, which assigns each batch to a researcher the app launches.
-A researcher works in its own folder, from the brief and scoped sources the app prepared there.
+The app opens a project and starts its coordinator, which divides each batch into assignments and has the app launch a researcher for each.
+A researcher works in its own folder, from the coordinator's brief in `brief.md`, and reads the project's research library, which the app keeps current and no researcher can change.
 The independent mode below is also available through `npm run serve` before coordinator supervision is enabled.
 
 ```sh
@@ -20,7 +20,7 @@ npm run research -- status
 npm run research -- claim "provider / investigator name"
 ```
 
-Claim returns the investigation, original annotations, immutable accepted-data snapshot, previous proposals, checkpoints, source scope, and a worker lease token.
+Claim returns the investigation, its assignment with a worker lease token and an immutable accepted-data snapshot, previous proposals, source scope, and documents.
 Null means no investigation is queued.
 Do not claim that work is running before a researcher has claimed it.
 In a coordinated project, the app prepares a scoped task directory for each researcher the coordinator assigns and launches it, with no time limit by default.
@@ -28,20 +28,20 @@ The human may configure a time limit for new managed passes in Research settings
 Follow the deadline in your pass instructions when one is set, and finish the bounded assignment when complete even without a deadline.
 This uses the existing CLI account and sends the assigned research context and scoped sources to its model service.
 The application does not collect account credentials.
-Managed researchers write `checkpoint.json` and `result.json` in their task directory; the supervisor validates and imports those files through the same domain contract.
+Managed researchers write `checkpoint.json`, `post.md` and `result.json` in their task directory; the supervisor validates and imports those files through the same domain contract.
 They do not receive the workspace API credential.
 The manual CLI commands below are for externally managed researchers.
 
-Replace researcher queues an active investigation for a fresh worker with its saved handoff.
+Replacing a researcher sends its assignment to a fresh worker, which starts from the brief and the saved checkpoints.
 Failures pause instead of retrying indefinitely.
 A researcher the human kept running when the app closed is taken back when it opens; any other running researcher pauses and can be explicitly resumed.
 
 ## Preserve intent and divide work
 
-An investigation is the persistent user-facing unit.
-Several annotations on its proposal remain in that investigation.
-Only annotations listed in the lease's `annotationIds` have been dispatched; other saved annotations are context awaiting user dispatch and must not initiate new work.
-Related investigations may share findings, but never silently merge or rename the user's units of work.
+A batch is the persistent user-facing unit, and an assignment is one researcher's bounded part of it.
+Work only on your assignment; other researchers in the batch may be working on its other parts.
+When you find something they should know, such as a source found or ruled out, or an identity settled, post it on the batch's board by writing `post.md`.
+Related batches may share findings, but never silently merge or rename the user's units of work.
 Workers may delegate bounded independent source retrieval, identity checks, or contradiction searches when the host harness supports delegation.
 The coordinating worker owns reconciliation and the final proposal; sub-agents never mutate accepted records.
 Allocate a bounded search effort and checkpoint before extending it.
@@ -59,15 +59,14 @@ When human assistance is needed, add `accessRequest: {instruction, url?}` to a c
 The service pauses it, fences its lease, and displays the requested assistance under Investigations.
 The human can import a source or resolve access, then select the resume action with saved context intact.
 Subscription services have no configured access adapter; do not imply access to full text from metadata or a saved URL.
-Imported documents are available at `/api/documents/<document-id>` on the workspace URL.
-Document metadata includes its SHA-256 and the immutable captured text when available.
+Saved documents are in the research library's `documents/` folder, by ID, and listed in `documents/documents.csv`.
 Read each source yourself before citing it.
 When you can reach a document, download and read it rather than rely on a search engine's snippet of it.
 A snippet is a lead, not a reading: a quote taken from one says so in its locator, and its source's access is `abstract`.
-The app reads every PDF into text, page by page, with OCR for scanned pages; a PDF's text sits in the textFile beside it, with "[Page n]" before each page.
+The app reads every PDF into text, page by page, with OCR for scanned pages; a PDF's text sits beside it as `<id>.txt`, with "[Page n]" before each page.
 Search that text, quote from it exactly, and give the page.
 Where the text reads oddly, as a table or a damaged scan can, look at the page itself with your file-reading tool, which shows it.
-A PDF with no textFile has not been read yet, and an image has no text: look at its pages and quote what you see.
+A PDF with no text file has not been read yet, and an image has no text: look at its pages and quote what you see.
 Record the exact page, and say whether a quote was read from the page image or from the text.
 Never invent quotations, locators, source independence, or historical certainty.
 Keep what the source says separate from what it implies.
@@ -130,7 +129,7 @@ Finding revisions invalidate pending representations that relied on them, while 
 The group references remain the durable link between applied graph records and findings.
 Legacy proposals without `kind` retain their original whole-proposal contract and history.
 The shared contract is defined in `src/domain/research.ts`.
-The server assigns the proposal ID and revision and records which dispatched annotations the lease covered.
+The server assigns the proposal ID and revision and records which assignment returned it.
 
 Each evidence record has an ID, an accepted or proposed source ID, an optional preserved document ID, an exact quote, surrounding context, a locator, an explicit interpretation, and a stance of `supports`, `challenges`, or `context`.
 When a preserved text document is cited, the server verifies that the quote occurs in it.

@@ -23,7 +23,7 @@ export const claudeAdapter = {
   // The agent is confined to its folder; web adds the web tools.
   // compactAt is the context size, in tokens, at which Claude Code compacts on its own.
   // resume picks up an earlier conversation by its session ID.
-  args({ folder, instructions = "", model = "", effort = "", web = false, browser = null, compactAt = 0, resume = "" }) {
+  args({ folder, instructions = "", model = "", effort = "", web = false, browser = null, compactAt = 0, resume = "", readOnly = [] }) {
     return [
       "--print",
       "--input-format",
@@ -36,7 +36,7 @@ export const claudeAdapter = {
       ...(model ? ["--model", model] : []),
       ...(effort ? ["--effort", effort] : []),
       ...(resume ? ["--resume", resume] : []),
-      ...claudeIsolationArgs(folder, { web, browser, compactAt }),
+      ...claudeIsolationArgs(folder, { web, browser, compactAt, readOnly }),
       ...(instructions ? ["--append-system-prompt", instructions] : []),
     ];
   },

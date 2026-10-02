@@ -56,7 +56,7 @@ try {
       },
       true,
     )
-  ).investigation.lease;
+  ).assignment.lease;
   const evidence = [
     {
       id: "entry",
@@ -138,7 +138,7 @@ try {
       { type: "claim", investigationId, worker: "Fictional graph builder" },
       true,
     )
-  ).investigation.lease;
+  ).assignment.lease;
   const { proposalId: graphId } = await post(
     {
       type: "propose",
@@ -266,7 +266,7 @@ try {
         { type: "claim", investigationId, worker: "Access fixture" },
         true,
       )
-    ).investigation.lease;
+    ).assignment.lease;
     await post(
       {
         type: "checkpoint",

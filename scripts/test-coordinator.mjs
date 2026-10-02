@@ -140,6 +140,7 @@ try {
     action: "assign",
     investigationId: id,
     engine: "claude",
+    title: "Local workflow check",
     brief: "Local integration check only. Record an unresolved outcome; perform no external research.",
   });
   // The app launches the researcher; its result waits for the coordinator.
@@ -149,7 +150,7 @@ try {
     candidate = (await run("coordinator", ["snapshot", "--session", sessionFile])).candidates[0];
   }
   assert.equal(candidate.title, "Local workflow verified");
-  assert.equal((await state()).investigations[0].checkpoints.length, 1);
+  assert.equal((await state()).investigations[0].assignments[0].checkpoints.length, 1);
   await command({
     action: "map",
     notes:
@@ -168,7 +169,7 @@ try {
   ]);
   sessionFile = recovered.sessionFile;
   // The researcher's result is still there for the next coordinator to publish.
-  assert.equal(recovered.investigations[0].checkpointCount, 1);
+  assert.equal(recovered.investigations[0].assignments[0].checkpointCount, 1);
   assert.equal(recovered.candidates[0].id, candidate.id);
   const published = await command({
     action: "publish",
@@ -212,7 +213,7 @@ try {
   url = restarted.url;
   const final = await state();
   assert.equal(final.investigations[0].proposals[0].status, "accepted");
-  assert.equal(final.investigations[0].checkpoints.length, 1);
+  assert.equal(final.investigations[0].assignments[0].checkpoints.length, 1);
   await run("workspace", [
     "create",
     "second",

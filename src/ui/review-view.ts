@@ -38,7 +38,7 @@ function row(state: ResearchState, b: Investigation): string {
   const findings = b.proposals.reduce((n, p) => n + (p.findings?.length || 0), 0);
   const meta = [
     day(b.createdAt),
-    `${b.questions?.length || 0} question${b.questions?.length === 1 ? "" : "s"}`,
+    `${b.assignments?.length || 0} research pass${b.assignments?.length === 1 ? "" : "es"}`,
     findings ? `${findings} findings` : "",
   ].filter(Boolean);
   return `<article class="review-row${status === "closed" ? " is-closed" : ""}" data-investigation-id="${html(b.id)}" ${target({ label: b.title, investigationId: b.id })}><div>${pill}<h2>Batch ${b.number} · ${html(b.title)}</h2><p class="review-meta">${meta.join(" · ")}</p></div><div><div class="review-cell-label">Walkthrough</div>${walkthroughCell(b, status)}</div><div><div class="review-cell-label">Graph</div>${graphCell(state, b, status)}</div></article>`;

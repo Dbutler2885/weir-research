@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { assignQueued } from "./fixtures/assign";
+import { assignQueued, assignmentOf } from "./fixtures/assign";
 import { afterEach, describe, expect, it } from "vitest";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -64,7 +64,7 @@ describe("agents under their own host process", () => {
   it("behave like local agents: actions, steering and turn ends reach the app", async () => {
     const p = place();
     const { live, supervisor } = p.app();
-    const agent = start(supervisor, p.folder, steps([read("brief.json", 400), read("findings.ts", 400)]));
+    const agent = start(supervisor, p.folder, steps([read("brief.md", 400), read("findings.ts", 400)]));
     cleanups.push(() => stopped(agent));
     const actions: string[] = [];
     agent.on("action", (text: string) => actions.push(text));
@@ -95,7 +95,7 @@ describe("agents under their own host process", () => {
   it("stop their agent when the app's heartbeat stops", async () => {
     const p = place();
     const { supervisor } = p.app();
-    const agent = start(supervisor, p.folder, steps([read("brief.json", 20_000)]));
+    const agent = start(supervisor, p.folder, steps([read("brief.md", 20_000)]));
     await new Promise((done) => agent.once("action", done));
     const pid = p.pidOf(agent.record);
     expect(p.alive(pid)).toBe(true);
@@ -109,7 +109,7 @@ describe("agents under their own host process", () => {
   it("keep their agent through the computer sleeping", async () => {
     const p = place();
     const { supervisor } = p.app();
-    const agent = start(supervisor, p.folder, steps([read("brief.json", 20_000)]));
+    const agent = start(supervisor, p.folder, steps([read("brief.md", 20_000)]));
     cleanups.push(() => stopped(agent));
     await new Promise((done) => agent.once("action", done));
     const pid = p.pidOf(agent.record);
@@ -126,7 +126,7 @@ describe("agents under their own host process", () => {
   it("keep running when kept, and are taken back by the app when it opens again", async () => {
     const p = place();
     const first = p.app();
-    const agent = start(first.supervisor, p.folder, steps([read("brief.json", 1500), read("types.ts")]));
+    const agent = start(first.supervisor, p.folder, steps([read("brief.md", 1500), read("types.ts")]));
     await new Promise((done) => agent.once("action", done));
     // The human quits, keeping workers running.
     first.supervisor.keep();
@@ -161,7 +161,7 @@ describe("a worker kept running while the app is closed", () => {
   it("waits out a usage limit and carries on at the reset on its own", async () => {
     const p = place();
     const first = p.app();
-    const agent = start(first.supervisor, p.folder, steps([read("brief.json", 300), { quota: 1 }]));
+    const agent = start(first.supervisor, p.folder, steps([read("brief.md", 300), { quota: 1 }]));
     await new Promise((done) => agent.once("action", done));
     first.supervisor.keep();
     await new Promise((done) => setTimeout(done, 100));
@@ -196,8 +196,8 @@ describe("a researcher pool opening again", () => {
     assignQueued(store, pool, "claude");
     await until(() => first.live.list()[0]);
     // Its session reaches the app from the host, so it could be picked up again.
-    await until(() => store.state.investigations[0].researcherSession);
-    expect(store.state.investigations[0].researcherSession).toMatchObject({ engine: "claude", id: expect.any(String) });
+    await until(() => assignmentOf(store, id).session);
+    expect(assignmentOf(store, id).session).toMatchObject({ engine: "claude", id: expect.any(String) });
     // The human quits, keeping the researcher running.
     first.supervisor.keep();
     await new Promise((done) => setTimeout(done, 100));
@@ -216,9 +216,10 @@ describe("a researcher pool opening again", () => {
     // Its first turn ended with no findings; the pool hears that and it waits.
     await until(() => store.state.investigations[0].events.some((e: any) => e.message.includes("waiting for instructions")));
     const result = JSON.stringify({ title: "Unresolved", summary: "Kept", ambiguity: "Open", evidence: [], changes: [] });
-    reopened.steer(id, steps([{ tool: "Write", input: { file_path: "result.json" }, writes: { "result.json": result } }]));
+    reopened.steer(assignmentOf(store, id).id, steps([{ tool: "Write", input: { file_path: "result.json" }, writes: { "result.json": result } }]));
     await until(() => store.state.investigations[0].status === "review");
     expect(store.state.investigations[0].proposals[0].title).toBe("Unresolved");
-    expect(store.state.investigations[0].researcherSession).toBeUndefined();
+    expect(assignmentOf(store, id)).toMatchObject({ status: "done" });
+    expect(assignmentOf(store, id).session).toBeUndefined();
   });
 });

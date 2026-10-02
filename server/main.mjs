@@ -20,6 +20,7 @@ import { WorkspaceStore } from "./store.mjs";
 import { organize } from "./organization.mjs";
 import { Coordinator } from "./coordinator.mjs";
 import { ResearcherPool } from "./researchers.mjs";
+import { ResearchLibrary } from "./research-library.mjs";
 import { GraphBuilders } from "./graph-builders.mjs";
 import { WalkthroughWriters } from "./walkthrough-writers.mjs";
 import { CoordinatorHost } from "./coordinator-host.mjs";
@@ -111,6 +112,9 @@ const appSettings = () => {
   }
 };
 const setupScreen = setupRoutes({ home: appDirectory, homes: agentHomes(appDirectory), next: { label: "Back to your project", href: "/" } });
+// Everything the project has produced, as files every researcher can read.
+const library = new ResearchLibrary(store, directory);
+process.on("exit", () => library.stop());
 const researchers = new ResearcherPool(store, directory, root, { coordinator, live, supervisor, browser: researchBrowser });
 coordinator.researchers = researchers;
 const graphBuilders = new GraphBuilders(store, directory, root, { live, supervisor });
@@ -127,8 +131,11 @@ process.on("exit", () => researchers.stop());
 // A coordinator command, from the app's coordinator or one attached from outside.
 function coordinatorCommand(data) {
   // An agent, model or effort named for one assignment must be one the installed CLIs offer.
-  if (["assign", "request-graph", "assign-graph", "assign-walkthrough", "ask-helper"].includes(data.action) && data.engine && data.engine !== "manual")
+  if (["assign", "revise", "request-graph", "assign-graph", "assign-walkthrough", "ask-helper"].includes(data.action) && data.engine && data.engine !== "manual")
     validateChoice({ agent: data.engine, model: data.model ?? null, effort: data.effort ?? null }, catalog, "The named agent");
+  if (data.action === "open-batch" && Array.isArray(data.assignments))
+    for (const a of data.assignments)
+      if (a?.engine) validateChoice({ agent: a.engine, model: a.model ?? null, effort: a.effort ?? null }, catalog, "The named agent");
   const result = coordinator.command(data);
   researchers.pump();
   graphBuilders.pump();
