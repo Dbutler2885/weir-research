@@ -91,7 +91,8 @@ describe("the app's coordinator", () => {
     await until(() => f.received(host).length === 2);
     const note = f.received(host)[1];
     expect(note.midTurn).toBe(true);
-    expect(note.text).toContain("Please look at the workshop's founder.");
+    // The human's words arrive as themselves, not inside an update.
+    expect(note.text).toBe("Please look at the workshop's founder.");
     // After its turns end, it is listening.
     await until(() => f.coordinator.status().listening);
   });
@@ -142,8 +143,10 @@ describe("the app's coordinator", () => {
     expect((await tool("snapshot")).stdout).toContain("How to get more");
     await expect(tool('{"action":"claim","investigationId":"x"}')).rejects.toThrow("The app runs every worker");
     await expect(tool('{"action":"wait"}')).rejects.toThrow("The app manages your session");
-    await tool('{"action":"handoff","notes":"Saved by the coordinator."}');
-    expect(f.store.state.coordination.handoff).toBe("Saved by the coordinator.");
+    await tool('{"action":"map","notes":"Saved by the coordinator."}');
+    expect(f.store.state.coordination.researchMap).toBe("Saved by the coordinator.");
+    // Handoff notes are gone; a fresh coordinator works from the project.
+    await expect(tool('{"action":"handoff","notes":"x"}')).rejects.toThrow();
     await new Promise((done) => setTimeout(done, 100));
     expect(f.received(host)).toHaveLength(1);
     expect(f.commands.every((c) => c.session === host.secret)).toBe(true);

@@ -2,11 +2,7 @@ import { organize } from "./organization.mjs";
 import { flowCommand, autoReview } from "./review-flow.mjs";
 import { randomUUID } from "node:crypto";
 import { transition } from "../src/domain/research.ts";
-import { describeReference } from "../src/domain/references.ts";
-import {
-  coordinatorConversationCommands,
-  unassignedAnnotations,
-} from "../src/domain/conversation.ts";
+import { coordinatorConversationCommands } from "../src/domain/conversation.ts";
 import {
   projectIndex,
   investigationIndex,
@@ -87,9 +83,6 @@ export class Coordinator {
       context: this.hosted() ? this.host.status().context ?? null : null,
       name: owner ? owner.name : null,
       lastSeenSecondsAgo: owner ? Math.round((this.now() - owner.seen) / 1000) : null,
-      handoff: (this.store.state.coordination?.handoff || "").slice(0, 6000),
-      handoffTruncated:
-        (this.store.state.coordination?.handoff?.length || 0) > 6000,
       awaitingSynthesis: this.candidates().map((c) => c.investigationId),
     };
   }
@@ -124,7 +117,6 @@ export class Coordinator {
       this.store.update((next) => {
         next.coordination = {
           enabled: true,
-          handoff: "",
           assignments: {},
           candidates: [],
         };
@@ -180,12 +172,12 @@ export class Coordinator {
     return {
       revision: state.revision,
       changed: {
-        messages: messages.map(messageIndex),
+        // The human's own messages, as sent; the inbox shapes them for the coordinator.
+        messages,
         investigations,
         ...(changed.removedInvestigationIds.length
           ? { removedInvestigationIds: changed.removedInvestigationIds }
           : {}),
-        unassignedAnnotations: conversation.unassignedAnnotations,
         pendingDecisions: conversation.pendingDecisions,
         ...(changed.decisionsChanged ? { decisions: conversation.recentDecisions } : {}),
         // Who does which job, when the human changed it in settings.
@@ -277,14 +269,6 @@ export class Coordinator {
         throw new Error("Research map must be text, up to 50,000 characters.");
       this.store.update((next) => {
         next.coordination.researchMap = data.notes;
-      });
-      return { saved: true };
-    }
-    if (data.action === "handoff") {
-      if (typeof data.notes !== "string" || data.notes.length > 50_000)
-        throw new Error("Handoff notes must be text, up to 50,000 characters.");
-      this.store.update((next) => {
-        next.coordination.handoff = data.notes;
       });
       return { saved: true };
     }
@@ -426,11 +410,10 @@ export class Coordinator {
 
 function messageIndex(m) {
   return {
-    id: m.id,
     at: m.at,
     author: m.author,
     text: m.text?.slice(0, 1500),
-    annotations: (m.annotations || []).map((a) => ({ id: a.id, question: a.question })),
+    annotations: (m.annotations || []).map((a) => a.question),
     readyBatchId: m.readyBatchId,
     decision: m.decision && { title: m.decision.title, status: m.decision.status },
   };
@@ -440,16 +423,9 @@ function messageIndex(m) {
 function conversationIndex(state) {
   const messages = state.conversation || [];
   return {
-    unassignedAnnotations: unassignedAnnotations(state).map((a) => ({
-      id: a.id,
-      question: a.question,
-      // What each reference is in research terms, where the human picked it, and the ids to inspect.
-      references: (a.references || []).map((r) => describeReference(state, r)).map(({ about, seenOn, ids }) => ({ about, ...(seenOn ? { seenOn } : {}), ids })),
-      sentAt: a.dispatchedAt,
-    })),
     pendingDecisions: messages
       .filter((m) => m.decision?.status === "pending")
-      .map((m) => ({ messageId: m.id, title: m.decision.title })),
+      .map((m) => ({ title: m.decision.title })),
     recentDecisions: messages
       .filter((m) => m.decision && m.decision.status !== "pending")
       .slice(-10)

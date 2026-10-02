@@ -223,7 +223,6 @@ export function coordinatorAction(data, state) {
     case "publish-graph-review": return `Signing off the graph draft for ${batch(data.investigationId)}`;
     case "answer-draft-feedback": return "Answering your note on the graph draft";
     case "map": return "Updating the research map";
-    case "handoff": return "Saving notes for the next session";
     default:
       if (data.action?.startsWith("organization-")) return "Reorganizing the graph";
       return null;

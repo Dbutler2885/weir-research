@@ -252,7 +252,6 @@ export interface ResearchState {
     context?: { tokens: number; threshold: number; compactions: number; compacting: boolean } | null;
     lastSeenSecondsAgo?: number | null;
     name: string | null;
-    handoff: string;
     awaitingSynthesis: string[];
   };
   // What each running worker is doing right now; never saved.

@@ -38,27 +38,35 @@ describe("project-wide queue and conversation", () => {
     const { annotationId } = run({ type: "queue-annotation", question: "Draft", references: [] });
     run({ type: "edit-queued", annotationId, question: "Revised", references: [topic()] });
     expect(state.queue![0]!.question).toBe("Revised");
-    run({ type: "send" });
+    run({ type: "send", queue: true });
     expect(() => run({ type: "edit-queued", annotationId, question: "Late", references: [] })).toThrow(
       "already been sent",
     );
     expect(() => run({ type: "remove-queued", annotationId })).toThrow("already been sent");
   });
 
-  it("sends the whole queue with an optional message as one human message", () => {
+  it("sends a chat message alone, leaving the annotation queue as it was", () => {
+    run({ type: "queue-annotation", question: "First thought", references: [] });
+    run({ type: "send", text: "A quick question while I keep collecting." });
+    expect(state.conversation![0]!).toMatchObject({ author: "human", text: "A quick question while I keep collecting." });
+    expect(state.conversation![0]!.annotations).toBeUndefined();
+    expect(state.queue!.map((a) => a.question)).toEqual(["First thought"]);
+  });
+
+  it("sends the whole queue only when the queue is sent", () => {
     run({ type: "queue-annotation", question: "First thought", references: [] });
     run({ type: "queue-annotation", question: "A second, contradictory thought", references: [] });
-    run({ type: "send", text: "These go together." });
+    run({ type: "send", queue: true });
     const message = state.conversation![0]!;
     expect(message.author).toBe("human");
-    expect(message.text).toBe("These go together.");
+    expect(message.text).toBeUndefined();
     expect(message.annotations!.map((a) => a.question)).toEqual([
       "First thought",
       "A second, contradictory thought",
     ]);
     expect(message.annotations!.every((a) => a.dispatchedAt)).toBe(true);
     expect(state.queue).toHaveLength(0);
-    expect(unassignedAnnotations(state)).toHaveLength(2);
+    expect(() => run({ type: "send", queue: true })).toThrow("Write a message");
   });
 
   it("sends one annotation immediately without touching the rest of the queue", () => {
@@ -90,7 +98,7 @@ describe("coordinator batches", () => {
   function sendTwo() {
     run({ type: "queue-annotation", question: "Who built the mill?", references: [topic()] });
     run({ type: "queue-annotation", question: "Was the builder local?", references: [] });
-    run({ type: "send" });
+    run({ type: "send", queue: true });
     return state.conversation![0]!.annotations!.map((a) => a.id);
   }
 
@@ -211,26 +219,23 @@ describe("coordinator batches", () => {
     expect(state.conversation!.at(-1)).toMatchObject({ readyBatchId: investigationId });
   });
 
-  it("opens a batch from a plain message, without an annotation", () => {
+  it("opens a batch from research the human asked for in chat, worded by the coordinator", () => {
     const { messageId } = run({ type: "send", text: "Find out who ran the mill after 1900." });
+    expect(() =>
+      run({ type: "open-batch", brief, title: "Later owners", questions: [{ title: "Who ran the mill after 1900?", messageId }] }),
+    ).toThrow("questions no longer cite a message");
     const { investigationId } = run({
       type: "open-batch",
       brief,
       title: "Later owners",
-      questions: [{ title: "Who ran the mill after 1900?", messageId }],
+      questions: [{ title: "Who ran the mill after 1900?", request: "Trace who ran the mill after 1900.", references: [topic()] }],
     });
     const batch = state.investigations.find((i) => i.id === investigationId)!;
-    expect(batch.questions![0]).toMatchObject({ origin: "human", messageId });
-    expect(batch.questions![0]!.explanation).toBeUndefined();
-    // The researcher receives the human's own words, as with an annotation.
+    expect(batch.questions![0]).toMatchObject({ origin: "coordinator", explanation: "Trace who ran the mill after 1900." });
+    // The researcher receives the coordinator's words and what the human pointed at.
     const assignment = batch.annotations.find((x) => x.id === batch.questions![0]!.annotationIds[0])!;
-    expect(assignment).toMatchObject({ question: "Find out who ran the mill after 1900." });
-    expect(assignment.author).toBeUndefined();
+    expect(assignment).toMatchObject({ question: "Trace who ran the mill after 1900.", author: "coordinator", references: [topic()] });
     expect(assignment.dispatchedAt).toBeTruthy();
-    const { messageId: reply } = run({ type: "reply", text: "On it." });
-    expect(() =>
-      run({ type: "add-to-batch", investigationId, questions: [{ title: "Q", messageId: reply }] }),
-    ).toThrow("one the human wrote");
     expect(() => run({ type: "add-to-batch", investigationId, questions: [{ title: "Q" }] })).toThrow("Research request");
   });
 

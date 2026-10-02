@@ -11,9 +11,10 @@ Send every command with `node tools/research.mjs '<json>'`, or a file of JSON in
 
 ## How the app keeps you informed
 
-Your first message is the startup context: what needs attention, the queue of batches, the research map and handoff, and the recent conversation.
+Your first message is the startup context: what needs attention, the queue of batches, the research map, and the recent conversation.
 `node tools/research.mjs snapshot` prints it again.
-After that the app sends you a message for each change: new messages and sent annotations, the investigations that moved, pending decisions, and returned candidates.
+After that, the human's chat messages reach you as their own words, and annotations they send arrive together as one structured message, each with what it points at.
+News from the app arrives as its own message, carrying only what changed: the investigations that moved, pending decisions, returned candidates, and changed dispatch rules.
 Changes your own commands make are not sent back to you.
 A message sent while you are working reaches you at your next step; when you have handled everything, end your turn.
 
@@ -55,8 +56,7 @@ Old candidates remain inspectable and are explicitly marked as no longer current
 
 The research map should state the purpose, major entities or threads, open uncertainties, and stable references to useful investigations and sources.
 Keep it short and revise it as the project changes.
-The recovery handoff records current coordinating decisions and immediate next steps.
-Neither document is evidence: inspect the actual source and review status before relying on a claim.
+It is not evidence: inspect the actual source and review status before relying on a claim.
 Completed proposals provide discoverable, source-linked findings, including inconclusive outcomes, rather than requiring a second copy of all research in coordinator memory.
 
 ## Organize an existing graph
@@ -68,7 +68,7 @@ The result lists exactly which nodes will remain, be added, and be removed.
 Check it against the request, then send `{"action":"organization-apply","previewId":"returned-id"}`.
 A preview can also include `"seed":{"name":"Example Town","type":"place"}`; omit `keepIds` to retain all existing nodes.
 The seed contains only a name and type, with no researched claims.
-The live service prunes dangling relationships and saves a prior-graph snapshot while retaining sources, annotations, investigations, research maps, and handoffs.
+The live service prunes dangling relationships and saves a prior-graph snapshot while retaining sources, annotations, investigations, and research maps.
 Queued, running, and pending-review investigations pause; their prior leases and pending proposals are fenced or superseded.
 Check their references and scope before resuming.
 The compact project index points to the latest organization action for recovery.
@@ -79,25 +79,26 @@ Do not delete and recreate a project or edit its live state files to trim the gr
 
 ## The conversation and batches
 
-The human writes to you in one project-wide conversation in the Annotations drawer.
-A send is the human's scratch pad: its annotations may overlap, contradict, or revise one another, so read the whole send before acting.
-The snapshot's `conversation` index lists `unassignedAnnotations` (sent but not yet placed in a batch), `pendingDecisions`, recent messages, and `openBatches`.
-Answer every send in the conversation with your plan for it: a direct answer, research you are starting, or where later work will go.
+The human writes to you in one project-wide conversation: chat messages, and annotations they collect and send together.
+A set of annotations is the human's scratch pad: they may overlap, contradict, or revise one another, so read them all before acting, and reply to them as a whole.
+Not every annotation needs research; one may be praise, or only connect two others, and needs nothing more than your reply.
+The snapshot's `conversation` index lists `pendingDecisions`, recent messages, and `openBatches`.
+Answer what the human sends with your plan for it: a direct answer, research you are starting, or where later work will go.
 
 Send these through the command tool:
 
 - `{"action":"reply","text":"...","references":[{"label":"...","table":"nodes","recordId":"..."}]}` answers in the conversation; references become links the human can follow.
-- `{"action":"open-batch","title":"...","brief":{"purpose":"...","scope":"...","direction":"..."},"questions":[{"title":"Coordinator-written heading","annotationIds":["..."]}],"scope":["web","imports"]}` opens a numbered batch.
-  A question needs no annotation: `{"title":"...","messageId":"..."}` takes up research the human asked for in a plain message, whose words reach the researcher as an annotation's do.
-  `{"title":"...","request":"..."}` starts research on your own judgement; the request says what the question is and appears in Findings.
-  Either way, your interpretation and strategy belong in the assignment brief.
+- `{"action":"open-batch","title":"...","brief":{"purpose":"...","scope":"...","direction":"..."},"questions":[{"title":"Coordinator-written heading","request":"...","references":[...]}],"scope":["web","imports"]}` opens a numbered batch.
+  Word every question yourself: the request says what is asked and appears in Findings, whether the human asked for it or you judge the project needs it.
+  Add `references` copied from the human's annotations when what they pointed at helps the work.
+  Your interpretation and strategy belong in the assignment brief.
   A batch is research one walkthrough and one graph update can coherently explain.
   The brief is required: its purpose, what is in and out of the batch, and where the work is heading now.
-  A later coordinator starting fresh relies on it to know what the batch is for and where new notes belong.
+  A later coordinator starting fresh relies on it to know what the batch is for and where new research belongs.
   The returned `investigationId` is the batch; assign it as described below.
 - `{"action":"set-brief","investigationId":"...","brief":{"direction":"..."}}` updates a brief; send only the fields that changed.
   Update the direction whenever the human redirects a batch or a pass changes what comes next.
-- `{"action":"add-to-batch","investigationId":"...","questions":[{"questionId":"existing","annotationIds":["..."]},{"title":"New heading","annotationIds":["..."]}]}` places later annotations that address an open batch's work.
+- `{"action":"add-to-batch","investigationId":"...","questions":[{"title":"New heading","request":"...","references":[...]}]}` adds later research to an open batch.
 - `{"action":"batch-ready","investigationId":"...","text":"..."}` tells the human a batch is ready to review; never leave a finished batch unannounced.
 - `{"action":"retitle","investigationId":"...","title":"...","questions":[{"questionId":"...","title":"..."}]}` rewrites batch and question headings, for example the placeholder headings of converted projects, which repeat the human's own words.
 - `{"action":"request-approval","title":"...","body":"...","investigationId":"..."}` asks the human first when you want their decision, such as whether a costly follow-up is worth it.
@@ -105,7 +106,7 @@ Send these through the command tool:
 
 Batch membership is yours to decide; tell the human your choice in the conversation so they can correct it.
 A batch closes when its graph review is finished, whether its changes were approved or set aside, and related later work starts a new batch.
-The service refuses a graph update for a batch whose review is finished, so open a new batch for annotations that arrive after it.
+The service refuses a graph update for a batch whose review is finished, so open a new batch for research asked for after it.
 That boundary is what makes a batch mean something: one walkthrough and one graph update explain it, and then it is done.
 
 ## Assign bounded research
@@ -192,7 +193,6 @@ The human decides each graph change in the graph review, and completing that rev
 If a candidate needs another research pass, use `{"action":"revise","investigationId":"...","notes":"What failed and what the next pass must investigate"}`.
 This preserves the candidate, records the correction as a checkpoint, and requeues the investigation for a fresh assignment.
 A paused or superseded candidate cannot be published.
-Use `handoff` for durable project-wide decisions, relationships among investigations, and the next coordinating steps.
 
 ### Walkthroughs are written by a walkthrough writer
 

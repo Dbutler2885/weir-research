@@ -1,7 +1,6 @@
 import type { Investigation, LiveWorker, ResearchState } from "./research.ts";
 import { referenceLine } from "./references.ts";
 import type { Message } from "./conversation.ts";
-import { unassignedAnnotations } from "./conversation.ts";
 import { nextAction, currentCandidates } from "./next-action.ts";
 import { sourceLibrary } from "./findings.ts";
 import { queueOf } from "./queue.ts";
@@ -71,22 +70,9 @@ function isOpen(b: Investigation) {
 
 function attention(state: ResearchState): ContextLayer {
   const blocks: string[] = [];
-  for (const a of unassignedAnnotations(state)) {
-    const refs = (a.references || []).map((r) => referenceLine(state, r));
-    blocks.push(
-      `- Sent note not yet in a batch (${a.id}): "${clip(a.question, 300)}"${refs.length ? ` on ${refs.map((r) => clip(r, 400)).join(", ")}` : ""}. Answer it, then place it in a batch with open-batch or add-to-batch.`,
-    );
-  }
-  // The human's messages since the coordinator last replied, such as ones a closed or
-  // paused coordinator never answered; their notes are listed above.
-  const conversation = state.conversation || [];
-  const replied = conversation.findLastIndex((m) => m.author === "coordinator");
-  for (const m of conversation.slice(replied + 1))
-    if (m.author === "human" && m.text?.trim())
-      blocks.push(`- The human's message (${m.id}) has no reply yet: "${clip(m.text, 300)}". Answer it in the conversation.`);
-  for (const m of conversation)
+  for (const m of state.conversation || [])
     if (m.decision?.status === "pending")
-      blocks.push(`- Your request "${clip(m.decision.title, 160)}" (${m.id}) is waiting for the human's decision.`);
+      blocks.push(`- Your request "${clip(m.decision.title, 160)}" is waiting for the human's decision.`);
   const open = state.investigations.filter(isOpen);
   for (const b of open) {
     if (!b.brief) blocks.push(`- ${batchName(b)} (${b.id}) has no brief. Write one with set-brief before relying on it.`);
@@ -219,7 +205,7 @@ function orientation(state: ResearchState): ContextLayer {
     `research time limit: ${state.researchSettings?.timeLimitMinutes ? `${state.researchSettings.timeLimitMinutes} minutes` : "none"}`,
     `workers at once: at most ${state.researchSettings?.maxWorkers ?? 4}, unless the human asks for more for a particular job`,
   ].join("; ");
-  const coordination = (state as { coordination?: { researchMap?: string; handoff?: string } }).coordination;
+  const coordination = (state as { coordination?: { researchMap?: string } }).coordination;
   const blocks = [
     `Project: ${clip(d.title, 300)}`,
     `Graph: ${counts}. Source collections: ${state.collections.map((c) => `${c.name} (${c.id})`).join(", ")}.`,
@@ -242,19 +228,16 @@ function orientation(state: ResearchState): ContextLayer {
       ? `### Accepted into the graph\n\n${accepted.join("\n")}`
       : "### Accepted into the graph\n\nNothing yet; published findings stay proposals until the human accepts a graph draft.",
   );
-  const handoff = coordination?.handoff?.trim();
-  if (handoff)
-    blocks.push(`### Notes from an earlier session (may be out of date; the queue is current)\n\n${clip(handoff, 1500)}`);
   return layer("orientation", "Orientation", blocks, () => "…more orientation is available with inspect map.");
 }
 
 function messageBlock(state: ResearchState, m: Message) {
   const who = m.author === "human" ? "Human" : "You";
-  const lines = [`- ${who}, ${m.at.slice(0, 16).replace("T", " ")} (${m.id})`];
+  const lines = [`- ${who}, ${m.at.slice(0, 16).replace("T", " ")}`];
   if (m.text) lines.push(`  ${clip(m.text, 500)}`);
   for (const a of m.annotations || []) {
     const refs = (a.references || []).map((r) => referenceLine(state, r));
-    lines.push(`  Note ${a.id}: "${clip(a.question, 200)}"${refs.length ? ` on ${refs.map((r) => clip(r, 400)).join(", ")}` : ""}`);
+    lines.push(`  Annotation: "${clip(a.question, 200)}"${refs.length ? ` on ${refs.map((r) => clip(r, 400)).join(", ")}` : ""}`);
   }
   if (m.decision) lines.push(`  Request "${clip(m.decision.title, 160)}": ${m.decision.status}`);
   if (m.readyBatchId) lines.push("  Announced a batch as ready.");
@@ -280,7 +263,7 @@ function more(skills: Skill[]): ContextLayer {
     "Every ID above can be inspected. Use `node tools/research.mjs '<json>'` with:",
     '- `{"action":"inspect","kind":"investigation","id":"..."}` for a batch\'s findings, checkpoints and history.',
     '- `{"action":"inspect","kind":"investigations","status":"closed"}` to list batches.',
-    '- `{"action":"inspect","kind":"map"}` for the full research map and handoff.',
+    '- `{"action":"inspect","kind":"map"}` for the full research map.',
     '- `{"action":"inspect","kind":"source","id":"...","offset":0,"limit":6000}` for a source passage.',
     '- `{"action":"inspect","kind":"entity","table":"nodes","id":"..."}` for a graph record.',
     '- `{"action":"set-brief","investigationId":"...","brief":{"direction":"..."}}` when a batch\'s direction changes.',
