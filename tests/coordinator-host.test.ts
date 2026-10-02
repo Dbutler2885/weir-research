@@ -91,7 +91,8 @@ describe("the app's coordinator", () => {
     await until(() => f.received(host).length === 2);
     const note = f.received(host)[1];
     expect(note.midTurn).toBe(true);
-    expect(note.text).toContain("Please look at the workshop's founder.");
+    // The human's words arrive as themselves, not inside an update.
+    expect(note.text).toBe("Please look at the workshop's founder.");
     // After its turns end, it is listening.
     await until(() => f.coordinator.status().listening);
   });

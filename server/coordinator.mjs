@@ -180,12 +180,12 @@ export class Coordinator {
     return {
       revision: state.revision,
       changed: {
-        messages: messages.map(messageIndex),
+        // The human's own messages, as sent; the inbox shapes them for the coordinator.
+        messages,
         investigations,
         ...(changed.removedInvestigationIds.length
           ? { removedInvestigationIds: changed.removedInvestigationIds }
           : {}),
-        unassignedAnnotations: conversation.unassignedAnnotations,
         pendingDecisions: conversation.pendingDecisions,
         ...(changed.decisionsChanged ? { decisions: conversation.recentDecisions } : {}),
         // Who does which job, when the human changed it in settings.

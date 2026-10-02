@@ -5,6 +5,7 @@ import { executableOnPath } from './researchers.mjs';
 import { fileDescriber } from './live-activity.mjs';
 import { placeSkills } from './agents/isolation.mjs';
 import { flowCommand } from './review-flow.mjs';
+import { inbox } from './coordinator-inbox.mjs';
 import { applyEdits } from '../src/domain/walkthrough-edits.ts';
 
 const SKILLS = ['coordinate-research', 'research-contract', 'prepare-research-graph'];
@@ -238,12 +239,13 @@ export class CoordinatorHost {
     const delta = this.coordinator.delta(this.secret, this.cursor);
     this.cursor = delta.revision;
     if (delta.unchanged) return;
-    const body = delta.changed
-      ? JSON.stringify(delta.changed, null, 1)
-      : delta.context.text;
-    // A message from the human tries to reach a coordinator the usage limit paused, in
-    // case the limit has lifted; the app's own updates wait for the reset.
-    this.send(`The project changed. Act on what needs you, answer the human in the conversation, then end your turn.\n\n${body}`, {now: Boolean(delta.changed?.messages?.length)});
+    // Without what changed, the coordinator is told where the project stands.
+    const messages = delta.changed
+      ? inbox(this.store.state, delta.changed)
+      : [{text: `Here is where the project stands. Act on what needs you, then end your turn.\n\n${delta.context.text}`, fromHuman: false}];
+    // The human's messages try to reach a coordinator the usage limit paused, in case the
+    // limit has lifted; the app's own news waits for the reset.
+    for (const {text, fromHuman} of messages) this.send(text, {now: fromHuman});
   }
   // Each command the coordinator's tool leaves in its mailbox gets an answer beside it.
   async mailbox() {
