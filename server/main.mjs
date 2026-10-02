@@ -32,7 +32,7 @@ import { Helpers } from "./helpers.mjs";
 import { ResearchBrowser } from "./research-browser.mjs";
 import { setupRoutes } from "./setup-routes.mjs";
 import { codeStamp, startLauncher } from "./start-launcher.mjs";
-import { validateChoice } from "../src/domain/dispatch.ts";
+import { describeChoice, validateChoice } from "../src/domain/dispatch.ts";
 import { emptyGraph } from "../src/domain/graph-schema.ts";
 import { LiveActivity } from "./live-activity.mjs";
 import { projectSkills } from "./skills.mjs";
@@ -474,6 +474,9 @@ const server = createServer(async (req, res) => {
       await researchBrowser.show((await body(req)).url ?? null);
       return json(res, 200, { open: true });
     }
+    // The human pauses, resumes or switches a running agent, named by what it works on.
+    if (req.method === "POST" && url.pathname === "/api/agents")
+      return json(res, 200, controlAgent(await body(req)));
     if (req.method === "POST" && url.pathname === "/api/dispatch")
       return json(res, 200, { dispatch: dispatch.change(await body(req), "human") });
     if (req.method === "POST" && url.pathname === "/api/import") {
@@ -555,6 +558,22 @@ const server = createServer(async (req, res) => {
     });
   }
 });
+// Pause, resume or switch one agent. A switch names the agent, model and effort; the
+// coordinator switches by starting a fresh coordinator on it.
+function controlAgent({ action, ref, choice: named } = {}) {
+  if (!["pause", "resume", "switch"].includes(action)) throw new Error("Pause, resume or switch an agent.");
+  const choice = action === "switch" ? validateChoice(named, catalog, "The new choice") : null;
+  const label = choice ? describeChoice(choice, catalog) : "";
+  if (ref?.kind === "coordinator") {
+    if (action !== "switch") throw new Error("The coordinator can only be switched; it listens whenever the app is open.");
+    return coordinatorHost.switchTo(choice);
+  }
+  if (ref?.kind === "researcher") return researchers[action](ref.assignmentId, choice, label);
+  if (ref?.kind === "builder") return graphBuilders.control(action, ref.jobId, choice, label);
+  if (ref?.kind === "writer") return writers.control(action, ref.investigationId, choice, label);
+  throw new Error("Name the agent: a researcher's assignment, a graph job, a batch's walkthrough writer, or the coordinator.");
+}
+
 // The remembered port may have been taken by something else since last time.
 server.on("error", (error) => {
   if (error.code !== "EADDRINUSE" || !port) throw error;

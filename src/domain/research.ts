@@ -12,7 +12,7 @@ import {
 } from "./findings.ts";
 import type { Finding, FindingRef, GraphGroup } from "./findings.ts";
 import type { SourceRecord } from "./types.ts";
-import type { Catalog, Dispatch } from "./dispatch.ts";
+import type { Catalog, Choice, Dispatch } from "./dispatch.ts";
 import { holdInQueue, moveInQueue } from "./queue.ts";
 import { GraphModel } from "./model.ts";
 import type { GraphDataset } from "./types.ts";
@@ -132,7 +132,7 @@ export interface Investigation {
   };
   phase?: "research" | "graph";
   graphRequest?: { refs: FindingRef[]; at: string };
-  accessRequest?: { instruction: string; url?: string; resolvedAt?: string; assignmentId?: string };
+  accessRequest?: { instruction: string; url?: string; resolvedAt?: string; assignmentId?: string; outcome?: "unavailable" };
   executions?: {
     at: string;
     worker: string;
@@ -242,6 +242,9 @@ export interface ResearchState {
     waiting?: boolean;
     // How full its context is, and the size at which it compacts.
     context?: { tokens: number; threshold: number; compactions: number; compacting: boolean } | null;
+    // The agent, model and effort it runs on, and the one it switches to once its turn ends.
+    choice?: Choice | null;
+    switching?: Choice | null;
     lastSeenSecondsAgo?: number | null;
     name: string | null;
     awaitingSynthesis: string[];
@@ -282,6 +285,9 @@ export interface LiveWorker {
   assignmentId?: string;
   task?: string;
   jobId?: string;
+  // The agent, model and effort it runs on, and how much conversation it carries.
+  choice?: Choice;
+  tokens?: number | null;
   startedAt: string;
   latest: { at: string; text: string } | null;
   // The few steps before the latest, most recent first.
@@ -372,6 +378,9 @@ export interface ResearchCommand {
     | "revise-assignment"
     | "post"
     | "coordinator-post"
+    | "pause-assignment"
+    | "resume-assignment"
+    | "switch-assignment"
     | "batch-ready"
     | "request-approval"
     | "retitle"
@@ -625,15 +634,21 @@ export function transition(
         "No access request is waiting.",
       );
       i.accessRequest.resolvedAt = now;
-      // The researcher who asked carries on with its conversation.
+      // The researcher who asked carries on with its conversation. When the human could
+      // not get access, it carries on without the source, and is told not to ask again.
+      const unavailable = command.outcome === "unavailable";
+      if (unavailable) i.accessRequest.outcome = "unavailable";
       const asked = i.assignments?.find((a) => a.id === i.accessRequest!.assignmentId && a.status === "paused");
+      if (asked && unavailable) (asked.unreachable ||= []).push({ instruction: i.accessRequest.instruction, ...(i.accessRequest.url ? { url: i.accessRequest.url } : {}), at: now });
       if (asked) {
         asked.status = "waiting";
         settle(i);
       } else i.status = "queued";
       i.events.push({
         at: now,
-        message: "Source access assistance completed; queued to resume.",
+        message: unavailable
+          ? `You could not get the access the researcher${asked ? ` on "${asked.title}"` : ""} asked for${i.accessRequest.url ? ` (${i.accessRequest.url})` : ""}; it carries on without that source and records the gap.`
+          : "Source access assistance completed; queued to resume.",
       });
     } else {
       const a = i.annotations.find((a) => a.id === command.annotationId);

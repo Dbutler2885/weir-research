@@ -52,6 +52,8 @@ export function executableOnPath(name) {
 
 const workerName = (engine) => (engine === "codex" ? "Codex researcher" : "Claude Code researcher");
 const liveName = (engine) => (engine === "codex" ? "Codex researcher" : "Claude researcher");
+// The agent, model and effort a researcher runs on, as the live panel shows it.
+const liveChoice = (engine, choice) => ({ agent: engine, model: choice?.engine === engine ? choice.model ?? null : null, effort: choice?.engine === engine ? choice.effort ?? null : null });
 
 // Runs a researcher for each of the coordinator's assignments, up to the human's limit
 // of researchers per batch, starting waiting assignments in the order they were made.
@@ -90,7 +92,7 @@ export class ResearcherPool {
         const record = kept.find((r) => r.meta.token === a.lease?.token);
         if (record) {
           const task = { batchId: batch.id, id: a.id, title: a.title, token: record.meta.token, directory: record.meta.directory, started: record.meta.started, timeLimitMinutes: record.meta.timeLimitMinutes, lastCheckpoint: undefined, terminated: false };
-          task.agent = supervisor.reattach(record, { live: { role: "researcher", name: liveName(record.meta.engine), investigationId: batch.id, assignmentId: a.id, task: a.title } });
+          task.agent = supervisor.reattach(record, { live: { role: "researcher", name: liveName(record.meta.engine), investigationId: batch.id, assignmentId: a.id, task: a.title, choice: liveChoice(record.meta.engine, a.choice) } });
           this.active.set(a.id, task);
           this.follow(task, record.meta.engine);
           kept.splice(kept.indexOf(record), 1);
@@ -240,6 +242,12 @@ export class ResearcherPool {
       let free = limit - runningIn(batch).length;
       for (const a of waitingIn(batch)) {
         if (free <= 0) break;
+        // A researcher the human switched starts again once its old process has gone,
+        // keeping its place meanwhile.
+        if (this.active.has(a.id)) {
+          free--;
+          continue;
+        }
         // Work from before the coordinator chose agents goes to the project's default.
         const engine = a.choice?.engine || this.defaultEngine();
         if (!engine) continue;
@@ -342,6 +350,9 @@ export class ResearcherPool {
       a.brief
         ? `## The coordinator's brief\n\n${a.brief}`
         : `## What to investigate\n\nNo brief was written for this assignment. Investigate these questions:\n\n${annotations.map((x) => `- ${x.question}`).join("\n")}`,
+      a.unreachable?.length
+        ? `## Access the human could not get\n\nYou asked for help reaching these, and the human could not get in. Do not ask for them again; carry on with other sources, and record each gap in your findings.\n\n${a.unreachable.map((u) => `- ${u.url ? `${u.url}: ` : ""}${u.instruction}`).join("\n")}`
+        : "",
       a.steering.length
         ? `## Since then\n\nThe coordinator added, most recent last:\n\n${a.steering.map((s) => `- ${s.message}`).join("\n")}`
         : "",
@@ -412,7 +423,7 @@ Your final message should be a short completion status. The coordinator reviews 
       prompt: task.resuming
         ? "You were stopped partway through this assignment, and your conversation has been picked up again in the same folder. brief.md has been written again with the coordinator's current brief and any notes since; read it, then carry on from where you stopped. Any message above that you have not acted on still stands, including one the usage limit refused. Write checkpoints and result.json as instructed."
         : "Read brief.md and complete this bounded research assignment. Write checkpoints and result.json as instructed.",
-      live: { role: "researcher", name, investigationId: task.batchId, assignmentId: task.id, task: task.title },
+      live: { role: "researcher", name, investigationId: task.batchId, assignmentId: task.id, task: task.title, choice: liveChoice(engine, choice) },
       describe: fileDescriber(researcherFiles, titles),
       // What the app needs to take this researcher back if it outlives the app.
       meta: { project: this.directory, role: "researcher", investigationId: task.batchId, assignmentId: task.id, token: task.token, directory: task.directory, started: task.started, timeLimitMinutes: task.timeLimitMinutes, engine },
@@ -522,6 +533,31 @@ Your final message should be a short completion status. The coordinator reviews 
     task.agent.steer(message.trim());
     this.store.command({ type: "steered", assignmentId, message: message.trim() });
     return { steered: true };
+  }
+  // The human pauses a researcher: it stops, keeping its conversation and checkpoints,
+  // and its place in the batch goes to the next assignment until the human resumes it.
+  pause(assignmentId) {
+    const task = this.active.get(assignmentId);
+    if (task) this.checkpoint(task);
+    const result = this.store.command({ type: "pause-assignment", assignmentId });
+    if (task) this.terminate(task);
+    this.pump();
+    return result;
+  }
+  resume(assignmentId) {
+    const result = this.store.command({ type: "resume-assignment", assignmentId });
+    this.pump();
+    return result;
+  }
+  // The human moves a researcher to another agent or model; a running one stops and
+  // starts again on it, with its conversation when the program is the same.
+  switch(assignmentId, choice, label) {
+    const task = this.active.get(assignmentId);
+    if (task) this.checkpoint(task);
+    const result = this.store.command({ type: "switch-assignment", assignmentId, choice: { engine: choice.agent, model: choice.model ?? null, effort: choice.effort ?? null }, label });
+    if (task) this.terminate(task);
+    this.pump();
+    return result;
   }
   // The coordinator ends a researcher outright; saved checkpoints stay for a later pass.
   // Its siblings carry on, and nothing waits for the human to approve.

@@ -402,3 +402,13 @@
     grid-column: 2;
   }
 }
+/* A batch's graph builder or walkthrough writer, with its controls. */
+.batch-agent {
+  margin: 0 0 8px;
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+.batch-agent strong {
+  color: var(--ink);
+  font-weight: 600;
+}

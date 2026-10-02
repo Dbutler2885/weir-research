@@ -81,6 +81,9 @@ export class Coordinator {
       waiting: !live && Boolean(this.waiting),
       // How full the app's coordinator's context is, and where it compacts.
       context: this.hosted() ? this.host.status().context ?? null : null,
+      // The agent, model and effort it runs on, and one it switches to after its turn.
+      choice: live && this.hosted() ? this.host.status().choice ?? null : null,
+      switching: live && this.hosted() ? this.host.status().switching ?? null : null,
       name: owner ? owner.name : null,
       lastSeenSecondsAgo: owner ? Math.round((this.now() - owner.seen) / 1000) : null,
       awaitingSynthesis: this.candidates().map((c) => c.investigationId),

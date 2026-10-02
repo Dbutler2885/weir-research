@@ -169,6 +169,11 @@ Stopping records the reason and keeps saved checkpoints; the batch's other resea
 A stopped assignment can be sent back for another pass with `revise`, as below.
 Claude and Codex researchers are steered and stopped the same way.
 
+The human can also pause, resume, or switch to another agent or model any researcher, graph builder or walkthrough writer, and switch you.
+Each of these is recorded in the batch's activity, which reaches you as news.
+A paused researcher keeps its conversation and is not running, so do not steer, stop or revise it; leave it until the human resumes it.
+A switched one starts again on its new agent: with the same program it keeps its conversation, and with another it starts afresh from its checkpoints.
+
 Every worker is started by the app, so the live panel always shows it; you cannot start agents yourself.
 
 ## Reconcile and publish

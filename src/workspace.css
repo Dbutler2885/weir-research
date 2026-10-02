@@ -475,7 +475,7 @@ dialog label {
   margin: 14px 0 8px;
 }
 .source-add-card input,
-dialog input:not([type="checkbox"]),
+dialog input:not([type="checkbox"]):not([type="radio"]),
 dialog select,
 dialog textarea {
   width: 100%;
@@ -1324,7 +1324,15 @@ dialog .muted {
   color: var(--ink-soft);
   font-size: 12px;
 }
+/* A long assignment title is cut short rather than pushing the time out. */
+.live-who .live-task {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
 .live-who time {
+  flex: none;
   margin-left: auto;
   font-variant-numeric: tabular-nums;
 }
@@ -1379,6 +1387,7 @@ dialog .muted {
 }
 .live-attention .text-action,
 .live-waiting .text-action,
+.live-agent .text-action,
 .live-panel [data-live-all] {
   flex: none;
   padding: 0;
@@ -1392,6 +1401,7 @@ dialog .muted {
 }
 .live-attention .text-action:hover,
 .live-waiting .text-action:hover,
+.live-agent .text-action:hover,
 .live-panel [data-live-all]:hover {
   color: var(--sea);
 }
@@ -1472,4 +1482,75 @@ dialog .muted {
 .context-actions button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+/* Pause, Resume and Switch model beside an agent, in the live panel and its batch. */
+.agent-controls {
+  display: inline-flex;
+  gap: 14px;
+  margin-left: 12px;
+}
+.live-agent .agent-controls {
+  display: flex;
+  margin: 6px 0 0 14px;
+}
+.live-attention li .agent-controls,
+.live-waiting li .agent-controls {
+  flex: none;
+  margin-left: 0;
+  color: inherit;
+}
+.live-switching {
+  margin: 4px 0 0 14px;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+.agent-dialog {
+  width: min(560px, calc(100vw - 32px));
+}
+.agent-dialog .dispatch-menus {
+  margin: 0 0 14px;
+}
+.agent-dialog .dispatch-menus select {
+  min-width: 0;
+  flex: 1 1 140px;
+}
+.agent-dialog p.switch-cost {
+  margin: 0 0 20px;
+  color: var(--ink);
+}
+.follow-agent {
+  margin: 0 0 16px;
+  padding: 12px 0 0;
+  border: 0;
+  border-top: 1px solid var(--paper-deep);
+}
+/* The legend sits below the rule, as a heading would, rather than in it. */
+.follow-agent legend {
+  float: left;
+  width: 100%;
+  padding: 0;
+  font-weight: 600;
+}
+.follow-agent legend + * {
+  clear: left;
+}
+.agent-dialog .follow-agent p {
+  margin: 2px 0 8px;
+}
+.agent-dialog .follow-agent label {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 6px 0;
+  font-size: 14px;
+  font-weight: 400;
+}
+.agent-dialog .follow-agent p.switch-cost {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+.agent-dialog button:disabled {
+  opacity: 0.45;
+  cursor: default;
 }

@@ -8,6 +8,7 @@
 // Claude's does. FAKE_CLAUDE_RECORD keeps every message received in
 // received.jsonl. Its sessions are listed in sessions.txt in its folder, and
 // --resume picks one up, or fails as Claude does when there is no such session.
+// Each session started or resumed adds its model to models.txt.
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -35,6 +36,8 @@ if (resume && !sessions.includes(resume)) {
   process.exit(1);
 }
 const session = resume || randomUUID();
+const model = process.argv.includes("--model") ? process.argv[process.argv.indexOf("--model") + 1] : "default";
+appendFileSync("models.txt", `${resume ? "resume" : "start"} ${model}\n`);
 if (!resume) appendFileSync("sessions.txt", `${session}\n`);
 out({ type: "system", subtype: "init", session_id: session, cwd: process.cwd(), tools: [] });
 

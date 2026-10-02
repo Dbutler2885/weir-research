@@ -1,6 +1,7 @@
 import { assert } from "./findings.ts";
 import type { GraphDataset } from "./types.ts";
 import type { Investigation, ResearchCommand, ResearchState } from "./research.ts";
+import type { SavedSession } from "./agent-control.ts";
 
 // An assignment is one researcher's bounded part of a batch, such as one question or
 // one source: the coordinator's title and brief, and everything its researcher has
@@ -41,8 +42,10 @@ export interface Assignment {
   lease?: { token: string; worker: string; at: string; dataset: GraphDataset };
   // The researcher's session with its CLI, kept until it hands in its result, so an
   // interrupted researcher picks up its conversation where it stopped.
-  session?: { engine: string; id: string; directory: string; at: string };
+  session?: SavedSession;
   checkpoints: Checkpoint[];
+  // Sources it asked the human to open that the human could not get into.
+  unreachable?: { instruction: string; url?: string; at: string }[];
   // The coordinator's redirections while it ran, and its notes when it sent it back.
   steering: { at: string; message: string }[];
 }
@@ -67,6 +70,9 @@ export const assignmentCommands = new Set([
   "revise-assignment",
   "post",
   "coordinator-post",
+  "pause-assignment",
+  "resume-assignment",
+  "switch-assignment",
 ]);
 
 const text = (value: unknown, label: string, max: number): string => {
@@ -221,6 +227,42 @@ export function assignmentTransition(
       settle(batch);
       note(`Coordinator sent "${assignment.title}" back for another pass: ${notes}`);
       return { queued: true };
+    }
+    // The human pauses a researcher; it keeps its conversation, and its place in the
+    // batch's limit goes to another until the human resumes it.
+    case "pause-assignment": {
+      assert(assignment.status === "running", "Only a running researcher can be paused.");
+      assignment.status = "paused";
+      delete assignment.lease;
+      settle(batch);
+      note(`You paused the researcher on "${assignment.title}". It keeps its conversation until you resume it; do not steer it meanwhile.`);
+      return { paused: true };
+    }
+    case "resume-assignment": {
+      assert(assignment.status === "paused", "Only a paused researcher can be resumed.");
+      assignment.status = "waiting";
+      settle(batch);
+      note(`You resumed the researcher on "${assignment.title}".`);
+      return { resumed: true };
+    }
+    // The human moves a researcher to another agent or model. A running one stops and
+    // starts again on it: with the same program it picks up its conversation; with
+    // another, it starts afresh from its checkpoints.
+    case "switch-assignment": {
+      assert(["running", "waiting", "paused"].includes(assignment.status), "Only a researcher under way can be switched.");
+      const choice = command.choice as Choice;
+      assert(choice && ["claude", "codex"].includes(choice.engine), "Choose claude or codex.");
+      // The program it runs on now: its conversation's, or the one chosen for it.
+      const program = (assignment.session?.engine ?? assignment.choice?.engine) !== choice.engine;
+      assignment.choice = { engine: choice.engine, model: choice.model ?? null, effort: choice.effort ?? null };
+      if (program) delete assignment.session;
+      if (assignment.status === "running") {
+        assignment.status = "waiting";
+        delete assignment.lease;
+      }
+      settle(batch);
+      note(`You switched the researcher on "${assignment.title}" to ${typeof command.label === "string" ? command.label : choice.engine}${program ? "; it starts again from its checkpoints" : "; it keeps its conversation"}.`);
+      return { switched: true };
     }
     case "post": {
       assert(assignment.lease?.token === command.token, "Worker lease is no longer current.");

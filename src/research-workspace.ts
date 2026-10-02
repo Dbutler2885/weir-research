@@ -1,6 +1,9 @@
 import { menus, rowChoice } from "./ui/dispatch-settings";
 import { doclingStatus, readingLabel, readingNote } from "./ui/pdf-reading";
 import { closedNotice, quitDialog } from "./ui/quit-dialog";
+import { affectedAgents, findAgent, followDialog, switchDialog } from "./ui/agent-controls";
+import type { AgentRef, ControlledAgent } from "./domain/agent-control";
+import type { Choice } from "./domain/dispatch";
 import { contextLevel, contextNotice } from "./ui/live-panel";
 import {
   investigationSubject,
@@ -685,6 +688,77 @@ export function mountResearchWorkspace(
       message((error as Error).message);
     }
   });
+  // Pause, Resume and Switch model, from the live panel or a batch. Switching opens a
+  // dialog with what it costs; changing a role in settings asks about the agents on it.
+  const agentDialog = document.createElement("dialog");
+  agentDialog.className = "quit-dialog agent-dialog";
+  document.body.append(agentDialog);
+  let switching: { agent: ControlledAgent; choice: Choice } | null = null;
+  let following: { agent: ControlledAgent; to: Choice }[] = [];
+  async function controlAgent(body: { action: string; ref: AgentRef; choice?: Choice }, done: string) {
+    try {
+      await request("/api/agents", body);
+      await refresh();
+      message(done);
+    } catch (error) {
+      message((error as Error).message);
+    }
+  }
+  function showSwitch() {
+    agentDialog.innerHTML = switchDialog(switching!.agent, switching!.choice, state.catalog!);
+    if (!agentDialog.open) agentDialog.showModal();
+  }
+  // Caught before the live panel or a batch handles the click as opening it.
+  const onAgentAction = (event: MouseEvent) => {
+    const button = (event.target as Element).closest<HTMLButtonElement>("[data-agent-action]");
+    if (!button) return;
+    event.stopPropagation();
+    const ref = JSON.parse(button.dataset.agent!) as AgentRef;
+    const action = button.dataset.agentAction!;
+    if (action !== "switch")
+      return void controlAgent({ action, ref }, action === "pause" ? "Paused. It keeps its conversation until you resume it." : "Resumed.");
+    const agent = findAgent(state, ref);
+    if (!agent || !state.catalog) return;
+    if (liveOpen) live.hidePopover();
+    switching = { agent, choice: agent.choice || { agent: "claude", model: null, effort: null } };
+    showSwitch();
+  };
+  live.addEventListener("click", onAgentAction, true);
+  shell.addEventListener("click", onAgentAction, true);
+  agentDialog.addEventListener("change", (event) => {
+    const menus = (event.target as Element).closest<HTMLElement>("[data-switch-menus]");
+    if (!menus || !switching) return;
+    switching.choice = rowChoice(menus, state.catalog!, (event.target as HTMLElement).dataset.field) || switching.choice;
+    showSwitch();
+  });
+  agentDialog.addEventListener("click", async (event) => {
+    const button = (event.target as Element).closest<HTMLButtonElement>("button");
+    if (!button) return;
+    if (button.hasAttribute("data-switch-cancel")) return agentDialog.close();
+    if (button.hasAttribute("data-switch-confirm") && switching) {
+      const { agent, choice } = switching;
+      agentDialog.close();
+      return controlAgent({ action: "switch", ref: agent.ref, choice }, "Switching.");
+    }
+    if (button.hasAttribute("data-follow-done")) {
+      const chosen = following.filter((_, n) => agentDialog.querySelector<HTMLInputElement>(`input[name="follow-${n}"][value="switch"]`)?.checked);
+      agentDialog.close();
+      for (const { agent, to } of chosen) await controlAgent({ action: "switch", ref: agent.ref, choice: to }, chosen.length === 1 ? "Switching." : `Switching ${chosen.length} agents.`);
+    }
+  });
+  agentDialog.addEventListener("close", () => {
+    switching = null;
+    following = [];
+  });
+  // A role or the default changed: the agents still running on what it gave before.
+  function askAboutRunning(before: typeof state.dispatch) {
+    if (!before || !state.dispatch || !state.catalog) return;
+    following = affectedAgents(state, before, state.dispatch);
+    if (!following.length) return;
+    switching = null;
+    agentDialog.innerHTML = followDialog(following, state.catalog);
+    agentDialog.showModal();
+  }
   nav.addEventListener("click", (event) => {
     const button = (event.target as Element).closest<HTMLButtonElement>(
       "button",
@@ -945,10 +1019,12 @@ export function mountResearchWorkspace(
     });
     // Who does which job: each menu saves as it changes; the page redraws from the saved rules.
     const dispatchChange = async (body: Record<string, unknown>, saved: string) => {
+      const before = state.dispatch;
       try {
         await request("/api/dispatch", body);
         await refresh();
         message(saved);
+        if (body.action === "set-role") askAboutRunning(before);
       } catch (error) {
         message((error as Error).message);
         await refresh();
@@ -1255,6 +1331,7 @@ export function mountResearchWorkspace(
         investigationId: selectedInvestigation,
         requestId: button.dataset.resumeRequest,
         decision: button.dataset.resumeDecision,
+        outcome: button.dataset.outcome,
       })
         .then(() => message("Research state saved."))
         .catch((error) => message(error.message));

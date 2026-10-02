@@ -167,6 +167,27 @@ describe("the app's coordinator", () => {
     expect(f.coordinator.status()).toMatchObject({ connected: true, problem: null });
   });
 
+  it("switches to another model by starting a fresh coordinator, once a working one's turn is over", async () => {
+    const f = fixture([{ tool: "Read", input: { file_path: "AGENTS.md" }, delay: 600 }]);
+    const host = f.open();
+    const first = host.agent!;
+    await until(() => f.coordinator.status().latest?.text === "Reading its instructions");
+    expect(f.coordinator.status().choice).toEqual({ agent: "claude", model: null, effort: null });
+    expect(host.switchTo({ agent: "claude", model: "model-b", effort: null })).toEqual({ switching: true });
+    expect(f.coordinator.status().switching).toEqual({ agent: "claude", model: "model-b", effort: null });
+    expect(host.agent).toBe(first);
+    await until(() => host.agent && host.agent !== first);
+    expect(f.coordinator.status()).toMatchObject({ connected: true, choice: { agent: "claude", model: "model-b", effort: null }, switching: null });
+    await until(() => existsSync(join(host.folder!, "models.txt")));
+    expect(readFileSync(join(host.folder!, "models.txt"), "utf8")).toBe("start model-b\n");
+    // A listening coordinator switches at once, and the choice holds through a fresh start.
+    await until(() => f.coordinator.status().listening);
+    expect(host.switchTo({ agent: "claude", model: "model-c", effort: null })).toEqual({ started: true });
+    await until(() => f.coordinator.status().listening);
+    expect(host.startFresh()).toBe(true);
+    expect(f.coordinator.status().choice).toEqual({ agent: "claude", model: "model-c", effort: null });
+  });
+
   it("says when no agent CLI is installed to run it", () => {
     const f = fixture();
     const host = new CoordinatorHost({

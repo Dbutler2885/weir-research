@@ -130,11 +130,53 @@ describe("assignments in a batch", () => {
     expect(statuses()).toEqual(["waiting", "running", "waiting"]);
   });
 
+  it("lets the human say they could not get access, so the researcher carries on without the source", () => {
+    const token = claim(ids[0]!);
+    const ask = { instruction: "Clear the fictional deed portal's verification.", url: "https://deeds.example/search" };
+    run({ type: "checkpoint", investigationId: batch().id, token, summary: "Needs the portal", findings: "Bot check", nextSteps: "Search deeds", accessRequest: ask });
+    run({ type: "resolve-access", investigationId: batch().id, outcome: "unavailable" });
+    expect(batch().assignments![0]).toMatchObject({ status: "waiting", unreachable: [{ ...ask, at: expect.any(String) }] });
+    expect(batch().accessRequest).toMatchObject({ outcome: "unavailable", resolvedAt: expect.any(String) });
+    expect(batch().events.at(-1)!.message).toBe(
+      'You could not get the access the researcher on "Leases" asked for (https://deeds.example/search); it carries on without that source and records the gap.',
+    );
+  });
+
   it("records a researcher's board post on its batch, only while its lease is current", () => {
     const token = claim(ids[0]!);
     run({ type: "post", assignmentId: ids[0], token, text: "Vol. 5 is missing from the scans." });
     expect(batch().board).toEqual([{ id: expect.any(String), at: expect.any(String), assignmentId: ids[0], text: "Vol. 5 is missing from the scans." }]);
     expect(() => run({ type: "post", assignmentId: ids[0], token: "old", text: "Late" })).toThrow("lease");
+  });
+
+  it("lets the human pause one researcher, keeping its session, and resume it", () => {
+    const token = claim(ids[0]!);
+    claim(ids[1]!);
+    const session = { engine: "claude", id: "s-1", directory: "/fictional", at: "t" };
+    run({ type: "assignment-session", assignmentId: ids[0], token, session });
+    run({ type: "pause-assignment", assignmentId: ids[0] });
+    expect(batch().assignments![0]).toMatchObject({ status: "paused", session });
+    expect(batch().assignments![0]!.lease).toBeUndefined();
+    // Its siblings carry on, and the batch with them.
+    expect(statuses()).toEqual(["paused", "running", "waiting"]);
+    expect(batch().status).toBe("running");
+    expect(() => run({ type: "pause-assignment", assignmentId: ids[2] })).toThrow("Only a running researcher");
+    run({ type: "resume-assignment", assignmentId: ids[0] });
+    expect(batch().assignments![0]).toMatchObject({ status: "waiting", session });
+    expect(batch().events.at(-1)!.message).toBe('You resumed the researcher on "Leases".');
+  });
+
+  it("switches a researcher's model keeping its session, and its program dropping it", () => {
+    const token = claim(ids[0]!);
+    const session = { engine: "claude", id: "s-1", directory: "/fictional", at: "t" };
+    run({ type: "assignment-session", assignmentId: ids[0], token, session });
+    run({ type: "switch-assignment", assignmentId: ids[0], choice: { engine: "claude", model: "sonnet", effort: null }, label: "Claude Code, Sonnet" });
+    expect(batch().assignments![0]).toMatchObject({ status: "waiting", choice: { engine: "claude", model: "sonnet", effort: null }, session });
+    expect(batch().assignments![0]!.lease).toBeUndefined();
+    expect(batch().events.at(-1)!.message).toBe('You switched the researcher on "Leases" to Claude Code, Sonnet; it keeps its conversation.');
+    run({ type: "switch-assignment", assignmentId: ids[0], choice: { engine: "codex", model: null, effort: null } });
+    expect(batch().assignments![0]!.session).toBeUndefined();
+    expect(batch().events.at(-1)!.message).toBe('You switched the researcher on "Leases" to codex; it starts again from its checkpoints.');
   });
 
   it("starts a new assignment in a paused batch paused, so nothing starts until the human resumes", () => {
