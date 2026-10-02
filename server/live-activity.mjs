@@ -25,6 +25,11 @@ export class LiveActivity {
     const worker = this.workers.get(key);
     if (worker) Object.assign(worker, step(worker, text, this.now()));
   }
+  // How much conversation the worker carries, as its program last reported it.
+  measure(key, tokens) {
+    const worker = this.workers.get(key);
+    if (worker && tokens != null) worker.tokens = tokens;
+  }
   end(key) {
     this.workers.delete(key);
   }

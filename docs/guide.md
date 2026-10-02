@@ -40,7 +40,7 @@ Each reference reaches the coordinator as that object, with its ids and the scre
 Developer mode, in Research settings, is for work on Weir itself and applies to every project.
 With it on, any part of the app can be annotated, and Interface feedback records product observations separately from historical research.
 The destination stays selected between saves; the Feedback button and save confirmation open all saved interface notes.
-Investigations separates Findings, Queue, and Activity.
+Investigations separates Findings, Queue, Activity, and Board, where every batch's board is gathered.
 The gear at the top opens Research settings.
 Queue annotations or investigate immediately.
 Follow-up annotations on a proposal stay in its investigation and retain the exact revision they address.
@@ -104,6 +104,13 @@ The Queue tab in Investigations shows the batches in the order they are worked; 
 Research settings also offers an optional limit in whole minutes for each research pass; running passes keep the limit they started with.
 The coordinator can ask to resume paused work, with a reason shown in the investigation; research waits for you to choose Resume research or Keep paused.
 Failures pause for inspection; saved checkpoints carry over to the next researcher.
+Every researcher, graph builder and walkthrough writer keeps its conversation with its agent, so one that is paused, interrupted or stopped when the app closes picks it up where it left off when it starts again.
+If its conversation cannot be found, it starts again from its saved checkpoint and files.
+In the live panel, and on its batch in Findings, each running agent has Pause and Switch model, and each paused one Resume.
+A paused researcher's place in its batch goes to the next assignment until you resume it.
+Switch model shows what switching costs before you choose: with the same program the agent keeps its conversation, and its next turn re-reads it, at the size shown, without the cache; with the other program it cannot take its conversation along and starts again from its last checkpoint.
+The coordinator switches by starting a fresh coordinator on the new choice, which reads the project's saved state; one that is working switches once its turn is over.
+When you change a role, or the default, in Research settings while agents on the old choice are running, a pop-up lists each with what switching it costs; each stays on its current model unless you choose to switch it.
 
 Outside a coordinated project, an independent worker can use the manual protocol:
 

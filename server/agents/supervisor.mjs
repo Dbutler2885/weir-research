@@ -152,7 +152,6 @@ export class AgentSupervisor {
     }
     agent.session = adapter.session({ write: (message) => agent.write(message), describe, folder, ...options });
     this.watchAgent(agent, { key, provider, live });
-      this.live.begin(key, live);
 
     let logSize = 0;
     // The log is for diagnosis only; losing it, say because its folder was removed, stops nothing.
@@ -185,6 +184,7 @@ export class AgentSupervisor {
       agent.on("action", (text) => this.live.note(key, text));
       agent.on("current", (text) => this.live.note(key, text));
       agent.on("paused", ({ reason }) => this.live.note(key, reason));
+      agent.on("context", ({ tokens }) => this.live.measure(key, tokens));
     }
     agent.on("usage", (usage) => {
       this.usage[provider] = { ...usage, at: Date.now() };

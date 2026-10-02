@@ -137,6 +137,36 @@ describe("assignments in a batch", () => {
     expect(() => run({ type: "post", assignmentId: ids[0], token: "old", text: "Late" })).toThrow("lease");
   });
 
+  it("lets the human pause one researcher, keeping its session, and resume it", () => {
+    const token = claim(ids[0]!);
+    claim(ids[1]!);
+    const session = { engine: "claude", id: "s-1", directory: "/fictional", at: "t" };
+    run({ type: "assignment-session", assignmentId: ids[0], token, session });
+    run({ type: "pause-assignment", assignmentId: ids[0] });
+    expect(batch().assignments![0]).toMatchObject({ status: "paused", session });
+    expect(batch().assignments![0]!.lease).toBeUndefined();
+    // Its siblings carry on, and the batch with them.
+    expect(statuses()).toEqual(["paused", "running", "waiting"]);
+    expect(batch().status).toBe("running");
+    expect(() => run({ type: "pause-assignment", assignmentId: ids[2] })).toThrow("Only a running researcher");
+    run({ type: "resume-assignment", assignmentId: ids[0] });
+    expect(batch().assignments![0]).toMatchObject({ status: "waiting", session });
+    expect(batch().events.at(-1)!.message).toBe('You resumed the researcher on "Leases".');
+  });
+
+  it("switches a researcher's model keeping its session, and its program dropping it", () => {
+    const token = claim(ids[0]!);
+    const session = { engine: "claude", id: "s-1", directory: "/fictional", at: "t" };
+    run({ type: "assignment-session", assignmentId: ids[0], token, session });
+    run({ type: "switch-assignment", assignmentId: ids[0], choice: { engine: "claude", model: "sonnet", effort: null }, label: "Claude Code, Sonnet" });
+    expect(batch().assignments![0]).toMatchObject({ status: "waiting", choice: { engine: "claude", model: "sonnet", effort: null }, session });
+    expect(batch().assignments![0]!.lease).toBeUndefined();
+    expect(batch().events.at(-1)!.message).toBe('You switched the researcher on "Leases" to Claude Code, Sonnet; it keeps its conversation.');
+    run({ type: "switch-assignment", assignmentId: ids[0], choice: { engine: "codex", model: null, effort: null } });
+    expect(batch().assignments![0]!.session).toBeUndefined();
+    expect(batch().events.at(-1)!.message).toBe('You switched the researcher on "Leases" to codex; it starts again from its checkpoints.');
+  });
+
   it("starts a new assignment in a paused batch paused, so nothing starts until the human resumes", () => {
     run({ type: "pause", investigationId: batch().id });
     const { assignmentId } = run({ type: "assign", investigationId: batch().id, title: "Insurance plans", brief: "Find the plans." });

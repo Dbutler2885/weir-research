@@ -3,6 +3,8 @@ import type { Assignment } from "../domain/assignments";
 import { html } from "./finding-review";
 import { resetTime } from "../domain/reset-time";
 import { writerStatus } from "./review-view";
+import { controlledAgents, sameAgentRef, type AgentRef, type ControlledAgent } from "../domain/agent-control";
+import { agentButtons } from "./agent-controls";
 
 // One worker, or one piece of work waiting for one, as the Now list shows it.
 export interface LiveRow {
@@ -15,6 +17,8 @@ export interface LiveRow {
   // The steps before the latest, most recent first.
   trail?: string[];
   since?: string;
+  // The agent the row is about, for its Pause, Resume and Switch model.
+  agent?: ControlledAgent;
 }
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
@@ -68,6 +72,8 @@ export function contextNotice(state: ResearchState): { title: string; detail: st
 }
 
 export function liveRows(state: ResearchState): LiveRow[] {
+  const agents = controlledAgents(state);
+  const agent = (ref: AgentRef) => agents.find((a) => sameAgentRef(a.ref, ref));
   const rows: LiveRow[] = [];
   const live = state.live || [];
   const waiting = unansweredMessages(state);
@@ -86,6 +92,7 @@ export function liveRows(state: ResearchState): LiveRow[] {
       latest: steps[0]?.text,
       trail: steps.slice(1).map((s) => s!.text),
       since: c.listening ? undefined : c.since || c.latest?.at,
+      agent: agent({ kind: "coordinator" }),
     });
   } else if (c?.waiting)
     rows.push({ group: "waiting", who: "Coordinator", stage: "Starts when you write to it or annotate." });
@@ -102,11 +109,11 @@ export function liveRows(state: ResearchState): LiveRow[] {
   for (const i of state.investigations.filter((i) => i.number && !i.closedAt)) {
     const batch = { id: i.id, number: i.number! };
     for (const a of i.assignments || []) {
-      if (a.status === "running") rows.push(researcherRow(a, live, batch));
+      if (a.status === "running") rows.push({ ...researcherRow(a, live, batch), agent: agent({ kind: "researcher", assignmentId: a.id }) });
       else if (a.status === "waiting")
         rows.push({ group: "waiting", who: "Researcher", batch, stage: i.held ? `Held in the queue: ${a.title}` : `Waiting for a free place: ${a.title}` });
       else if (a.status === "paused")
-        rows.push({ group: "attention", who: "Researcher", batch, stage: `Paused: ${a.title}` });
+        rows.push({ group: "attention", who: "Researcher", batch, stage: `Paused: ${a.title}`, agent: agent({ kind: "researcher", assignmentId: a.id }) });
     }
     if (i.status === "queued" && !(i.assignments || []).some((a) => a.status === "waiting"))
       rows.push({ group: "waiting", who: "Researcher", batch, stage: "Waiting for the coordinator to assign researchers." });
@@ -121,6 +128,7 @@ export function liveRows(state: ResearchState): LiveRow[] {
         stage: i.reviewFlow?.writer?.status === "paused" ? "The walkthrough writer stopped." : writerStatus(i),
         ...(writer ? steps(writer) : {}),
         since: writer?.startedAt || i.walkthroughRequestedAt,
+        agent: agent({ kind: "writer", investigationId: i.id }),
       });
     }
     for (const job of i.reviewFlow?.jobs || []) {
@@ -135,6 +143,7 @@ export function liveRows(state: ResearchState): LiveRow[] {
         stage: job.status === "paused" ? `The graph builder is paused${asks ? "; the coordinator asks to resume it" : ""}.` : job.progress || "Waiting to start",
         ...(worker ? steps(worker) : {}),
         since: worker?.startedAt,
+        agent: agent({ kind: "builder", jobId: job.id }),
       });
     }
   }
@@ -220,9 +229,12 @@ const GROUPS: [LiveRow["group"], string][] = [["working", "Working now"], ["atte
 export function livePanel(state: ResearchState, now = Date.now()): string {
   const rows = liveRows(state);
   const working = (r: LiveRow) =>
-    `<li class="live-agent"${r.batch ? ` data-live-open="${html(r.batch.id)}"` : ""}><div class="live-who"><strong>${html(r.who)}</strong>${r.batch ? `<span>Batch ${r.batch.number}</span>` : ""}${r.since ? `<time datetime="${html(r.since)}" data-elapsed>${html(running(r.since, now))}</time>` : ""}</div><p class="live-now${r.latest ? "" : " is-quiet"}${r.who === "Coordinator" && state.coordinator?.listening ? " is-listening" : ""}">${html(r.latest || r.stage)}</p>${r.trail?.length ? `<ul class="live-trail">${r.trail.map((t) => `<li>${html(t)}</li>`).join("")}</ul>` : ""}</li>`;
+    `<li class="live-agent"${r.batch ? ` data-live-open="${html(r.batch.id)}"` : ""}><div class="live-who"><strong>${html(r.who)}</strong>${r.batch ? `<span>Batch ${r.batch.number}</span>` : ""}${r.since ? `<time datetime="${html(r.since)}" data-elapsed>${html(running(r.since, now))}</time>` : ""}</div><p class="live-now${r.latest ? "" : " is-quiet"}${r.who === "Coordinator" && state.coordinator?.listening ? " is-listening" : ""}">${html(r.latest || r.stage)}</p>${r.trail?.length ? `<ul class="live-trail">${r.trail.map((t) => `<li>${html(t)}</li>`).join("")}</ul>` : ""}${switching(r)}${agentButtons(r.agent)}</li>`;
   const line = (r: LiveRow) =>
-    `<li><span>${html(r.batch ? `Batch ${r.batch.number}: ${r.stage}` : r.stage)}</span>${r.batch ? `<button type="button" class="text-action" data-live-open="${html(r.batch.id)}">Open batch ${r.batch.number}</button>` : ""}</li>`;
+    `<li><span>${html(r.batch ? `Batch ${r.batch.number}: ${r.stage}` : r.stage)}</span>${r.batch ? `<button type="button" class="text-action" data-live-open="${html(r.batch.id)}">Open batch ${r.batch.number}</button>` : ""}${agentButtons(r.agent)}</li>`;
+  // A coordinator asked to switch while it works switches once its turn is over.
+  const switching = (r: LiveRow) =>
+    r.agent?.ref.kind === "coordinator" && state.coordinator?.switching ? '<p class="live-switching">Switches to the new model once this turn is over.</p>' : "";
   const groups = GROUPS.map(([group, title]) => {
     const members = rows.filter((r) => r.group === group);
     if (!members.length) return "";

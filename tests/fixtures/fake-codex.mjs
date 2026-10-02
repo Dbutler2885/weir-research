@@ -8,6 +8,9 @@
 // are listed in threads.txt in the thread's folder; thread/resume picks one up, or
 // is refused when there is no such thread. A step {quota: true} fails the turn for
 // usage, and account/rateLimits/read allows usage unless a file "limited" is in its folder.
+// Any other turn runs the steps in the file FAKE_CODEX_STEPS names, or none. A step
+// {tokens} reports that much context in use. Each thread started or resumed adds its
+// model to models.txt in its folder.
 import { randomUUID } from "node:crypto";
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -18,7 +21,8 @@ const notify = (method, params) => out({ method, params });
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const stepsFor = (input) => {
   const text = input.map((i) => i.text).join("");
-  return text.startsWith("steps:") ? JSON.parse(text.slice(6)) : [];
+  if (text.startsWith("steps:")) return JSON.parse(text.slice(6));
+  return process.env.FAKE_CODEX_STEPS ? JSON.parse(readFileSync(process.env.FAKE_CODEX_STEPS, "utf8")) : [];
 };
 
 let threadId = null;
@@ -34,6 +38,7 @@ async function run(turn, steps) {
       active = null;
       return notify("turn/completed", { threadId, turn: { id: turn.id, items: [], status: "failed", error: { message: "You've hit your usage limit.", codexErrorInfo: "usageLimitExceeded" } } });
     }
+    if (step.tokens) notify("thread/tokenUsage/updated", { threadId, turnId: turn.id, tokenUsage: { last: { totalTokens: step.tokens }, modelContextWindow: 258400 } });
     const item = step.change
       ? { type: "fileChange", id: `patch-${++n}`, changes: [{ path: step.change, kind: "add", diff: "" }] }
       : { type: "commandExecution", id: `exec-${++n}`, command: `/bin/zsh -lc '${step.command}'` };
@@ -73,11 +78,13 @@ createInterface({ input: process.stdin })
       if (!existsSync(threads) || !readFileSync(threads, "utf8").split("\n").includes(params.threadId))
         return out({ id, error: { code: -32600, message: `no rollout found for thread id ${params.threadId}` } });
       threadId = params.threadId;
+      appendFileSync(join(params.cwd, "models.txt"), `resume ${params.model || "default"}\n`);
       return out({ id, result: { thread: { id: threadId, cwd: params.cwd } } });
     }
     if (method === "thread/start") {
       threadId = `thread-${randomUUID()}`;
       appendFileSync(join(params.cwd, "threads.txt"), `${threadId}\n`);
+      appendFileSync(join(params.cwd, "models.txt"), `start ${params.model || "default"}\n`);
       out({ id, result: { thread: { id: threadId, cwd: params.cwd } } });
       return notify("thread/started", { thread: { id: threadId } });
     }

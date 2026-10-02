@@ -12,7 +12,7 @@ import {
 } from "./findings.ts";
 import type { Finding, FindingRef, GraphGroup } from "./findings.ts";
 import type { SourceRecord } from "./types.ts";
-import type { Catalog, Dispatch } from "./dispatch.ts";
+import type { Catalog, Choice, Dispatch } from "./dispatch.ts";
 import { holdInQueue, moveInQueue } from "./queue.ts";
 import { GraphModel } from "./model.ts";
 import type { GraphDataset } from "./types.ts";
@@ -242,6 +242,9 @@ export interface ResearchState {
     waiting?: boolean;
     // How full its context is, and the size at which it compacts.
     context?: { tokens: number; threshold: number; compactions: number; compacting: boolean } | null;
+    // The agent, model and effort it runs on, and the one it switches to once its turn ends.
+    choice?: Choice | null;
+    switching?: Choice | null;
     lastSeenSecondsAgo?: number | null;
     name: string | null;
     awaitingSynthesis: string[];
@@ -282,6 +285,9 @@ export interface LiveWorker {
   assignmentId?: string;
   task?: string;
   jobId?: string;
+  // The agent, model and effort it runs on, and how much conversation it carries.
+  choice?: Choice;
+  tokens?: number | null;
   startedAt: string;
   latest: { at: string; text: string } | null;
   // The few steps before the latest, most recent first.
@@ -372,6 +378,9 @@ export interface ResearchCommand {
     | "revise-assignment"
     | "post"
     | "coordinator-post"
+    | "pause-assignment"
+    | "resume-assignment"
+    | "switch-assignment"
     | "batch-ready"
     | "request-approval"
     | "retitle"

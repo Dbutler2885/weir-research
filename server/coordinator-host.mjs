@@ -27,8 +27,9 @@ export class CoordinatorHost {
   }
   // The coordinator runs on the agent the dispatch rules choose for it when that is
   // installed, otherwise on whichever agent CLI is.
+  // A choice the human switched this coordinator to holds until the app closes.
   choice() {
-    const chosen = this.preferred ? {agent: this.preferred} : this.dispatch?.choose('coordinator');
+    const chosen = this.override ?? (this.preferred ? {agent: this.preferred} : this.dispatch?.choose('coordinator'));
     if (chosen && this.findExecutable(chosen.agent)) return chosen;
     const agent = [this.store.state.engine, 'claude', 'codex'].find((p) => ['claude', 'codex'].includes(p) && this.findExecutable(p));
     return agent ? {agent} : null;
@@ -61,10 +62,13 @@ export class CoordinatorHost {
       describe: fileDescriber(coordinatorFiles),
     });
     this.agent = agent;
+    this.running = {agent: provider, model: choice.model ?? null, effort: choice.effort ?? null};
     this.since = Date.now();
     agent.on('action', (text) => this.coordinator.noteText(text));
     agent.on('turn', () => {
       this.since = null;
+      // A switch asked for while it worked happens once its turn is over.
+      if (this.switching && this.agent === agent) return setImmediate(() => this.switchNow());
       this.syncWalkthroughs(true);
       this.flush();
     });
@@ -154,7 +158,7 @@ export class CoordinatorHost {
     const since = this.agent?.busy && this.since ? new Date(this.since).toISOString() : null;
     // Held by the usage limit: neither working nor listening, until it resets.
     const paused = this.agent?.paused ? {until: new Date(this.agent.paused.resetsAt).toISOString()} : null;
-    return {connected: Boolean(this.agent), listening: Boolean(this.agent) && !this.agent.busy && !paused, problem: this.problem, context, since, paused};
+    return {connected: Boolean(this.agent), listening: Boolean(this.agent) && !this.agent.busy && !paused, problem: this.problem, context, since, paused, choice: this.agent ? this.running : null, switching: this.switching ?? null};
   }
   // Compacts the coordinator's conversation now.
   compact() {
@@ -168,6 +172,23 @@ export class CoordinatorHost {
   // Workers and queued work carry on; the new coordinator starts from them.
   startFresh() {
     if (this.agent?.busy) throw new Error('The coordinator is working. Start fresh once it is listening.');
+    this.stop();
+    this.problem = null;
+    this.coordinator.problem = null;
+    return Boolean(this.start());
+  }
+  // The human switches the coordinator to another agent or model: a fresh coordinator
+  // starts on it from the project's saved state, once this one's turn is over.
+  switchTo(choice) {
+    this.override = choice;
+    if (this.agent?.busy) {
+      this.switching = choice;
+      return {switching: true};
+    }
+    return {started: this.switchNow()};
+  }
+  switchNow() {
+    this.switching = null;
     this.stop();
     this.problem = null;
     this.coordinator.problem = null;

@@ -1,6 +1,7 @@
 import type { ResearchEvidence, SourceRecord, GraphDataset } from './types';
 import type { GraphDiff } from './graph-diff.ts';
 import type { DraftNote, DraftQuestion } from './graph-delivery.ts';
+import type { SavedSession } from './agent-control.ts';
 
 export interface WalkthroughStep {
   id: string;
@@ -47,6 +48,10 @@ export interface GraphJob {
   walkthroughId?: string;
   status: 'queued' | 'running' | 'paused' | 'returned' | 'published' | 'superseded';
   engine: 'manual' | 'codex' | 'claude';
+  model?: string | null;
+  effort?: string | null;
+  // The builder's conversation, kept so a paused or interrupted builder picks it up.
+  session?: SavedSession;
   // The coordinator's brief for the builder; a job the human asked for from Review waits for it.
   brief?: string;
   awaitingBrief?: boolean;
@@ -95,12 +100,16 @@ export interface WalkthroughWriter {
   id: string;
   status: 'queued' | 'running' | 'returned' | 'paused' | 'published';
   engine: 'claude' | 'codex';
+  model?: string | null;
+  effort?: string | null;
   brief: string;
   progress: string;
   attempt: number;
   corrections: number;
   draft?: Omit<Walkthrough, 'id' | 'createdAt' | 'revision'>;
   directory?: string;
+  // The writer's conversation, kept so a paused or interrupted writer picks it up.
+  session?: SavedSession;
 }
 export interface ReviewFlow {
   walkthroughs: Walkthrough[];

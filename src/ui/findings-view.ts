@@ -10,6 +10,8 @@ import { researchersPerBatch } from "../domain/assignments";
 import { batchStatus } from "../domain/conversation";
 import { sourceLibrary } from "../domain/findings";
 import { html, target } from "./finding-review";
+import { controlledAgents } from "../domain/agent-control";
+import { agentButtons, findAgent } from "./agent-controls";
 
 export type FindingsSection = "findings" | "activity" | "queue" | "board";
 
@@ -98,19 +100,25 @@ function batchCard(
     ["queued", "running"].includes(b.status)
       ? '<button type="button" class="text-action" data-command="pause">Pause</button>'
       : "",
-    // A batch the human paused, or one with a researcher an interruption paused.
-    (b.status === "paused" || assignments.some((a) => a.status === "paused")) && b.resumeRequest?.status !== "pending"
+    // A batch the human paused; a single paused researcher has its own Resume.
+    b.status === "paused" && b.resumeRequest?.status !== "pending"
       ? '<button type="button" class="text-action" data-command="resume">Resume</button>'
       : "",
   ].filter(Boolean);
   // The newest research pass first, as batches are.
   const passes = [...assignments].reverse().map((a) => pass(state, b, a, expanded)).join("");
   const other = b.proposals.filter((p) => !p.assignmentId || !assignments.some((a) => a.id === p.assignmentId));
-  return `<article class="batch-card" id="batch-${html(b.id)}" data-investigation-id="${html(b.id)}" ${target({ label: b.title, investigationId: b.id })}><div class="batch-label">Batch ${b.number} · ${label}</div><h2>${html(b.title)}</h2><p class="batch-meta">${meta.join(" · ")}</p>${requests(state, b)}${passes}${
+  return `<article class="batch-card" id="batch-${html(b.id)}" data-investigation-id="${html(b.id)}" ${target({ label: b.title, investigationId: b.id })}><div class="batch-label">Batch ${b.number} · ${label}</div><h2>${html(b.title)}</h2><p class="batch-meta">${meta.join(" · ")}</p>${batchAgents(state, b)}${requests(state, b)}${passes}${
     other.length
       ? `<section class="batch-question"><h3>Other reports in this batch</h3>${other.map((p, n) => report(state, p, n === 0, expanded)).join("")}</section>`
       : ""
   }${board(b)}</article>`;
+}
+
+// The batch's graph builder and walkthrough writer while they run or wait to be resumed.
+function batchAgents(state: ResearchState, b: Investigation): string {
+  const agents = controlledAgents(state).filter((a) => a.batch?.id === b.id && (a.ref.kind === "builder" || a.ref.kind === "writer"));
+  return agents.map((a) => `<p class="batch-agent"><strong>${html(a.who)}</strong> · ${html(a.status === "paused" ? `paused. ${a.activity}` : a.activity)}${agentButtons(a)}</p>`).join("");
 }
 
 function graphStatus(b: Investigation): string {
@@ -163,7 +171,7 @@ function passState(state: ResearchState, b: Investigation, a: Assignment): strin
       : "Waiting for a researcher.";
   if (!a.startedAt) return a.status === "stopped" ? "Not started." : passStates[a.status];
   const who = a.worker?.startsWith("Coordinator") ? "Your coordinator" : a.worker || "A researcher";
-  if (a.status === "paused") return `${who} · paused. Resume the batch to carry on.`;
+  if (a.status === "paused") return `${who} · paused.`;
   const at = a.status === "running" ? `since ${when(a.startedAt)}` : a.endedAt ? when(a.endedAt) : when(a.startedAt);
   return `${who} · ${passStates[a.status]} ${at}`;
 }
@@ -209,7 +217,7 @@ function pass(state: ResearchState, b: Investigation, a: Assignment, expanded: R
       : a.status === "returned"
         ? '<p class="report-pending">The researcher has returned its findings; your coordinator is checking them.</p>'
         : "";
-  return `<section class="batch-question" id="pass-${html(a.id)}" ${target({ label: a.title, investigationId: b.id, assignmentId: a.id })}><h3>${html(a.title)}</h3><p class="pass-state">${passState(state, b, a)}</p>${direction(state, b, a, expanded)}${steering}${
+  return `<section class="batch-question" id="pass-${html(a.id)}" ${target({ label: a.title, investigationId: b.id, assignmentId: a.id })}><h3>${html(a.title)}</h3><p class="pass-state">${passState(state, b, a)}${agentButtons(findAgent(state, { kind: "researcher", assignmentId: a.id }))}</p>${direction(state, b, a, expanded)}${steering}${
     reports.map((p, n) => report(state, p, n === 0, expanded)).join("") || pending
   }</section>`;
 }

@@ -9,6 +9,7 @@ import { emptyGraph } from "../src/domain/graph-schema";
 const empty = emptyGraph();
 import { mountResearchWorkspace } from "../src/research-workspace";
 import { flowCommand } from "../server/review-flow.mjs";
+import { changeDispatch, defaultDispatch, type Catalog } from "../src/domain/dispatch";
 vi.mock("../src/vendor/lavish/artifact-sdk.js", () => ({
   createArtifactSdk: vi.fn(),
   deriveLavishQueueKey: vi.fn(),
@@ -28,9 +29,18 @@ function mount() {
 }
 // The unsent draft the project keeps, as the server's draft file would.
 let projectDraft: unknown = null;
+// What the human asked of running agents.
+let agentRequests: any[] = [];
+const catalog: Catalog = {
+  agents: [
+    { id: "claude", label: "Claude Code", installed: true, efforts: ["low", "high"], models: [{ id: "opus", label: "Opus", efforts: ["low", "high"] }, { id: "sonnet", label: "Sonnet", efforts: ["low", "high"] }] },
+    { id: "codex", label: "Codex", installed: true, efforts: ["low", "medium"], models: [{ id: "gpt-6-sol", label: "GPT-6-Sol", efforts: ["low", "medium"] }] },
+  ],
+};
 beforeEach(() => {
   localStorage.clear();
   projectDraft = null;
+  agentRequests = [];
   state = initialState({
     ...empty,
     title: "Who founded the fictional workshop?",
@@ -96,6 +106,14 @@ beforeEach(() => {
       if (path === "/api/review-settings") {
         state.reviewSettings = JSON.parse(options.body);
         return { ok: true, json: async () => state.reviewSettings };
+      }
+      if (path === "/api/agents") {
+        agentRequests.push(JSON.parse(options.body));
+        return { ok: true, json: async () => ({ switched: true }) };
+      }
+      if (path === "/api/dispatch") {
+        state.dispatch = changeDispatch(state.dispatch!, JSON.parse(options.body), state.catalog!, "human", () => "r1", "2026-10-02T12:00:00.000Z");
+        return { ok: true, json: async () => ({ dispatch: state.dispatch }) };
       }
       if (path === "/api/commands") {
         const result = transition(state, JSON.parse(options.body));
@@ -346,12 +364,58 @@ describe("investigation workspace", () => {
     const builder = panel.querySelector(".live-working .live-agent")!;
     expect(builder.querySelector(".live-who")!.textContent).toBe("Claude graph builderBatch 14 min");
     expect(builder.querySelector(".live-now")!.textContent).toBe("Editing the edges table");
-    expect(panel.querySelector(".live-attention")!.textContent).toBe("Batch 1: Paused: Who founded the workshop?Open batch 1");
+    expect(panel.querySelector(".live-attention")!.textContent).toBe("Batch 1: Paused: Who founded the workshop?Open batch 1Resume");
+    // A running agent can be paused or switched; a paused one resumed.
+    expect([...builder.querySelectorAll("[data-agent-action]")].map((b) => b.textContent)).toEqual(["Pause", "Switch model"]);
     // jsdom has no popover support; the panel only needs to close.
     HTMLElement.prototype.hidePopover = vi.fn();
     panel.querySelector<HTMLElement>("[data-live-all]")!.click();
     expect(document.querySelector(".app-shell")!.getAttribute("data-workspace-view")).toBe("work");
     expect(document.querySelector('[data-investigation-section="activity"]')!.getAttribute("aria-current")).toBe("page");
+  });
+  it("pauses, resumes and switches running agents, saying what a switch costs, and asks about them when their role changes", async () => {
+    const batch = state.investigations[0]!;
+    state = transition(state, { type: "resume", investigationId: batch.id }).state;
+    state = transition(state, { type: "claim", investigationId: batch.id, worker: "Claude Code researcher" }).state;
+    const assignmentId = state.investigations[0]!.assignments![0]!.id;
+    state.catalog = catalog;
+    state.dispatch = { ...defaultDispatch("claude"), roles: { researcher: { agent: "claude", model: "opus", effort: null } } };
+    state.live = [{ role: "researcher", name: "Claude researcher", investigationId: batch.id, assignmentId, task: "Who founded the workshop?", choice: { agent: "claude", model: "opus", effort: null }, tokens: 84_000, startedAt: new Date().toISOString(), latest: { at: new Date().toISOString(), text: "Reading the register" } }];
+    mount();
+    HTMLElement.prototype.hidePopover = vi.fn();
+    HTMLDialogElement.prototype.showModal = function () {
+      this.open = true;
+    };
+    // The batch offers the same controls as the live panel.
+    click('[data-view="work"]');
+    const pass = document.querySelector(`#pass-${assignmentId} .pass-state`)!;
+    expect([...pass.querySelectorAll("[data-agent-action]")].map((b) => b.textContent)).toEqual(["Pause", "Switch model"]);
+    pass.querySelector<HTMLButtonElement>('[data-agent-action="pause"]')!.click();
+    await vi.waitFor(() => expect(agentRequests).toEqual([{ action: "pause", ref: { kind: "researcher", assignmentId } }]));
+    // Switching shows the cost of each choice before the human decides.
+    document.querySelector<HTMLButtonElement>(`#pass-${assignmentId} [data-agent-action="switch"]`)!.click();
+    const dialog = document.querySelector<HTMLDialogElement>(".agent-dialog")!;
+    expect(dialog.open).toBe(true);
+    expect(dialog.querySelector("h2")!.textContent).toBe("Switch the Batch 1 researcher");
+    expect(dialog.querySelector(".switch-cost")!.textContent).toBe("It already uses this.");
+    select('.agent-dialog [data-field="model"]', "sonnet");
+    expect(dialog.querySelector(".switch-cost")!.textContent).toBe("It keeps its conversation. Its next turn re-reads about 84k tokens of it without the cache.");
+    select('.agent-dialog [data-field="agent"]', "codex");
+    expect(dialog.querySelector(".switch-cost")!.textContent).toBe("Codex cannot take over Claude Code's conversation, so it starts again from its last checkpoint. Its saved files are kept.");
+    dialog.querySelector<HTMLButtonElement>("[data-switch-confirm]")!.click();
+    await vi.waitFor(() => expect(agentRequests.at(-1)).toEqual({ action: "switch", ref: { kind: "researcher", assignmentId }, choice: { agent: "codex", model: null, effort: null } }));
+    expect(dialog.open).toBe(false);
+    // Changing the researcher role asks about the researcher still on the old choice; leaving it is the default.
+    click('[data-view="settings"]');
+    select('[data-dispatch-role="researcher"] [data-field="model"]', "sonnet");
+    await vi.waitFor(() => expect(dialog.open).toBe(true));
+    expect(dialog.querySelector("h2")!.textContent).toBe("An agent is running on the old choice");
+    expect(dialog.querySelector("legend")!.textContent).toBe("Batch 1 researcher");
+    expect(dialog.querySelector<HTMLInputElement>('input[value="leave"]')!.checked).toBe(true);
+    expect(dialog.querySelector(".switch-cost")!.textContent).toContain("re-reads about 84k tokens");
+    dialog.querySelector<HTMLInputElement>('input[value="switch"]')!.checked = true;
+    dialog.querySelector<HTMLButtonElement>("[data-follow-done]")!.click();
+    await vi.waitFor(() => expect(agentRequests.at(-1)).toEqual({ action: "switch", ref: { kind: "researcher", assignmentId }, choice: { agent: "claude", model: "sonnet", effort: null } }));
   });
   it("says the service is unreachable and keeps the typed message", async () => {
     click("[data-open-coordinator]");

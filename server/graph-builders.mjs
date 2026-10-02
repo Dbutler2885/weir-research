@@ -5,9 +5,13 @@ import { randomUUID } from 'node:crypto';
 import { executableOnPath } from './researchers.mjs';
 import { draftHeaders, draftTables, graphToTables, DraftError } from '../src/domain/graph-csv.ts';
 import { commentaryHeaders, readDelivery } from '../src/domain/graph-delivery.ts';
-import { receiveDraft } from './review-flow.mjs';
+import { receiveDraft, flowCommand } from './review-flow.mjs';
 import { LiveActivity, fileDescriber, builderFiles } from './live-activity.mjs';
 import { AgentSupervisor, stoppedAgent } from './agents/supervisor.mjs';
+
+const builderName = engine => engine === 'codex' ? 'Codex graph builder' : 'Claude graph builder';
+// The agent, model and effort a builder runs on, as the live panel shows it.
+const liveChoice = job => ({agent: job.engine, model: job.model ?? null, effort: job.effort ?? null});
 
 // The files a builder hands back: the graph tables and its commentary beside them.
 const deliveryFiles = [...draftTables, ...Object.keys(commentaryHeaders), 'submission.txt'];
@@ -48,7 +52,7 @@ export class GraphBuilders {
       const record = kept.find(r => r.meta.jobId === j.id && r.meta.token === j.runToken);
       if (j.status !== 'running' || !record) continue;
       const task = {...record.meta.task, packet: structuredClone(j.packet), packets: [structuredClone(j.packet)]};
-      task.agent = supervisor.reattach(record, {live: {role: 'builder', name: j.engine === 'codex' ? 'Codex graph builder' : 'Claude graph builder', investigationId: i.id, jobId: j.id}});
+      task.agent = supervisor.reattach(record, {live: {role: 'builder', name: builderName(j.engine), investigationId: i.id, jobId: j.id, choice: liveChoice(j)}});
       this.active.set(j.id, task);
       this.follow(task);
       kept.splice(kept.indexOf(record), 1);
@@ -58,7 +62,7 @@ export class GraphBuilders {
       store.update(next => {
         const job = next.investigations.find(x => x.id === i.id).reviewFlow.jobs.find(x => x.id === j.id);
         job.status = 'paused'; job.recoverable = true;
-        job.progress = 'The app restarted. Saved graph files are kept; picking the draft back up.';
+        job.progress = job.session ? 'The app restarted. Picking the builder\'s conversation back up.' : 'The app restarted. Saved graph files are kept; picking the draft back up.';
       });
     }
     // A draft that was rejected or interrupted carries on by itself after a restart.
@@ -214,7 +218,10 @@ export class GraphBuilders {
       if (attemptNumber === 1) this.log(next, id, 'Graph builder started the draft.');
       j.directory = directory;
     });
-    return {id, investigationId: investigation.id, directory, work, attempt, attemptNumber, token, prompt: prompt + report, packet, packets: [packet], started: Date.now(), timeLimitMinutes: this.store.state.researchSettings?.timeLimitMinutes ?? null};
+    // A builder that was paused, switched or interrupted picks up its conversation.
+    const resuming = job.session?.engine === job.engine && existsSync(job.session.directory) ? job.session.id : null;
+    const carryOn = `You were stopped partway through this graph draft, and your conversation has been picked up again in the same folder. AGENTS.md, packet.json and updates.json have been written again and may have changed; read them, then carry on from where you stopped.${report}`;
+    return {id, investigationId: investigation.id, directory, work, attempt, attemptNumber, token, prompt: resuming ? carryOn : prompt + report, resuming, packet, packets: [packet], started: Date.now(), timeLimitMinutes: this.store.state.researchSettings?.timeLimitMinutes ?? null};
   }
   sync(task) {
     const {job} = this.job(task.id);
@@ -255,12 +262,13 @@ export class GraphBuilders {
       task = this.prepare(id);
       writeFileSync(join(task.attempt, 'invocation.json'), JSON.stringify({engine: job.engine, cwd: task.work}, null, 2));
       task.agent = this.supervisor.start({
-        key: `graph:${id}`, provider: job.engine, executable, folder: task.work, web: false, model: job.model, effort: job.effort,
+        key: `graph:${id}`, provider: job.engine, executable, folder: task.work, web: false, model: job.model || undefined, effort: job.effort || undefined,
+        resume: task.resuming ?? undefined,
         prompt: task.prompt, log: join(task.attempt, 'stream.ndjson'),
-        live: {role: 'builder', name: job.engine === 'codex' ? 'Codex graph builder' : 'Claude graph builder', investigationId: task.investigationId, jobId: id},
+        live: {role: 'builder', name: builderName(job.engine), investigationId: task.investigationId, jobId: id, choice: liveChoice(job)},
         describe: fileDescriber(builderFiles),
         // What the app needs to take this builder back if it outlives the app.
-        meta: {project: this.directory, role: 'builder', jobId: id, token: task.token, task: {id, investigationId: task.investigationId, directory: task.directory, work: task.work, attempt: task.attempt, attemptNumber: task.attemptNumber, token: task.token, started: task.started, timeLimitMinutes: task.timeLimitMinutes}},
+        meta: {project: this.directory, role: 'builder', jobId: id, token: task.token, task: {id, investigationId: task.investigationId, directory: task.directory, work: task.work, attempt: task.attempt, attemptNumber: task.attemptNumber, token: task.token, started: task.started, timeLimitMinutes: task.timeLimitMinutes, engine: job.engine}},
       });
       this.active.set(id, task);
       this.follow(task);
@@ -269,9 +277,22 @@ export class GraphBuilders {
   // How the builders follow an agent, whether started here or taken back.
   follow(task) {
     const id = task.id;
-    // A builder works in one turn; when it ends, the draft is read.
-    task.agent.on('turn', ({outcome}) => { if (outcome !== 'interrupted') task.agent.finish(); });
-    task.agent.on('failed', error => this.pause(id, `Builder could not start: ${error.message}. Saved files are retained.`));
+    // The conversation is kept from the start, so whatever stops the builder, it can be picked up.
+    task.agent.on('session', session => {
+      task.resuming = null;
+      const {job} = this.job(id);
+      if (job.status !== 'running' || job.runToken !== task.token) return;
+      this.store.update(next => {
+        next.investigations.flatMap(i => i.reviewFlow?.jobs || []).find(j => j.id === id).session = {engine: job.engine, id: session, directory: task.work, at: new Date().toISOString()};
+      });
+    });
+    // A builder works in one turn; when it ends, the draft is read. One whose earlier
+    // conversation could not be picked up ends at once and starts afresh.
+    task.agent.on('turn', ({outcome}) => {
+      if (task.resuming) task.agent.stop();
+      else if (outcome !== 'interrupted') task.agent.finish();
+    });
+    task.agent.on('failed', error => task.resuming || this.pause(id, `Builder could not start: ${error.message}. Saved files are retained.`));
     task.agent.on('exit', ({code}) => this.finished(task, code));
     // A usage-limit pause keeps the builder and its attempts; it carries on at the reset.
     task.agent.on('paused', ({reason}) => {
@@ -297,6 +318,16 @@ export class GraphBuilders {
     try {
       const {job} = this.job(id);
       if (job.status !== 'running' || job.runToken !== task.token) return;
+      // Not while the app closes: the session is kept for when it opens again.
+      if (task.resuming && !this.stopped) {
+        this.store.update(next => {
+          const j = next.investigations.flatMap(i => i.reviewFlow?.jobs || []).find(j => j.id === id);
+          j.status = 'queued'; delete j.session;
+          j.progress = 'Starting the graph draft again from its saved files.';
+          this.log(next, id, "The graph builder's earlier conversation could not be picked up; a fresh builder starts from its saved files.");
+        });
+        return;
+      }
       if (code !== 0) {
         if (this.retry(id)) return;
         this.pause(id, 'The builder stopped without finishing a draft, and has run out of attempts. Its saved work is kept.');
@@ -309,6 +340,34 @@ export class GraphBuilders {
       this.pause(id, `${this.record(id, error.message)} Its saved work is kept.`);
     }
     finally { this.active.delete(id); this.pump(); }
+  }
+  // The human pauses, resumes or switches a builder from the live panel or its batch.
+  // A paused builder keeps its conversation; a switch to the same program keeps it too.
+  control(action, jobId, choice, label) {
+    const {investigation, job} = this.job(jobId);
+    if (action === 'pause') {
+      fail(job.status === 'running', 'Only a running graph builder can be paused.');
+      flowCommand(this.store, {action: 'graph-job-pause', investigationId: investigation.id, jobId}, 'human');
+      this.store.update(next => this.log(next, jobId, 'You paused the graph builder. It keeps its conversation until you resume it.'));
+    } else if (action === 'resume') {
+      flowCommand(this.store, {action: 'graph-job-resume', investigationId: investigation.id, jobId}, 'human');
+      this.store.update(next => this.log(next, jobId, 'You resumed the graph builder.'));
+    } else if (action === 'switch') {
+      fail(['running', 'queued', 'paused'].includes(job.status), 'Only a graph builder under way can be switched.');
+      this.store.update(next => {
+        const j = next.investigations.flatMap(i => i.reviewFlow?.jobs || []).find(j => j.id === jobId);
+        const program = j.engine !== choice.agent;
+        Object.assign(j, {engine: choice.agent, model: choice.model ?? null, effort: choice.effort ?? null});
+        if (program) delete j.session;
+        if (j.status === 'running') { j.status = 'queued'; j.progress = `Switching to ${label}.`; }
+        this.log(next, jobId, `You switched the graph builder to ${label}${program ? '; it starts again from its saved files' : '; it keeps its conversation'}.`);
+      });
+    } else throw new Error('Pause, resume or switch a graph builder.');
+    // A running builder stops at once; it starts again once its process has gone.
+    const task = this.active.get(jobId);
+    if (task && this.job(jobId).job.status !== 'running') this.terminate(task);
+    this.pump();
+    return {[action === 'pause' ? 'paused' : action === 'resume' ? 'resumed' : 'switched']: true};
   }
   pump() {
     if (this.stopped) return;
@@ -323,6 +382,8 @@ export class GraphBuilders {
       if (job.status === 'queued' && job.engine !== 'manual' && !job.awaitingBrief && !this.active.has(job.id)) this.start(job.id);
   }
 }
+
+const fail = (ok, message) => { if (!ok) throw new Error(message); };
 
 // What a running builder is told when the coordinator sends new instructions.
 function updateMessage(updates) {
