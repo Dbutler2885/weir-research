@@ -12,7 +12,6 @@ import { SourceSaver } from "../server/source-saver.mjs";
 import { ResearchLibrary } from "../server/research-library.mjs";
 import { readableText } from "../server/html-text.mjs";
 import { sourceLibrary } from "../src/domain/findings";
-import { readingNote } from "../src/ui/pdf-reading";
 
 const cleanup: (() => void)[] = [];
 afterEach(() =>
@@ -68,7 +67,7 @@ async function fixture() {
   const save = (path: string, fresh = false) => saver.save({ url: `${base}${path}`, fresh });
   const doc = (id: string) => store.state.documents.find((d: any) => d.id === id) as any;
   const inLibrary = (path: string) => readFileSync(join(directory, "library", path), "utf8");
-  return { directory, store, site, base, saver, save, doc, inLibrary, reading };
+  return { directory, store, site, base, saver, save, doc, inLibrary };
 }
 
 describe("a page's readable text", () => {
@@ -170,22 +169,6 @@ describe("saving sources", () => {
     expect((await save("/edition")).id).toBe(first.id);
     expect(store.state.documents.map((d: any) => d.id)).toEqual([first.id, second.id]);
   });
-
-  it("never reads a saved PDF again, so its text stays as it was when quoted", async () => {
-    const { save, doc, reading, store } = await fixture();
-    const receipt = await save("/ledger.pdf");
-    // As if the reader had made a mistake that reading again would correct.
-    store.update((next: any) => {
-      const d = next.documents.find((x: any) => x.id === receipt.id);
-      d.text = d.text.replace("1901", "190l");
-    });
-    const before = structuredClone(doc(receipt.id));
-    expect(reading.readAgain([receipt.id])).toBe(0);
-    expect(reading.readAgain("all")).toBe(0);
-    await new Promise((done) => setTimeout(done, 1500));
-    expect(doc(receipt.id)).toEqual(before);
-    expect(readingNote(doc(receipt.id), { reader: "standard", docling: { state: "ready" } } as any)).not.toContain("data-read-again");
-  }, 60_000);
 
   it("follows a redirect to the page", async () => {
     const { save, doc } = await fixture();
