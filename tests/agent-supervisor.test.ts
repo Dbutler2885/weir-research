@@ -257,6 +257,11 @@ describe("Claude adapter", () => {
     expect(settings.permissions.deny).toEqual(["Agent", "Task"]);
     const local = JSON.parse(claudeAdapter.args({ folder }).find((a: string) => a.includes("sandbox"))!);
     expect(local.permissions.allow).not.toContain("WebSearch");
+    // A researcher searches the web, and the app saves the pages it wants to read.
+    const researcher = JSON.parse(claudeAdapter.args({ folder, web: true, webFetch: false }).find((a: string) => a.includes("sandbox"))!);
+    expect(researcher.permissions.allow).toContain("WebSearch");
+    expect(researcher.permissions.allow).not.toContain("WebFetch");
+    expect(researcher.permissions.deny).toEqual(["Agent", "Task", "WebFetch"]);
   });
   it("writes messages as user messages and interrupts with a control request", () => {
     const s = session();

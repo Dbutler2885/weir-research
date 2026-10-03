@@ -166,6 +166,10 @@ export interface ResearchDocument {
   size: number;
   sha256: string;
   importedAt: string;
+  // A source saved from the web: the address it was saved from, and when. Each
+  // capture is its own document and never changes.
+  url?: string;
+  capturedAt?: string;
   // Searchable text; a PDF's is marked with "[Page n]" before each page.
   text?: string;
   pages?: number;

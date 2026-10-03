@@ -9,8 +9,9 @@ the whole of it is kept in outputs/, where weir.output(id) reads it. After every
 completed run the variables are saved with dill, and a new session loads them back.
 
 One process owns the state at a time: the one named in owner.json. A process that is no
-longer its owner, or whose app has gone, exits without saving. A run in progress is recorded in running.json, so a run cut short by the
-process ending is known afterwards and never replayed.
+longer its owner, or whose app has gone, exits without saving. A run in progress is
+recorded in running.json, so a run cut short by the process ending is known afterwards
+and never replayed.
 """
 
 import io
@@ -22,6 +23,7 @@ import time
 import traceback
 
 import dill
+from weir import _app
 
 dill.settings["recurse"] = True
 
@@ -168,6 +170,8 @@ def main():
         with open(RUNNING, "w", encoding="utf-8") as file:
             json.dump({"id": request["id"], "at": time.time()}, file)
         started = time.time()
+        # The run its calls to the app are made for.
+        _app.RUN = request["id"]
         output, failed = run(request["code"])
         skipped = save()
         os.remove(RUNNING)

@@ -1,7 +1,7 @@
 # Slice 02: Saving sources
 
 **Type**: AFK
-**Status**: To do
+**Status**: Done
 
 ## Blocked by
 
@@ -18,11 +18,23 @@ See **Saving sources**.
 
 ## Acceptance criteria
 
-- [ ] An HTML page and a PDF save as library documents with pages
-- [ ] A repeated URL returns the existing capture; a fresh capture deduplicates by content
-- [ ] A failing URL and a page without readable text return plain errors
-- [ ] A researcher has no WebFetch, and can still search the web
-- [ ] Researchers cannot change the library except through the app
+- [x] An HTML page and a PDF save as library documents with pages
+- [x] A repeated URL returns the existing capture; a fresh capture deduplicates by content
+- [x] A failing URL and a page without readable text return plain errors
+- [x] A researcher has no WebFetch, and can still search the web
+- [x] Researchers cannot change the library except through the app
+
+## How it was built
+
+- A web page keeps all of its visible text, in order, rather than a guess at its main article, so a quote from any part of the page can be found in the saved text.
+- A fresh capture of a page is compared with earlier captures by its text, since many pages differ in their bytes on every visit; a PDF is compared by its bytes.
+- A saved PDF is read with the chosen PDF reader, or with Standard while High accuracy is not installed, ahead of the documents waiting to be read.
+- Running code reaches the app through call files in the session's folder, and a call is made only while the lease its run was sent with is still the seat's.
+
+## Known limitation
+
+A researcher's shell still reaches the web, so a researcher could download a page there instead of saving it.
+The instructions in slice 08 point researchers to `weir.save`.
 
 ## User stories addressed
 

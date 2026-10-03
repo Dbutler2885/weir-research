@@ -3,6 +3,9 @@
 // ran it, and the desk writes the answer to python/responses/. A request whose lease
 // is no longer the seat's is refused. Code still running after the wait is answered
 // with a note, and its output is delivered to the researcher as a message later.
+// Running code reaches the app the same way: the session writes each call to calls/ in
+// its own folder, naming its run, and the desk makes the call for the lease that run
+// was sent with and writes the answer to answers/.
 import { copyFileSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, watch, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -15,8 +18,11 @@ const plural = (n, unit) => `${n} ${unit}${n === 1 ? "" : "s"}`;
 const duration = (ms) => (ms >= 60_000 && ms % 60_000 === 0 ? plural(ms / 60_000, "minute") : plural(Math.max(1, Math.round(ms / 1000)), "second"));
 
 export class SessionDesk {
-  /** @param {{home: string, library?: string | null, wait?: number, outputLimit?: number, poll?: number, session?: (options: any) => any}} options */
-  constructor({ home, library = null, wait = DEFAULT_WAIT, outputLimit, poll = 1000, session = (options) => new PythonSession(options) }) {
+  // calls: what running code may ask of the app, by name; each is given the call's
+  // arguments and the seat's key, and resolves with the result.
+  /** @param {{home: string, library?: string | null, wait?: number, outputLimit?: number, poll?: number, calls?: Record<string, (args: any, context: {key: string}) => any>, session?: (options: any) => any}} options */
+  constructor({ home, library = null, wait = DEFAULT_WAIT, outputLimit, poll = 1000, calls = {}, session = (options) => new PythonSession(options) }) {
+    this.calls = calls;
     this.home = home;
     this.library = library;
     this.wait = wait;
@@ -37,6 +43,12 @@ export class SessionDesk {
     mkdirSync(join(folder, "python", "responses"), { recursive: true });
     mkdirSync(join(folder, "tools"), { recursive: true });
     copyFileSync(TOOL, join(folder, "tools", "python.mjs"));
+    // Calls and answers left by a run that was cut short belong to nobody now.
+    const state = join(seatFolder, "session");
+    for (const name of ["calls", "answers"]) {
+      rmSync(join(state, name), { recursive: true, force: true });
+      mkdirSync(join(state, name), { recursive: true });
+    }
     const seat = {
       key,
       folder,
@@ -44,10 +56,17 @@ export class SessionDesk {
       deliver,
       session: this.makeSession({ folder: seatFolder, library: this.library, home: this.home, outputLimit: this.outputLimit }),
       taken: new Set(),
+      state,
+      // The lease each run in progress was sent with.
+      runs: new Map(),
     };
     this.seats.set(key, seat);
     seat.watcher = watch(requests, () => this.collect(seat));
-    seat.timer = setInterval(() => this.collect(seat), this.poll);
+    seat.callWatcher = watch(join(state, "calls"), () => this.collectCalls(seat));
+    seat.timer = setInterval(() => {
+      this.collect(seat);
+      this.collectCalls(seat);
+    }, this.poll);
     seat.timer.unref();
     this.collect(seat);
     seat.session.start().then(
@@ -65,6 +84,7 @@ export class SessionDesk {
     this.seats.delete(key);
     seat.closed = true;
     seat.watcher?.close();
+    seat.callWatcher?.close();
     clearInterval(seat.timer);
     seat.session.stop();
   }
@@ -96,6 +116,46 @@ export class SessionDesk {
       this.handle(seat, name.replace(/\.json$/, ""), request);
     }
   }
+  // Makes the calls the session's running code has written, each once.
+  collectCalls(seat) {
+    if (seat.closed) return;
+    const calls = join(seat.state, "calls");
+    let names;
+    try {
+      names = readdirSync(calls).filter((name) => name.endsWith(".json"));
+    } catch {
+      return;
+    }
+    for (const name of names) {
+      const file = join(calls, name);
+      let call;
+      try {
+        call = JSON.parse(readFileSync(file, "utf8"));
+      } catch {
+        continue;
+      }
+      rmSync(file, { force: true });
+      const id = name.replace(/\.json$/, "");
+      const reply = (message) => {
+        try {
+          writeFileSync(join(seat.state, "answers", `${id}.tmp`), JSON.stringify(message));
+          renameSync(join(seat.state, "answers", `${id}.tmp`), join(seat.state, "answers", `${id}.json`));
+        } catch {
+          /* The seat's folder is gone; nobody is waiting. */
+        }
+      };
+      const lease = seat.runs.get(call.run);
+      if (lease === undefined || !seat.authorize(lease)) reply({ error: "This agent's lease on the seat is no longer current, so the app did not do what its code asked." });
+      else if (!Object.hasOwn(this.calls, call.name)) reply({ error: `The app has nothing called ${JSON.stringify(call.name)} for a session to ask for.` });
+      else
+        Promise.resolve()
+          .then(() => this.calls[call.name](call.arguments || {}, { key: seat.key }))
+          .then(
+            (result) => reply({ result: result ?? null }),
+            (error) => reply({ error: error.message }),
+          );
+    }
+  }
   answer(seat, id, message) {
     const responses = join(seat.folder, "python", "responses");
     try {
@@ -113,7 +173,8 @@ export class SessionDesk {
       answered = true;
       this.answer(seat, id, { pending: true, note: `Still running after ${duration(this.wait)}. It carries on, and its output will reach you as a message when it finishes; you can keep working meanwhile, and later code waits for it.` });
     }, this.wait);
-    seat.session.run(request.code).then(
+    seat.runs.set(id, request.lease);
+    seat.session.run(request.code, { id }).finally(() => seat.runs.delete(id)).then(
       (result) => {
         clearTimeout(timer);
         if (!answered) return this.answer(seat, id, { output: result.output, failed: result.failed });

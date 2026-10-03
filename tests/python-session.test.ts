@@ -179,7 +179,16 @@ describe.skipIf(!onMac)("the session desk", () => {
     const { folder: seat, library } = fixture();
     const messages: string[] = [];
     let lease = "lease-1";
-    const d = new SessionDesk({ home, library, wait, poll: 100 });
+    // What the app would do for the session's code: a stand-in for saving a source.
+    const asked: any[] = [];
+    const calls = {
+      save: async (given: any, context: any) => {
+        asked.push({ ...given, seat: context.key });
+        if (given.url.endsWith("/missing")) throw new Error(`${given.url} could not be downloaded: the site answered 404 Not Found.`);
+        return { id: "doc-9", title: "Fictional gazette", url: given.url, pages: 1, characters: 80, existing: false };
+      },
+    };
+    const d = new SessionDesk({ home, library, wait, poll: 100, calls });
     cleanups.push(() => d.closeAll());
     const open = (name: string) => {
       const folder = join(seat, name);
@@ -188,7 +197,7 @@ describe.skipIf(!onMac)("the session desk", () => {
       return folder;
     };
     const folder = open(lease);
-    return { folder, messages, open, revoke: (next = "lease-2") => (lease = next) };
+    return { folder, messages, open, asked, revoke: (next = "lease-2") => (lease = next) };
   }
 
   it("runs the researcher's code through its tool", async () => {
@@ -196,6 +205,28 @@ describe.skipIf(!onMac)("the session desk", () => {
     expect(await tool(folder, "seen = weir.library.text('doc-1')\nprint(seen.count('Example'))", "lease-1")).toMatchObject({ code: 0, stdout: "2\n" });
     expect(await tool(folder, "print(len(seen))", "lease-1")).toMatchObject({ code: 0, stdout: "59\n" });
     expect(await tool(folder, "1/0", "lease-1")).toMatchObject({ code: 1, stdout: expect.stringMatching(/ZeroDivisionError/) });
+  });
+
+  it("lets running code save a source through the app, and hear why when it cannot", async () => {
+    const { folder, asked } = desk();
+    const saved = await tool(folder, "receipt = weir.save('https://example.org/gazette')\nprint(receipt['id'], receipt['pages'])", "lease-1");
+    expect(saved).toMatchObject({ code: 0, stdout: "doc-9 1\n" });
+    expect(asked).toEqual([{ url: "https://example.org/gazette", fresh: false, seat: "seat-1" }]);
+    await tool(folder, "weir.save('https://example.org/gazette', fresh=True)", "lease-1");
+    expect(asked[1]).toMatchObject({ fresh: true });
+    const refused = await tool(folder, "try:\n    weir.save('https://example.org/missing')\nexcept weir.AppError as error:\n    print(error)", "lease-1");
+    expect(refused.stdout).toBe("https://example.org/missing could not be downloaded: the site answered 404 Not Found.\n");
+  });
+
+  it("does nothing for code whose researcher has lost the seat while it ran", async () => {
+    const { folder, asked, revoke } = desk();
+    const running = tool(folder, "import time\ntime.sleep(1.5)\ntry:\n    weir.save('https://example.org/gazette')\nexcept weir.AppError as error:\n    refusal = str(error)", "lease-1");
+    await new Promise((done) => setTimeout(done, 500));
+    revoke("lease-2");
+    await running;
+    expect(asked).toEqual([]);
+    revoke("lease-1");
+    expect((await tool(folder, "print(refusal)", "lease-1")).stdout).toMatch(/lease on the seat is no longer current, so the app did not do what its code asked/);
   });
 
   it("keeps the seat's variables when its researcher moves to another agent's folder", async () => {

@@ -14,7 +14,9 @@ const node = () => realpathSync(process.execPath);
 // Claude Code: sandboxed Bash that cannot read the human's home folder except
 // the agent's own folder, and permission rules keeping its file tools there.
 // readOnly lists folders the agent may read but not change, such as the research library.
-export function claudeSettings(folder, { web = true, browser = null, compactAt = 0, readOnly = [] } = {}) {
+// web gives it web search, and page retrieval too unless webFetch is false, as it is
+// for a researcher, whose pages are saved into the library by the app instead.
+export function claudeSettings(folder, { web = true, webFetch = true, browser = null, compactAt = 0, readOnly = [] } = {}) {
   const own = realpathSync(folder);
   const shared = readOnly.map((path) => realpathSync(path));
   return {
@@ -28,9 +30,9 @@ export function claudeSettings(folder, { web = true, browser = null, compactAt =
       network: { allowedDomains: ["*"] },
     },
     permissions: {
-      allow: ["Bash", `Read(/${own}/**)`, ...shared.map((path) => `Read(/${path}/**)`), `Edit(/${own}/**)`, ...(web ? ["WebSearch", "WebFetch"] : []), ...(browser ? ["mcp__browser"] : [])],
+      allow: ["Bash", `Read(/${own}/**)`, ...shared.map((path) => `Read(/${path}/**)`), `Edit(/${own}/**)`, ...(web ? ["WebSearch", ...(webFetch ? ["WebFetch"] : [])] : []), ...(browser ? ["mcp__browser"] : [])],
       // Only the app starts agents, so every one of them is in the live panel.
-      deny: ["Agent", "Task"],
+      deny: ["Agent", "Task", ...(webFetch ? [] : ["WebFetch"])],
     },
   };
 }

@@ -41,6 +41,7 @@ import { humanConversationCommands } from "../src/domain/conversation.ts";
 import { PdfReading, choosePdfReader, pdfReading } from "./pdf/reading.mjs";
 import { removeDocling } from "./pdf/docling.mjs";
 import { SessionDesk } from "./python-session/desk.mjs";
+import { SourceSaver } from "./source-saver.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const directory = resolve(
@@ -122,7 +123,12 @@ const researchers = new ResearcherPool(store, directory, root, {
   supervisor,
   browser: researchBrowser,
   // Each researcher's Python session, kept by the app beside the researcher.
-  sessions: new SessionDesk({ home: appDirectory, library: join(directory, "library") }),
+  sessions: new SessionDesk({
+    home: appDirectory,
+    library: join(directory, "library"),
+    // What a researcher's running code may ask of the app.
+    calls: { save: (given) => sources.save(given) },
+  }),
 });
 coordinator.researchers = researchers;
 const graphBuilders = new GraphBuilders(store, directory, root, { live, supervisor });
@@ -181,6 +187,8 @@ mkdirSync(documentsDir, { recursive: true });
 const pdfs = new PdfReading(store, { home: appDirectory, directory });
 process.on("exit", () => pdfs.stop());
 pdfs.pump();
+// Sources from the web, saved as documents for the whole team.
+const sources = new SourceSaver(store, { directory, readPdf: (file) => pdfs.readFile(file), written: () => library.write() });
 const workerCommands = new Set(["claim", "checkpoint", "propose"]);
 const userCommands = new Set([
   "finding-decision",

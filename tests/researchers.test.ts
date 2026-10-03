@@ -86,6 +86,10 @@ describe("researchers' Python sessions", () => {
     expect(seat.authorize(assignment.lease.token)).toBe(true);
     expect(seat.authorize("someone-else")).toBe(false);
     expect(f.launches[0]!.args.join(" ")).toContain("node tools/python.mjs");
+    // Pages are saved into the library through the session, not read into the conversation.
+    expect(f.launches[0]!.args.join(" ")).toContain("weir.save(url)");
+    const args = f.launches[0]!.args;
+    expect(JSON.parse(args[args.indexOf("--settings") + 1]!).permissions.deny).toContain("WebFetch");
     // Long output reaches the researcher as a message.
     seat.deliver("Your long Python run has finished. Its output:\n\n40 pages");
     expect(f.launches[0]!.child.stdin.read()?.toString()).toContain("40 pages");
@@ -115,6 +119,8 @@ describe("researchers' Python sessions", () => {
     f.queue();
     assignQueued(f.store, f.pool, "claude");
     expect(f.launches[0]!.args.join(" ")).not.toContain("tools/python.mjs");
+    const args = f.launches[0]!.args;
+    expect(JSON.parse(args[args.indexOf("--settings") + 1]!).permissions.deny).not.toContain("WebFetch");
   });
 });
 describe("local researcher supervision", () => {

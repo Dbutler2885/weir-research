@@ -20,10 +20,11 @@ export function claudeUsage(info) {
 // Claude Code in print mode, speaking stream-json both ways with its input kept
 // open. A message written mid-turn reaches it after its current tool step.
 export const claudeAdapter = {
-  // The agent is confined to its folder; web adds the web tools.
+  // The agent is confined to its folder; web adds the web tools, without page
+  // retrieval when webFetch is false.
   // compactAt is the context size, in tokens, at which Claude Code compacts on its own.
   // resume picks up an earlier conversation by its session ID.
-  args({ folder, instructions = "", model = "", effort = "", web = false, browser = null, compactAt = 0, resume = "", readOnly = [] }) {
+  args({ folder, instructions = "", model = "", effort = "", web = false, webFetch = true, browser = null, compactAt = 0, resume = "", readOnly = [] }) {
     return [
       "--print",
       "--input-format",
@@ -36,7 +37,7 @@ export const claudeAdapter = {
       ...(model ? ["--model", model] : []),
       ...(effort ? ["--effort", effort] : []),
       ...(resume ? ["--resume", resume] : []),
-      ...claudeIsolationArgs(folder, { web, browser, compactAt, readOnly }),
+      ...claudeIsolationArgs(folder, { web, webFetch, browser, compactAt, readOnly }),
       ...(instructions ? ["--append-system-prompt", instructions] : []),
     ];
   },

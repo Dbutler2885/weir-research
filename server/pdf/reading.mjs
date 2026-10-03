@@ -47,6 +47,8 @@ export class PdfReading {
     this.home = home;
     this.directory = directory;
     this.current = null;
+    // PDFs that are not documents yet, asked to be read before they are saved.
+    this.asked = [];
     // Reading that stopped with the app starts again from the beginning.
     const stopped = store.state.documents.filter((d) => isPdf(d) && d.reading?.state === "reading");
     if (stopped.length)
@@ -80,11 +82,34 @@ export class PdfReading {
     return result;
   }
 
+  // Reads a PDF file that is not a document yet, ahead of the documents waiting, and
+  // resolves with its pages and the reader that read them: the chosen reader, or
+  // Standard while High accuracy is not installed.
+  readFile(file) {
+    return new Promise((resolve, reject) => {
+      if (this.stopped) return reject(new Error("PDF reading has stopped."));
+      this.asked.push({ file, resolve, reject });
+      this.pump();
+    });
+  }
+
   pump() {
     this.queueUnread();
     if (this.current) return;
     const reader = pdfReader(this.home);
     const docling = doclingStatus(this.home).state;
+    const asked = this.asked.shift();
+    if (asked) {
+      const engine = reader === "docling" && docling === "ready" ? "docling" : "standard";
+      this.current = { controller: new AbortController() };
+      this.read(asked.file, engine, this.current.controller.signal)
+        .then((pages) => asked.resolve({ pages, engine }), asked.reject)
+        .finally(() => {
+          this.current = null;
+          if (!this.stopped) this.pump();
+        });
+      return;
+    }
     const next = this.store.state.documents.find((d) => {
       if (!isPdf(d) || d.reading?.state !== "waiting") return false;
       return (d.reading.engine || reader) === "standard" || docling === "ready";
@@ -93,7 +118,8 @@ export class PdfReading {
     const engine = next.reading.engine || reader;
     this.current = { id: next.id, controller: new AbortController() };
     this.set(next.id, { state: "reading", engine });
-    this.read(next, engine, this.current.controller.signal).then(
+    const progress = (page, total) => this.set(next.id, { state: "reading", engine, page, total });
+    this.read(join(this.directory, "documents", next.id), engine, this.current.controller.signal, progress).then(
       (pages) => {
         this.store.update((state) => {
           const d = state.documents.find((x) => x.id === next.id);
@@ -120,8 +146,7 @@ export class PdfReading {
     });
   }
 
-  read(doc, engine, signal) {
-    const file = join(this.directory, "documents", doc.id);
+  read(file, engine, signal, progress = () => {}) {
     if (engine === "docling") return readWithDocling(this.home, file, join(this.directory, "processed-pdfs"), { signal });
     return new Promise((resolve, reject) => {
       const child = spawn(process.execPath, [join(here, "standard.mjs"), file], { stdio: ["ignore", "pipe", "pipe"], signal });
@@ -141,7 +166,7 @@ export class PdfReading {
           // Progress, at most every two seconds, so a long document doesn't flood the project with saves.
           else if (line.page && Date.now() - shown > 2000) {
             shown = Date.now();
-            this.set(doc.id, { state: "reading", engine, page: line.page, total: line.total });
+            progress(line.page, line.total);
           }
         }
       });
@@ -158,5 +183,6 @@ export class PdfReading {
     this.stopped = true;
     clearInterval(this.timer);
     this.current?.controller.abort();
+    for (const asked of this.asked.splice(0)) asked.reject(new Error("PDF reading has stopped."));
   }
 }

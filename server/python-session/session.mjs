@@ -189,11 +189,11 @@ export class PythonSession extends EventEmitter {
     this.ready.catch(() => (this.ready = null));
     return this.ready;
   }
-  // Runs code after any run before it, and resolves with what it printed.
-  run(code) {
+  // Runs code after any run before it, and resolves with what it printed. The run's
+  // ID, the caller's or one made here, is what the session's calls to the app carry.
+  run(code, { id = `run-${Date.now()}-${++this.next}` } = {}) {
     const result = this.queue.then(async () => {
       await this.start();
-      const id = `run-${Date.now()}-${++this.next}`;
       const done = new Promise((resolve, reject) => this.waiting.set(id, { resolve, reject }));
       this.process.stdin.write(`${JSON.stringify({ id, code })}\n`);
       return done;

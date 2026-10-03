@@ -21,7 +21,7 @@ You can read and search it; you cannot change it.
 - \`walkthroughs/batch-N.md\`: how each batch's research was explained to the human.
 - \`graph/\`: the project's graph as tables: \`nodes.csv\`, \`edges.csv\`, the project's types, fields and relationships, and \`evidence.csv\`, the evidence the graph cites.
 - \`sources.csv\`: every source the project knows, by ID.
-- \`documents/\`: the project's saved documents by ID, with \`documents.csv\` listing them; a PDF's text is beside it as \`<id>.txt\`, with "[Page n]" before each page.
+- \`documents/\`: the project's saved documents by ID, with \`documents.csv\` listing them, each with the address it was saved from, if any; a PDF's or a web page's text is beside it as \`<id>.txt\`, a PDF's with "[Page n]" before each page.
 
 IDs here are the ones to cite and to name in your work.
 `;
@@ -177,11 +177,12 @@ export function libraryFiles(state) {
   for (const d of state.documents) {
     const original = `documents/${d.id}${extname(d.name).toLowerCase()}`;
     files.set(original, { copy: d.id, size: d.size });
-    const textFile = d.text !== undefined && d.mime === "application/pdf" ? `documents/${d.id}.txt` : "";
+    // A text document is its own text; a PDF's or a web page's text is kept beside it.
+    const textFile = d.text !== undefined && d.mime !== "text/plain" ? `documents/${d.id}.txt` : "";
     if (textFile) files.set(textFile, d.text);
-    documents.push([d.id, d.name, d.collectionId, original, textFile || (d.mime === "application/pdf" ? "not read yet" : original), d.pages ?? ""]);
+    documents.push([d.id, d.name, d.collectionId, original, textFile || (d.mime === "application/pdf" ? "not read yet" : original), d.pages ?? "", d.url ?? "", d.capturedAt ?? ""]);
   }
-  files.set("documents/documents.csv", csv(["id", "name", "collection", "file", "text", "pages"], documents));
+  files.set("documents/documents.csv", csv(["id", "name", "collection", "file", "text", "pages", "url", "saved"], documents));
   return files;
 }
 
