@@ -19,7 +19,7 @@ afterEach(() => {
     .reverse()
     .forEach((clean) => clean());
 });
-function fixture() {
+function fixture({ sessions }: { sessions?: any } = {}) {
   const directory = mkdtempSync(join(tmpdir(), "weir-pool-"));
   cleanups.push(() => rmSync(directory, { recursive: true, force: true }));
   const store = new WorkspaceStore(directory, dataset);
@@ -47,6 +47,7 @@ function fixture() {
   const pool = new ResearcherPool(store, directory, resolve("."), {
     launch: launch as any,
     findExecutable: (name: string) => `/test/${name}`,
+    sessions,
   });
   cleanups.push(() => pool.stop());
   const queue = () =>
@@ -62,6 +63,44 @@ function fixture() {
   const task = (id: string) => pool.active.get(assignmentOf(store, id).id);
   return { directory, store, pool, launches, queue, task, live: pool.live };
 }
+// A stand-in for the app's Python sessions, recording each seat the pool opens.
+function fakeSessions() {
+  const seats = new Map<string, any>();
+  return {
+    seats,
+    open: (key: string, seat: any) => seats.set(key, { ...seat, open: true }),
+    close: (key: string) => seats.has(key) && (seats.get(key).open = false),
+    closeAll: () => seats.forEach((seat) => (seat.open = false)),
+  };
+}
+describe("researchers' Python sessions", () => {
+  it("open with the researcher, answer only its lease, and are described to it", () => {
+    const sessions = fakeSessions();
+    const f = fixture({ sessions });
+    const id = f.queue();
+    assignQueued(f.store, f.pool, "claude");
+    const assignment = assignmentOf(f.store, id);
+    const seat = sessions.seats.get(assignment.id);
+    expect(seat).toMatchObject({ open: true, folder: f.task(id).directory });
+    expect(f.launches[0]!.options.env.WEIR_LEASE).toBe(assignment.lease.token);
+    expect(seat.authorize(assignment.lease.token)).toBe(true);
+    expect(seat.authorize("someone-else")).toBe(false);
+    expect(f.launches[0]!.args.join(" ")).toContain("node tools/python.mjs");
+    // Long output reaches the researcher as a message.
+    seat.deliver("Your long Python run has finished. Its output:\n\n40 pages");
+    expect(f.launches[0]!.child.stdin.read()?.toString()).toContain("40 pages");
+    // Paused, the researcher's lease no longer runs code, and its session closes.
+    f.pool.pause(assignment.id);
+    expect(seat.authorize(assignment.lease?.token ?? f.task(id)?.token)).toBe(false);
+    expect(seat.open).toBe(false);
+  });
+  it("are not described when the app keeps none", () => {
+    const f = fixture();
+    f.queue();
+    assignQueued(f.store, f.pool, "claude");
+    expect(f.launches[0]!.args.join(" ")).not.toContain("tools/python.mjs");
+  });
+});
 describe("local researcher supervision", () => {
   it("defaults to no time limit and tells the worker there is no deadline", () => {
     const f = fixture();

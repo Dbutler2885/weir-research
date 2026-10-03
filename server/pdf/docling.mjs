@@ -5,24 +5,14 @@
 // then reads a small fictional PDF to fetch Docling's models and prove it works.
 // Removing that folder removes Docling.
 import { spawn, spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { fictionalPdf } from "./fictional-pdf.mjs";
+import { downloadUv, uvExecutable } from "../uv.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "../..");
-const UV_VERSION = "0.10.0";
-const UV_RELEASES = {
-  "darwin-arm64": ["uv-aarch64-apple-darwin.tar.gz", "82d4b99dc6ea686695b5ee142ceba03dd3e3eda2b414e94215ab7bce94972fbb"],
-  "darwin-x64": ["uv-x86_64-apple-darwin.tar.gz", "664aed584c276f8d79cdc3b7685cd48f5d64657bd6840b06b4b2b0db731b9c99"],
-  "linux-x64": ["uv-x86_64-unknown-linux-gnu.tar.gz", "230e328948c92dd1ebad83949c4d56e83813dfe9c6362a4c519e6a227973f1ae"],
-  "linux-arm64": ["uv-aarch64-unknown-linux-gnu.tar.gz", "c300afd5f2d31df039fe6a26a2d68a76b62832098c272a43e1e74ab9efd4fbd7"],
-  "win32-x64": ["uv-x86_64-pc-windows-msvc.zip", "4037b444541f695cd2eb93188a9346de3e334af562381411deade0a31c7bf898"],
-  "win32-arm64": ["uv-aarch64-pc-windows-msvc.zip", "614dd3c409d7fb5a98b516d532c98db9b7799a23fb450150e3784338a9ebd903"],
-};
-
 const windows = process.platform === "win32";
 export const doclingFolder = (home) => join(home, "tools", "docling");
 const paths = (home) => {
@@ -30,7 +20,7 @@ const paths = (home) => {
   return {
     folder,
     status: join(folder, "status.json"),
-    uv: join(folder, "uv", windows ? "uv.exe" : "uv"),
+    uv: uvExecutable(folder),
     python: join(folder, "environment", windows ? "Scripts/python.exe" : "bin/python"),
     env: {
       ...process.env,
@@ -135,20 +125,7 @@ export async function installDocling(home, { log = () => {} } = {}) {
   try {
     if (!existsSync(p.uv)) {
       step("Downloading uv");
-      const release = UV_RELEASES[`${process.platform}-${process.arch}`];
-      if (!release) throw new Error(`High accuracy reading isn't available for ${process.platform} on ${process.arch}.`);
-      const [asset, sha256] = release;
-      const response = await fetch(`https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/${asset}`);
-      if (!response.ok) throw new Error(`Downloading uv failed (${response.status}).`);
-      const archive = Buffer.from(await response.arrayBuffer());
-      if (createHash("sha256").update(archive).digest("hex") !== sha256) throw new Error("The downloaded uv did not match its published checksum.");
-      const unpacked = join(p.folder, "uv");
-      mkdirSync(unpacked, { recursive: true });
-      const file = join(p.folder, asset);
-      writeFileSync(file, archive);
-      // tar comes with macOS, Linux and Windows 10 onward, and reads zip files too.
-      run("tar", ["-xf", file, "-C", unpacked, ...(windows ? [] : ["--strip-components", "1"])]);
-      rmSync(file);
+      await downloadUv(p.folder, { unavailable: `High accuracy reading isn't available for ${process.platform} on ${process.arch}.` });
     }
     step("Downloading Python and Docling");
     // Always uv's own Python, so every computer gets the same one.

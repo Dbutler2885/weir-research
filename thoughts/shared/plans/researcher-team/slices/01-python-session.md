@@ -1,7 +1,7 @@
 # Slice 01: Python session
 
 **Type**: AFK
-**Status**: In progress
+**Status**: Done
 
 ## Blocked by
 
@@ -21,14 +21,14 @@ See **The Python session** and **The session's library**.
 
 ## Acceptance criteria
 
-- [ ] Variables persist between runs, across the session's process being replaced, and across an app restart
-- [ ] Only what the code prints returns, truncated beyond a fixed length with a note
-- [ ] Unsaveable values are skipped and named in the run's output
-- [ ] Long code returns a note at once and its output later as a message to the researcher
-- [ ] An interrupted run is reported and not replayed
-- [ ] A request from a researcher whose lease was revoked is refused
-- [ ] The session can read the library and write its folder, and cannot read the home folder, write the library, or reach the internet
-- [ ] `weir.library` lists documents and reads a document's pages into a variable
+- [x] Variables persist between runs, across the session's process being replaced, and across an app restart
+- [x] Only what the code prints returns, truncated beyond a fixed length with a note
+- [x] Unsaveable values are skipped and named in the run's output
+- [x] Long code returns a note at once and its output later as a message to the researcher
+- [x] An interrupted run is reported and not replayed
+- [x] A request from a researcher whose lease was revoked is refused
+- [x] The session can read the library and write its folder, and cannot read the home folder, write the library, or reach the internet
+- [x] `weir.library` lists documents and reads a document's pages into a variable
 
 ## User stories addressed
 

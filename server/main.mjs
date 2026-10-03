@@ -40,6 +40,7 @@ import { flowCommand } from "./review-flow.mjs";
 import { humanConversationCommands } from "../src/domain/conversation.ts";
 import { PdfReading, choosePdfReader, pdfReading } from "./pdf/reading.mjs";
 import { removeDocling } from "./pdf/docling.mjs";
+import { SessionDesk } from "./python-session/desk.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const directory = resolve(
@@ -115,7 +116,14 @@ const setupScreen = setupRoutes({ home: appDirectory, homes: agentHomes(appDirec
 // Everything the project has produced, as files every researcher can read.
 const library = new ResearchLibrary(store, directory);
 process.on("exit", () => library.stop());
-const researchers = new ResearcherPool(store, directory, root, { coordinator, live, supervisor, browser: researchBrowser });
+const researchers = new ResearcherPool(store, directory, root, {
+  coordinator,
+  live,
+  supervisor,
+  browser: researchBrowser,
+  // Each researcher's Python session, kept by the app beside the researcher.
+  sessions: new SessionDesk({ home: appDirectory, library: join(directory, "library") }),
+});
 coordinator.researchers = researchers;
 const graphBuilders = new GraphBuilders(store, directory, root, { live, supervisor });
 const writers = new WalkthroughWriters(store, directory, root, { live, supervisor });

@@ -29,6 +29,21 @@ Open your own tab with new_page, with background set to true, use its page ID in
 If a page needs a sign-in, do not sign in yourself: ask for access help in checkpoint.json as described above.
 `;
 
+const SESSION_INSTRUCTIONS = `
+## Your Python session
+
+You have a Python session whose variables last between runs, and survive your being paused, switched or restarted. Run code in it with:
+
+node tools/python.mjs <<'EOF'
+pages = weir.library.read("<document id>")
+print(len(pages))
+EOF
+
+Only what the code prints comes back to you, cut off past 20,000 characters, and a last line that is an expression shows its value. Keep long material in variables and print only what you need to decide your next step.
+The weir package is already imported: weir.library.documents() lists the saved documents, weir.library.sources() the sources, weir.library.read(id) gives a document's pages as [{"page", "text"}], weir.library.text(id) its whole text, and weir.library.search(pattern) the matching lines with their document and page.
+The session can read the library and this folder and write this folder; it cannot reach the web or start programs. Code running longer than a few minutes carries on, and its output reaches you as a message.
+`;
+
 // A board post is picked up once its file has been still this long, so a post being
 // written is not read half-finished.
 const POST_SETTLED_MS = 1500;
@@ -69,6 +84,7 @@ export class ResearcherPool {
       live = new LiveActivity(),
       supervisor = new AgentSupervisor({ launch, live }),
       browser = null,
+      sessions = null,
     } = {},
   ) {
     this.store = store;
@@ -76,6 +92,8 @@ export class ResearcherPool {
     this.supervisor = supervisor;
     // The research browser, shared by researchers whose work reaches the web.
     this.browser = browser;
+    // Researchers' Python sessions, when the app keeps them.
+    this.sessions = sessions;
     this.coordinator = coordinator;
     this.directory = directory;
     this.root = root;
@@ -94,6 +112,7 @@ export class ResearcherPool {
           const task = { batchId: batch.id, id: a.id, title: a.title, token: record.meta.token, directory: record.meta.directory, started: record.meta.started, timeLimitMinutes: record.meta.timeLimitMinutes, lastCheckpoint: undefined, terminated: false };
           task.agent = supervisor.reattach(record, { live: { role: "researcher", name: liveName(record.meta.engine), investigationId: batch.id, assignmentId: a.id, task: a.title, choice: liveChoice(record.meta.engine, a.choice) } });
           this.active.set(a.id, task);
+          this.openSession(task);
           this.follow(task, record.meta.engine);
           kept.splice(kept.indexOf(record), 1);
           continue;
@@ -152,11 +171,29 @@ export class ResearcherPool {
     this.stopped = true;
     clearInterval(this.timer);
     for (const task of this.active.values()) this.terminate(task);
+    this.sessions?.closeAll();
   }
   terminate(task) {
     if (task.terminated) return;
     task.terminated = true;
     task.agent?.stop();
+    this.sessions?.close(task.id);
+  }
+  // The researcher's Python session, which answers only this researcher's lease and
+  // sends it the output of long runs as messages.
+  openSession(task) {
+    this.sessions?.open(task.id, {
+      folder: task.directory,
+      authorize: (lease) => lease === task.token && !task.terminated && this.current(task),
+      deliver: (text) => {
+        if (task.terminated || !this.current(task)) return;
+        try {
+          task.agent?.send(text);
+        } catch {
+          /* The researcher has closed its input; it is finishing. */
+        }
+      },
+    });
   }
   assignment(task) {
     return this.store.state.investigations.find((i) => i.id === task.batchId)?.assignments?.find((a) => a.id === task.id);
@@ -318,6 +355,7 @@ export class ResearcherPool {
       const instructions = this.instructions(claimed.investigation, task, web);
       writeFileSync(join(directory, "AGENTS.md"), instructions);
       placeSkills(directory, this.root, ["research-contract"]);
+      this.openSession(task);
       // A web researcher gets the research browser; it launches once the browser is up.
       this.active.set(assignmentId, task);
       const launch = (browser) => {
@@ -371,7 +409,7 @@ Other researchers may be working on other parts of the same batch at the same ti
 Everything the project has produced so far is in the research library at ${library}, which you can read and search with your shell but not change. Its README.md describes it. It holds every batch's brief and board, every research pass's direction, published findings with their evidence, and checkpoints, including those of researchers working now; the walkthroughs; the graph as tables; the source library in sources.csv; and the saved documents in documents/, by ID.
 The library is kept current while you work. Search it before repeating work someone else has done, and look up every ID the brief names.
 Each PDF's text is in documents/<id>.txt beside it, with "[Page n]" before each page; search that, quote from it exactly, and give the page. Look at the PDF's pages themselves when the text reads oddly, as a table or a damaged scan can. A PDF without a text file hasn't been read yet: look at its pages and quote what you see, with the page.
-
+${this.sessions ? SESSION_INSTRUCTIONS : ""}
 ## Research
 
 The source library is in sources.csv. Reuse source IDs and existing graph records when identity is justified.
@@ -413,6 +451,9 @@ Your final message should be a short completion status. The coordinator reviews 
       provider: engine,
       executable,
       folder: task.directory,
+      // The lease the researcher's code tool presents, so code from a researcher that
+      // was paused or switched is refused.
+      env: { ...process.env, WEIR_LEASE: task.token },
       instructions: browser ? `${instructions}${BROWSER_INSTRUCTIONS}` : instructions,
       web,
       browser,
@@ -516,6 +557,7 @@ Your final message should be a short completion status. The coordinator reviews 
       );
     } finally {
       this.active.delete(task.id);
+      this.sessions?.close(task.id);
       this.pump();
     }
   }

@@ -6,7 +6,7 @@ Parent PRD: [Researcher team](../prd.md)
 
 | # | Slice | Type | Status | Blocked by |
 |---|-------|------|--------|------------|
-| 01 | [Python session](01-python-session.md) | AFK | In progress | None |
+| 01 | [Python session](01-python-session.md) | AFK | Done | None |
 | 02 | [Saving sources](02-saving-sources.md) | AFK | To do | 01 |
 | 03 | [Publishing findings](03-publishing-findings.md) | AFK | To do | 02 |
 | 04 | [The team and the done phrase](04-team-and-done-phrase.md) | AFK | To do | 03 |
