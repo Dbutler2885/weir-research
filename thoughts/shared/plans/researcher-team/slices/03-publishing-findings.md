@@ -15,7 +15,9 @@ A finding can replace an earlier one in the same batch; a second replacement of 
 Every post and publish carries a key from its seat and content, and a repeat is refused.
 Published findings record their seat and are written into the library at once.
 Each batch keeps a findings revision; graph work under way is sent a graph update when it rises, and stale drafts cannot be signed off or accepted.
-See **Publishing findings** and **Graph work while findings change**.
+Each reading of a PDF produces a text revision, and earlier revisions are kept; the library lists a document's revision and a session's read returns it.
+A new revision rechecks every published quote citing the document: one that matches after whitespace is normalized needs nothing, and any other keeps its old wording as a recorded correction marked as not yet reconciled, for slice 07's reconciliation job.
+See **Publishing findings**, **Text revisions and reconciliation** and **Graph work while findings change**.
 
 ## Acceptance criteria
 
@@ -25,6 +27,7 @@ See **Publishing findings** and **Graph work while findings change**.
 - [ ] A replacement supersedes the old finding; a second replacement of it is refused with the replacement's name
 - [ ] A repeated publish is refused
 - [ ] A finding published or replaced during graph work sends the builder a graph update and makes the stale draft impossible to sign off or accept
+- [ ] Reading a cited PDF again keeps the earlier text revision, and every published quote still matches the current text
 - [ ] A board post, checkpoint or researcher finishing leaves a draft valid
 
 ## User stories addressed

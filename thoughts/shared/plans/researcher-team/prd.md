@@ -239,12 +239,16 @@ The coordinator talks with the human, opens batches, and moves the project betwe
 - The source saver is a new module: a URL, a captured browser page, or an image and transcription in; a library document, its text, a registered source and a short receipt out.
 - The app downloads URLs itself, outside any sandbox.
   HTML is converted to readable text; a PDF goes through the existing PDF text extraction and keeps its pages.
+- A page's saved text is all the text in its downloaded HTML, in order, rather than a guess at its main article; what scripts draw or styles hide belongs to a capture from the research browser.
+- A saved PDF is read with the chosen PDF reader, or with Standard while High accuracy is not installed.
 - A page open in the research browser is saved from the browser as the reader sees it, sign-ins included, with its URL and the time of capture.
 - An image is saved as it is, with the transcription given by the agent that read it, and is marked as transcribed.
 - Saved sources become project documents in the library, beside imported ones, so every teammate can use them.
 - Every capture has its own ID and never changes once saved.
 - Saving a URL already saved returns the existing capture without fetching it again, unless the caller asks for a fresh capture.
 - A fresh capture whose content is identical to an earlier capture of the same URL returns the earlier one; different content becomes a new capture.
+  A page is compared by its text, since many pages differ in their bytes on every visit, and a PDF by its bytes.
+- The app keeps, for each URL, the capture that shows it as last seen, which a repeated save returns; this is an earlier capture when the page has gone back to earlier content.
 - A capture from the research browser is always a fresh capture, since a signed-in view can differ from what a plain download sees, and is deduplicated by content in the same way.
 - A download that fails, or a page with no readable text, returns a plain error, and the agent can ask the human for access or use the research browser.
 - Researchers lose WebFetch in Claude Code, so a page's raw text never enters a researcher's context.
@@ -293,6 +297,25 @@ The coordinator talks with the human, opens batches, and moves the project betwe
   Publishing counts as keeping, so the replaced finding is superseded at once; graph work built on it is revised as described under graph work while findings change.
 - The app applies changes one at a time, so of two replacements of the same finding the second is refused, naming the finding that replaced it; the researcher can replace that one instead.
 - Correcting a published walkthrough that a replaced finding changes stays the coordinator's job, as it is now.
+
+### Text revisions and reconciliation
+
+- A document's original file never changes; its text can.
+  Each reading of a PDF produces a new text revision, and earlier revisions are kept.
+- The library lists each document's current revision, and a session's read says which revision it returned.
+- When a new revision arrives, the app rechecks every published quote that cites the document.
+  A quote that matches after whitespace is normalized needs nothing more.
+- The remaining quotes are reconciled by a separate model the app starts, one job per affected page.
+  It is given the page's old and new text, the page image, the quotes, the findings that hold them, and earlier corrections, with a Python session and library access.
+- The job reconciles the text, the quotes and the findings against the original page, and always decides: keep the old wording, adopt the new, or transcribe the passage from the image.
+  If the image does not settle it, the old wording is kept, and the record says so.
+- The app checks the decision and applies it: a corrected text revision, updated quotes, and a replaced finding where the change alters what the finding says.
+  Every change records the page, the wording before and after, and the reason.
+- Corrections are stored against the document and page with their surrounding text.
+  A later revision reuses a correction where its place still matches; otherwise reconciliation places it again.
+- Researchers who read the document get a one-line notice naming the document, the old and new revision, and a handle to the details.
+- A researcher can ask for the same reconciliation when it notices a problem in a document's text.
+- Until the reconciliation job exists, a quote the recheck cannot settle keeps its old wording as a recorded correction marked as not yet reconciled.
 
 ### Graph work while findings change
 
