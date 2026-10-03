@@ -43,7 +43,9 @@ export function validateWalkthrough(i, input) {
 // A graph update represents a batch's findings; a walkthrough, when one exists, adds its
 // explanation. The graph itself travels as tables written into the builder's directory.
 export function graphPacket(state, investigation, walkthrough, updates = [], brief = null) {
-  const proposalIds = walkthrough?.proposalIds || investigation.proposals.filter(p => p.kind === 'findings').map(p => p.id);
+  const all = investigation.proposals.filter(p => p.kind === 'findings').map(p => p.id);
+  // Once researchers publish findings themselves, the builder works from all of them as they stand now.
+  const proposalIds = investigation.findingsRevision ? [...new Set([...(walkthrough?.proposalIds || []), ...all])] : walkthrough?.proposalIds || all;
   const {evidence, findings} = evidenceRegistry(investigation, proposalIds);
   return {
     question: walkthrough?.question || [investigation.title, ...(investigation.assignments || []).map(a => a.title)].join('\n'),
@@ -51,6 +53,8 @@ export function graphPacket(state, investigation, walkthrough, updates = [], bri
     brief,
     walkthrough: walkthrough || null,
     researchRevision: walkthrough?.id || `batch:${investigation.id}:${proposalIds.join(',')}`,
+    // The batch's findings as they stood when these inputs were made.
+    findingsRevision: investigation.findingsRevision ?? 0,
     baseGraphRevision: state.datasetRevision, updates: structuredClone(updates), findings, evidence,
     sources: sourceLibrary(state),
     researcherReturns: investigation.proposals.filter(p => proposalIds.includes(p.id)),
@@ -265,21 +269,11 @@ export function flowCommand(store, command, actor = 'coordinator') {
       if (action === 'graph-update') {
         const sentBack = j.status === 'published';
         const update = {id: randomUUID(), sequence: j.updates.length + 1, message: command.message, annotationIds: command.annotationIds || [], at: new Date().toISOString()};
-        j.updates.push(update);
-        let w = f.walkthroughs.find(w => w.id === j.walkthroughId);
         if (command.walkthrough) {
-          w = {...structuredClone(command.walkthrough), id: randomUUID(), revision: f.walkthroughs.length + 1, createdAt: update.at};
+          const w = {...structuredClone(command.walkthrough), id: randomUUID(), revision: f.walkthroughs.length + 1, createdAt: update.at};
           f.walkthroughs.push(w); j.walkthroughId = w.id;
         }
-        j.packet = graphPacket(next, inv, w, j.updates, j.brief ?? null);
-        j.baseDataset = structuredClone(next.dataset);
-        if (j.status === 'published') {
-          // The draft stays readable, but it is no longer the one to decide on.
-          for (const r of f.graphReviews) if (r.jobId === j.id && r.status === 'pending') r.revisingSince = update.at;
-          j.status = 'queued';
-        }
-        if (j.status === 'returned') j.status = 'queued';
-        j.progress = 'Revising the graph draft.';
+        sendUpdate(next, inv, j, update);
         inv.events.push({at: update.at, message: sentBack ? 'Coordinator sent the graph draft back to the builder.' : 'Coordinator sent the graph builder new instructions.'});
       }
     });
@@ -289,6 +283,7 @@ export function flowCommand(store, command, actor = 'coordinator') {
   if (action === 'publish-graph-review') {
     fail(job?.status === 'returned' && job.candidate, 'Inspect a completed graph draft first.');
     const candidate = job.candidate;
+    fail((candidate.findingsRevision ?? 0) === (i.findingsRevision ?? 0), STALE_FINDINGS);
     fail(candidate.baseGraphRevision === store.state.datasetRevision, 'The accepted graph changed. Send a graph update so the builder redrafts against it.');
     fail(candidate.researchRevision === job.packet.researchRevision && candidate.consumedUpdateSequence === job.updates.length, 'The builder has not consumed the latest inputs.');
     const tour = validateDraftTour(command.tour, candidate, job.baseDataset);
@@ -303,7 +298,7 @@ export function flowCommand(store, command, actor = 'coordinator') {
         id, jobId: j.id, walkthroughId: j.walkthroughId, revision: f.graphReviews.length + 1, createdAt: new Date().toISOString(),
         format: 'draft', draft: structuredClone(candidate.draft), diff: structuredClone(candidate.diff), summary: candidate.summary,
         questions: structuredClone(candidate.questions), notes: structuredClone(candidate.notes), undone: structuredClone(undone),
-        tour, cited, baseDataset: structuredClone(j.baseDataset), expectedGraphRevision: candidate.baseGraphRevision, status: 'pending',
+        tour, cited, baseDataset: structuredClone(j.baseDataset), expectedGraphRevision: candidate.baseGraphRevision, findingsRevision: candidate.findingsRevision ?? 0, status: 'pending',
         annotationIds: [...new Set([...j.packet.annotationIds, ...j.updates.flatMap(u => u.annotationIds)])],
       });
       j.status = 'published'; j.progress = 'The draft is ready for your review.';
@@ -337,6 +332,7 @@ export function flowCommand(store, command, actor = 'coordinator') {
       return {saved: true};
     }
     fail(!review.revisingSince, 'This draft is being revised. The new draft will replace it here.');
+    fail((review.findingsRevision ?? 0) === (i.findingsRevision ?? 0), STALE_FINDINGS);
     fail(review.expectedGraphRevision === store.state.datasetRevision, 'The accepted graph changed since this draft was prepared. Ask for a revised draft.');
     fail(!feedbackAwaitingDraft(i, review), 'Your newer feedback on this draft has not reached the builder yet. Ask for a revised draft.');
     const dataset = acceptDraft(store.state.dataset, review.draft, review.cited, review.diff);
@@ -353,6 +349,41 @@ export function flowCommand(store, command, actor = 'coordinator') {
     return {accepted: true, datasetRevision: store.state.datasetRevision, undoId};
   }
   throw new Error('Unknown guided review action.');
+}
+
+const STALE_FINDINGS = "This batch's findings changed after this draft was prepared. A revised draft is on its way and will replace it.";
+
+// Gives a graph job an update: its inputs are rebuilt from the batch as it stands, a
+// running builder hears of it, a returned draft goes back for revision, and a draft
+// the human is reviewing is marked as being revised.
+function sendUpdate(next, inv, j, update) {
+  const f = flowFor(inv);
+  j.updates.push(update);
+  j.packet = graphPacket(next, inv, f.walkthroughs.find(w => w.id === j.walkthroughId), j.updates, j.brief ?? null);
+  j.baseDataset = structuredClone(next.dataset);
+  if (j.status === 'published') {
+    // The draft stays readable, but it is no longer the one to decide on.
+    for (const r of f.graphReviews) if (r.jobId === j.id && r.status === 'pending') r.revisingSince = update.at;
+    j.status = 'queued';
+  }
+  if (j.status === 'returned') j.status = 'queued';
+  if (j.status !== 'paused') j.progress = 'Revising the graph draft.';
+}
+
+// A batch's findings changed, in the state given: graph work under way for it is sent
+// a graph update by the app itself, saying what changed.
+export function findingsChanged(next, investigationId, message) {
+  const inv = next.investigations.find(i => i.id === investigationId), flow = inv?.reviewFlow;
+  if (!flow || graphWorkFinished(inv)) return;
+  for (const j of flow.jobs) {
+    // A reorganization works on the graph as it stands, not on findings.
+    if (j.reorganization) continue;
+    const underReview = j.status === 'published' && flow.graphReviews.some(r => r.jobId === j.id && r.status === 'pending');
+    if (!['queued', 'running', 'returned', 'paused'].includes(j.status) && !underReview) continue;
+    const at = new Date().toISOString();
+    sendUpdate(next, inv, j, {id: randomUUID(), sequence: j.updates.length + 1, from: 'app', message, annotationIds: [], at});
+    inv.events.push({at, message: underReview ? 'The findings changed, so the graph draft went back to the builder.' : 'The findings changed, so the graph builder was told.'});
+  }
 }
 
 // A batch closes when its graph review is complete; later related work starts a new batch.
@@ -386,14 +417,14 @@ export function receiveDraft(store, investigationId, jobId, delivery, packet, su
     fail(j.status === 'running', 'This graph task no longer owns the assignment.');
     j.submissions ||= [];
     j.submissions.push({at: new Date().toISOString(), summary: delivery.summary, consumedUpdateSequence: delivery.consumedUpdateSequence, submissionDirectory});
-    if (delivery.consumedUpdateSequence !== j.updates.length || packet.researchRevision !== j.packet.researchRevision) {
+    if (delivery.consumedUpdateSequence !== j.updates.length || packet.researchRevision !== j.packet.researchRevision || (packet.findingsRevision ?? 0) !== (i.findingsRevision ?? 0)) {
       j.status = 'queued'; j.progress = 'Saved a completed draft; incorporating newer context next.';
       i.events.push({at: j.submissions.at(-1).at, message: 'Graph builder handed in a draft; it is going back to take in newer instructions.'});
       return;
     }
     j.candidate = {
       draft: delivery.draft, diff: delivery.diff, summary: delivery.summary, questions: delivery.questions, notes: delivery.notes,
-      consumedUpdateSequence: delivery.consumedUpdateSequence, researchRevision: packet.researchRevision, baseGraphRevision: packet.baseGraphRevision, submissionDirectory,
+      consumedUpdateSequence: delivery.consumedUpdateSequence, researchRevision: packet.researchRevision, findingsRevision: packet.findingsRevision ?? 0, baseGraphRevision: packet.baseGraphRevision, submissionDirectory,
     };
     j.status = 'returned';
     j.consumedUpdateSequence = delivery.consumedUpdateSequence;

@@ -5,7 +5,7 @@
 //
 // node server/launcher.mjs <url-file>
 import { createServer } from 'node:http';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { codeStamp, launcherFile } from './start-launcher.mjs';
 import { agentHomes } from './agents/isolation.mjs';
@@ -56,8 +56,11 @@ const server = createServer(async (req, res) => {
 server.listen(0, '127.0.0.1', () => {
   const url = `http://127.0.0.1:${server.address().port}`;
   mkdirSync(dirname(launcherFile), {recursive: true});
-  writeFileSync(launcherFile, JSON.stringify({url, pid: process.pid, stamp}));
-  writeFileSync(process.argv[2], url);
+  // Each file appears whole: whoever is waiting for it never reads it half written.
+  for (const [file, content] of [[launcherFile, JSON.stringify({url, pid: process.pid, stamp})], [process.argv[2], url]]) {
+    writeFileSync(`${file}.tmp`, content);
+    renameSync(`${file}.tmp`, file);
+  }
 });
 // Idle for half an hour, the launcher has done its job.
 setInterval(() => {

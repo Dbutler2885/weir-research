@@ -8,7 +8,7 @@ Parent PRD: [Researcher team](../prd.md)
 |---|-------|------|--------|------------|
 | 01 | [Python session](01-python-session.md) | AFK | Done | None |
 | 02 | [Saving sources](02-saving-sources.md) | AFK | Done | 01 |
-| 03 | [Publishing findings](03-publishing-findings.md) | AFK | To do | 02 |
+| 03 | [Publishing findings](03-publishing-findings.md) | AFK | Done | 02 |
 | 04 | [The team and the done phrase](04-team-and-done-phrase.md) | AFK | To do | 03 |
 | 05 | [Readers and the cache](05-readers-and-cache.md) | AFK | To do | 01 |
 | 06 | [Passages and Jev](06-passages-and-jev.md) | AFK | To do | 05 |

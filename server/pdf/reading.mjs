@@ -8,6 +8,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { doclingStatus, readWithDocling, startDoclingInstall } from "./docling.mjs";
+import { reviseText } from "../../src/domain/text-revisions.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const settingsFile = (home) => join(home, "app-settings.json");
@@ -121,10 +122,15 @@ export class PdfReading {
     const progress = (page, total) => this.set(next.id, { state: "reading", engine, page, total });
     this.read(join(this.directory, "documents", next.id), engine, this.current.controller.signal, progress).then(
       (pages) => {
+        const text = pageText(pages);
+        // The text it had is kept beside the document before the new text replaces it.
+        const before = this.store.state.documents.find((x) => x.id === next.id);
+        if (before?.text !== undefined && before.text !== text) writeFileSync(join(this.directory, "documents", `${before.id}.r${before.revision ?? 1}.txt`), before.text, { mode: 0o600 });
         this.store.update((state) => {
           const d = state.documents.find((x) => x.id === next.id);
           if (!d) return;
-          d.text = pageText(pages);
+          // A new revision, against which every published quote citing it is checked again.
+          reviseText(state, d.id, text);
           d.pages = pages.length;
           d.reading = { state: "done", engine, at: new Date().toISOString(), ...(pages.some((p) => p.method === "ocr") ? { ocrPages: pages.filter((p) => p.method === "ocr").length } : {}) };
         });

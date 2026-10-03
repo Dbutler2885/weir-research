@@ -78,6 +78,12 @@ export interface Evidence {
   locator: string;
   interpretation: string;
   stance: "supports" | "challenges" | "context";
+  // For evidence the app checked when it was published: the pages cited, first and
+  // last; whether the quote was found in the document's text there, or comes from a
+  // transcription the app cannot check; and the text revision it was found in.
+  pages?: [number, number];
+  check?: "checked" | "transcribed";
+  revision?: number;
 }
 export interface Change {
   table: Table;
@@ -103,6 +109,8 @@ export interface Proposal {
   addressedAnnotationIds: string[];
   // The assignment whose researcher returned it; absent before assignments.
   assignmentId?: string;
+  // For a finding a researcher published itself: its seat and content, so a repeat is refused.
+  key?: string;
   createdAt: string;
   status: "pending" | "accepted" | "rejected" | "superseded";
   decidedAt?: string;
@@ -130,6 +138,9 @@ export interface Investigation {
     status: "pending" | "approved" | "declined";
     decidedAt?: string;
   };
+  // Raised whenever a finding is published or replaced, and only then, so graph work
+  // knows which findings it was built from.
+  findingsRevision?: number;
   phase?: "research" | "graph";
   graphRequest?: { refs: FindingRef[]; at: string };
   accessRequest?: { instruction: string; url?: string; resolvedAt?: string; assignmentId?: string; outcome?: "unavailable" };
@@ -173,6 +184,15 @@ export interface ResearchDocument {
   // Searchable text; a PDF's is marked with "[Page n]" before each page.
   text?: string;
   pages?: number;
+  // The text's revision, raised each time the document is read again with a different
+  // result. Earlier revisions are kept beside the document, as <id>.r<n>.txt.
+  revision?: number;
+  textRevisions?: { revision: number; at: string; engine?: string; pages?: number; size: number }[];
+  // Wording a published quote was checked against in an earlier revision, which the
+  // current text no longer holds: kept until it is reconciled against the page.
+  corrections?: TextCorrection[];
+  // An image saved with the transcription of the agent that read it.
+  transcribed?: boolean;
   // Where reading a PDF into text stands, and which reader did it.
   reading?: {
     state: "waiting" | "reading" | "done" | "failed";
@@ -191,6 +211,19 @@ export interface ResearchDocument {
     processedPages?: number[];
     bundle?: string;
   };
+}
+export interface TextCorrection {
+  id: string;
+  pages: [number, number];
+  wording: string;
+  // The revision the wording was found in, and the one that no longer holds it.
+  fromRevision: number;
+  missingFrom: number;
+  // The quote that cites it, as "<report id>/<evidence id>".
+  evidence: string;
+  status: "unreconciled";
+  reason: string;
+  at: string;
 }
 export interface ResearchState {
   version: 1;

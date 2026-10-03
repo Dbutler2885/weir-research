@@ -88,6 +88,7 @@ describe("researchers' Python sessions", () => {
     expect(f.launches[0]!.args.join(" ")).toContain("node tools/python.mjs");
     // Pages are saved into the library through the session, not read into the conversation.
     expect(f.launches[0]!.args.join(" ")).toContain("weir.save(url)");
+    expect(f.launches[0]!.args.join(" ")).toContain("weir.publish(statement, qualification, explanation, evidence)");
     const args = f.launches[0]!.args;
     expect(JSON.parse(args[args.indexOf("--settings") + 1]!).permissions.deny).toContain("WebFetch");
     // Long output reaches the researcher as a message.

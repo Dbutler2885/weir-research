@@ -1,7 +1,7 @@
 # Slice 03: Publishing findings
 
 **Type**: AFK
-**Status**: To do
+**Status**: Done
 
 ## Blocked by
 
@@ -21,14 +21,30 @@ See **Publishing findings**, **Text revisions and reconciliation** and **Graph w
 
 ## Acceptance criteria
 
-- [ ] A quote at its cited page passes and is marked checked; a real quote at the wrong page is refused
-- [ ] A quote across a page break and one with different whitespace pass
-- [ ] Transcribed evidence is marked transcribed
-- [ ] A replacement supersedes the old finding; a second replacement of it is refused with the replacement's name
-- [ ] A repeated publish is refused
-- [ ] A finding published or replaced during graph work sends the builder a graph update and makes the stale draft impossible to sign off or accept
-- [ ] Reading a cited PDF again keeps the earlier text revision, and every published quote still matches the current text
-- [ ] A board post, checkpoint or researcher finishing leaves a draft valid
+- [x] A quote at its cited page passes and is marked checked; a real quote at the wrong page is refused
+- [x] A quote across a page break and one with different whitespace pass
+- [x] Transcribed evidence is marked transcribed
+- [x] A replacement supersedes the old finding; a second replacement of it is refused with the replacement's name
+- [x] A repeated publish is refused
+- [x] A finding published or replaced during graph work sends the builder a graph update and makes the stale draft impossible to sign off or accept
+- [x] Reading a cited PDF again keeps the earlier text revision, and every published quote still matches the current text
+- [x] A board post, checkpoint or researcher finishing leaves a draft valid
+
+## How it was built
+
+- A published finding is a one-finding report in its batch, kept at once, so walkthroughs, graph work, the library and the interface read it as they read findings now.
+  Its ID is the report's ID and the finding's, as `<report>/f1`, which is what a replacement names.
+- A refused quote says where the quote is when it is on another page, and otherwise gives the nearest passage on the cited pages.
+- Once a batch has a findings revision, the graph builder's inputs hold all of the batch's findings as they stand, not only those its walkthrough named.
+- A paused graph job takes the update and stays paused.
+- Earlier text revisions are kept beside the document as `<id>.r<n>.txt`, in the project and in the library.
+
+## Left for later slices
+
+- Board posts get their key in slice 04, when posting moves to `weir.post`.
+- Evidence is marked as transcribed whenever its document is a transcription; saving one arrives in slice 07.
+- The interface shows the checked and transcribed marks in slice 09; until then they are in the library's findings files and the project's data.
+- The coordinator's result review and result.json stay until slice 04 removes them.
 
 ## User stories addressed
 

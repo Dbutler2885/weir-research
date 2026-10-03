@@ -142,7 +142,7 @@ export class SourceSaver {
     }
     const at = new Date().toISOString();
     const { title, ...fields } = doc;
-    const saved = { id, collectionId: COLLECTION, ...fields, size: bytes.length, sha256: hash, importedAt: at, url, capturedAt: at };
+    const saved = { id, collectionId: COLLECTION, ...fields, size: bytes.length, sha256: hash, importedAt: at, url, capturedAt: at, revision: 1 };
     this.store.update((next) => {
       next.documents.push(saved);
       (next.latestCaptures ||= {})[url] = id;

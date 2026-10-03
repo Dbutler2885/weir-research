@@ -42,6 +42,7 @@ import { PdfReading, choosePdfReader, pdfReading } from "./pdf/reading.mjs";
 import { removeDocling } from "./pdf/docling.mjs";
 import { SessionDesk } from "./python-session/desk.mjs";
 import { SourceSaver } from "./source-saver.mjs";
+import { FindingPublisher } from "./finding-publisher.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const directory = resolve(
@@ -127,7 +128,8 @@ const researchers = new ResearcherPool(store, directory, root, {
     home: appDirectory,
     library: join(directory, "library"),
     // What a researcher's running code may ask of the app.
-    calls: { save: (given) => sources.save(given) },
+    // A seat's key is its assignment's ID.
+    calls: { save: (given) => sources.save(given), publish: (given, seat) => findings.publish(seat.key, given.finding) },
   }),
 });
 coordinator.researchers = researchers;
@@ -187,6 +189,8 @@ mkdirSync(documentsDir, { recursive: true });
 const pdfs = new PdfReading(store, { home: appDirectory, directory });
 process.on("exit", () => pdfs.stop());
 pdfs.pump();
+// Findings the researchers publish themselves, each quote checked against the saved text.
+const findings = new FindingPublisher(store, { published: () => library.write() });
 // Sources from the web, saved as documents for the whole team.
 const sources = new SourceSaver(store, { directory, readPdf: (file) => pdfs.readFile(file), written: () => library.write() });
 const workerCommands = new Set(["claim", "checkpoint", "propose"]);

@@ -38,6 +38,8 @@ export interface DraftCandidate {
   notes: DraftNote[];
   consumedUpdateSequence: number;
   researchRevision: string;
+  // The batch's findings revision the draft was built from.
+  findingsRevision?: number;
   baseGraphRevision: number;
   submissionDirectory: string;
 }
@@ -60,7 +62,8 @@ export interface GraphJob {
   note?: string;
   createdAt: string;
   attempt: number;
-  updates: {id: string; sequence: number; message: string; at: string; annotationIds: string[]}[];
+  // from is "app" for an update the app sent itself because the batch's findings changed.
+  updates: {id: string; sequence: number; message: string; at: string; annotationIds: string[]; from?: "app"}[];
   consumedUpdateSequence: number;
   candidate?: DraftCandidate;
   resumeRequest?: {reason: string; status: 'pending' | 'approved' | 'declined'};
@@ -72,6 +75,8 @@ export interface GraphReview {
   revision: number;
   createdAt: string;
   format: 'draft';
+  // The batch's findings revision the draft was built from; it cannot be accepted once the batch has moved on.
+  findingsRevision?: number;
   draft: GraphDataset;
   diff: GraphDiff;
   summary: string;

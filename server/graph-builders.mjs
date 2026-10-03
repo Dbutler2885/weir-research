@@ -389,7 +389,7 @@ const fail = (ok, message) => { if (!ok) throw new Error(message); };
 function updateMessage(updates) {
   const last = updates.at(-1).sequence;
   return [
-    ...updates.map(u => `The coordinator sent update ${u.sequence}: ${u.message}`),
+    ...updates.map(u => `${u.from === 'app' ? 'The findings changed. Update' : 'The coordinator sent update'} ${u.sequence}: ${u.message}`),
     `Read updates.json and packet.json, incorporate ${updates.length === 1 ? 'this update' : 'these updates'} into the tables, and when the draft is ready write done ${last} to submission.txt.`,
   ].join('\n\n');
 }

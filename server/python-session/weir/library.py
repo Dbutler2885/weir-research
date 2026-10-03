@@ -42,22 +42,24 @@ def _document(doc_id):
 
 
 def read(doc_id):
-    """A document's text as a list of pages, each {"page": n, "text": ...}.
+    """A document's text as a list of pages, each {"page": n, "text": ..., "revision": r}.
 
     A PDF's text has "[Page n]" before each page; any other text document is one page.
+    The revision is the document's text revision, which rises when it is read again.
     """
     row = _document(doc_id)
     if row["text"] == "not read yet":
         raise ValueError(f"Document {doc_id} is a PDF that has not been read yet.")
     with open(_path(row["text"]), encoding="utf-8", errors="replace") as file:
         content = file.read()
+    revision = int(row.get("revision") or 1)
     marks = list(PAGE.finditer(content))
     if not marks:
-        return [{"page": 1, "text": content}]
+        return [{"page": 1, "text": content, "revision": revision}]
     pages = []
     for n, mark in enumerate(marks):
         end = marks[n + 1].start() if n + 1 < len(marks) else len(content)
-        pages.append({"page": int(mark.group(1)), "text": content[mark.end():end].rstrip("\n")})
+        pages.append({"page": int(mark.group(1)), "text": content[mark.end():end].rstrip("\n"), "revision": revision})
     return pages
 
 

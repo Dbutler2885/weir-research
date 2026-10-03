@@ -25,8 +25,13 @@ export function codeStamp() {
 export async function startLauncher() {
   // A launcher already running on this code answers its front page with a redirect
   // to setup; one on older code is replaced.
-  if (existsSync(launcherFile)) {
-    const running = JSON.parse(readFileSync(launcherFile, "utf8"));
+  let running = null;
+  try {
+    running = JSON.parse(readFileSync(launcherFile, "utf8"));
+  } catch {
+    /* No launcher has run, or its record cannot be read: start one. */
+  }
+  if (running?.url) {
     const answered = await fetch(running.url, { redirect: "manual", signal: AbortSignal.timeout(500) }).then((r) => r.status === 302, () => false);
     if (answered && running.stamp === codeStamp()) return running.url;
     if (answered)

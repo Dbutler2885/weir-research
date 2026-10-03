@@ -17,6 +17,7 @@ import { WorkspaceStore } from "../server/store.mjs";
 import { emptyGraph } from "../src/domain/graph-schema.ts";
 import { ResearchLibrary } from "../server/research-library.mjs";
 import { SourceSaver } from "../server/source-saver.mjs";
+import { FindingPublisher } from "../server/finding-publisher.mjs";
 
 // The app's own Codex home, where the human signed Codex in, and its tools folder.
 const appHome = resolve(process.env.RESEARCH_HOME || ".research");
@@ -52,9 +53,13 @@ for (const provider of only.length ? only : ["claude", "codex"]) {
   });
   const files = new ResearchLibrary(store, project);
   const saver = new SourceSaver(store, { directory: project, readPdf: () => Promise.reject(new Error("No PDFs in this check.")), written: () => files.write() });
-  const desk = new SessionDesk({ home: appHome, library, calls: { save: (given) => saver.save(given) } });
+  // A batch with one seat, whose researcher can publish findings.
+  store.command({ type: "open-batch", title: "Who bought the Example mill", brief: { purpose: "Who bought the fictional mill.", scope: "Anything.", direction: "None." }, assignments: [{ title: "Researcher 1", brief: "The goal." }] });
+  const seatId = store.state.investigations[0].assignments[0].id;
+  const publisher = new FindingPublisher(store, { published: () => files.write() });
+  const desk = new SessionDesk({ home: appHome, library, calls: { save: (given) => saver.save(given), publish: (given, context) => publisher.publish(context.key, given.finding) } });
   const lease = "lease-1";
-  desk.open("seat-1", { folder, seat, authorize: (given) => given === lease, deliver: (text) => console.log(`${provider} message: ${text}`) });
+  desk.open(seatId, { folder, seat, authorize: (given) => given === lease, deliver: (text) => console.log(`${provider} message: ${text}`) });
   const instructions = `You are checking a research workspace's Python session. Work only in this folder.\n${SESSION_INSTRUCTIONS}`;
   writeFileSync(join(folder, "AGENTS.md"), instructions);
   try {
@@ -69,7 +74,7 @@ for (const provider of only.length ? only : ["claude", "codex"]) {
       web: true,
       webFetch: false,
       ...models[provider],
-      prompt: `Using your Python session, in one run: read document doc-1 and store its number of pages in a variable named pages_count, and print it. Then, in a second, separate run, print pages_count * 10 without reading the document again. Then, in a third run, save the page at ${gazette} into the library, keep its receipt in a variable named receipt, read the saved document from the library, and print its text. Reply with only the two numbers that were printed and then the price in pounds the page mentions, as a number.`,
+      prompt: `Using your Python session, in one run: read document doc-1 and store its number of pages in a variable named pages_count, and print it. Then, in a second, separate run, print pages_count * 10 without reading the document again. Then, in a third run, save the page at ${gazette} into the library, keep its receipt in a variable named receipt, read the saved document from the library, and print its text. Then publish one finding, qualified as reported, that Ben Example bought Example Mill in 1901, with one piece of evidence quoting the saved page, and keep what weir.publish returns in a variable named published. Reply with only the two numbers that were printed and then the price in pounds the page mentions, as a number.`,
     });
     const actions = [];
     agent.on("action", (text) => actions.push(text));
@@ -80,12 +85,13 @@ for (const provider of only.length ? only : ["claude", "codex"]) {
       setTimeout(() => fail(new Error("no answer within five minutes")), 5 * 60_000);
     });
     agent.stop();
-    desk.close("seat-1");
+    desk.close(seatId);
     // What the session kept, read by a fresh session on the same seat.
     const check = new PythonSession({ folder: seat, library, home: appHome });
     const kept = (await check.run("print(pages_count)")).output.trim();
     const receipt = JSON.parse((await check.run("import json\nprint(json.dumps(receipt))")).output);
     const savedText = (await check.run("print(weir.library.text(receipt['id']))")).output;
+    const published = JSON.parse((await check.run("print(json.dumps(published))")).output);
     check.stop();
     console.log(`${provider}: replied ${JSON.stringify(turn.text.trim())}; the session kept pages_count = ${kept}.`);
     console.log(`${provider} actions:\n  ${actions.join("\n  ")}`);
@@ -95,6 +101,11 @@ for (const provider of only.length ? only : ["claude", "codex"]) {
     assert.equal(saved?.url, gazette, "the page the agent saved is a document of the project");
     assert.match(savedText, /sold to Ben Example in 1901 for 412 pounds/, "the session reads the saved page from the library");
     assert.equal(store.state.documents.length, 2, "the page was saved once");
+    const report = store.state.investigations[0].proposals.find((p) => published.id === `${p.id}/f1`);
+    assert.ok(report, "the finding the agent published is in the batch");
+    assert.equal(report.assignmentId, seatId, "the finding records its seat");
+    assert.deepEqual([report.evidence[0].documentId, report.evidence[0].check], [receipt.id, "checked"], "its quote was checked against the saved page");
+    assert.match(readFileSync(join(library, "batches", "batch-1", "pass-1", "findings.md"), "utf8"), /published by Researcher 1/, "the finding is in the library");
     if (provider === "claude") {
       // The tools Claude Code said the agent has, from its raw stream in the log.
       const tools = readFileSync(`${folder}.log`, "utf8")

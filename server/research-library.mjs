@@ -21,7 +21,7 @@ You can read and search it; you cannot change it.
 - \`walkthroughs/batch-N.md\`: how each batch's research was explained to the human.
 - \`graph/\`: the project's graph as tables: \`nodes.csv\`, \`edges.csv\`, the project's types, fields and relationships, and \`evidence.csv\`, the evidence the graph cites.
 - \`sources.csv\`: every source the project knows, by ID.
-- \`documents/\`: the project's saved documents by ID, with \`documents.csv\` listing them, each with the address it was saved from, if any; a PDF's or a web page's text is beside it as \`<id>.txt\`, a PDF's with "[Page n]" before each page.
+- \`documents/\`: the project's saved documents by ID, with \`documents.csv\` listing them, each with the address it was saved from, if any; a PDF's or a web page's text is beside it as \`<id>.txt\`, a PDF's with "[Page n]" before each page. A document read again has a new text revision, named in \`documents.csv\`; its earlier text is kept as \`<id>.r<n>.txt\`.
 
 IDs here are the ones to cite and to name in your work.
 `;
@@ -90,13 +90,17 @@ function evidenceText(state, p, id) {
   const source = sourceLibrary(state).find((s) => s.id === e.sourceId);
   return lines(
     quote(e.quote),
-    `Evidence ${e.id} (${e.stance}). Source: ${source?.title || "unknown"} (${e.sourceId}), ${e.locator}.${e.documentId ? ` Saved as documents/${e.documentId}.` : ""}`,
-    `Context: ${e.context}`,
+    `Evidence ${e.id} (${e.stance}). Source: ${source?.title || "unknown"} (${e.sourceId}), ${e.locator}.${e.documentId ? ` Saved as documents/${e.documentId}.` : ""}${
+      e.check === "checked" ? " The app found this quote in the saved text at the pages cited." : e.check === "transcribed" ? " From a transcription, which the app cannot check against the image." : ""
+    }`,
+    e.context ? `Context: ${e.context}` : "",
     `Interpretation: ${e.interpretation}`,
   ).trimEnd();
 }
 
 function findingsFile(state, title, proposals) {
+  // The seat whose researcher published a finding.
+  const seat = (p) => state.investigations.flatMap((b) => b.assignments || []).find((a) => a.id === p.assignmentId)?.title || "a researcher";
   if (!proposals.length) return lines(`# Findings: ${title}`, "Nothing published from this pass yet.");
   return lines(
     `# Findings: ${title}`,
@@ -111,7 +115,7 @@ function findingsFile(state, title, proposals) {
           .map((f) =>
             lines(
               `### ${f.statement}`,
-              `Finding ${f.id} in report ${p.id}: ${f.qualification}${f.status === "deferred" ? "; set aside by the human" : f.status === "kept" ? "; kept by the human" : ""}.`,
+              `Finding ${p.id}/${f.id} (finding ${f.id} in report ${p.id})${p.key ? `, published by ${seat(p)}` : ""}: ${f.qualification}${f.status === "deferred" ? "; set aside by the human" : f.status === "kept" ? "; kept by the human" : ""}.`,
               f.explanation,
               ...f.evidenceIds.map((id) => evidenceText(state, p, id)),
             ).trimEnd(),
@@ -180,9 +184,11 @@ export function libraryFiles(state) {
     // A text document is its own text; a PDF's or a web page's text is kept beside it.
     const textFile = d.text !== undefined && d.mime !== "text/plain" ? `documents/${d.id}.txt` : "";
     if (textFile) files.set(textFile, d.text);
-    documents.push([d.id, d.name, d.collectionId, original, textFile || (d.mime === "application/pdf" ? "not read yet" : original), d.pages ?? "", d.url ?? "", d.capturedAt ?? ""]);
+    // Earlier revisions of its text, kept when it was read again.
+    for (const r of d.textRevisions || []) files.set(`documents/${d.id}.r${r.revision}.txt`, { copy: `${d.id}.r${r.revision}.txt`, size: r.size });
+    documents.push([d.id, d.name, d.collectionId, original, textFile || (d.mime === "application/pdf" ? "not read yet" : original), d.pages ?? "", d.url ?? "", d.capturedAt ?? "", d.text !== undefined ? d.revision ?? 1 : ""]);
   }
-  files.set("documents/documents.csv", csv(["id", "name", "collection", "file", "text", "pages", "url", "saved"], documents));
+  files.set("documents/documents.csv", csv(["id", "name", "collection", "file", "text", "pages", "url", "saved", "revision"], documents));
   return files;
 }
 

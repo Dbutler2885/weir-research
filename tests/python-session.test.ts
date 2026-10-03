@@ -139,7 +139,7 @@ setTimeout(() => console.log("running"), 300);
     const { session } = fixture();
     const s = session();
     expect((await s.run("print([d['name'] for d in weir.library.documents()])")).output).toBe("['Harbor ledger.pdf']\n");
-    expect((await s.run("print(weir.library.read('doc-1')[1])")).output).toBe("{'page': 2, 'text': 'The ledger names Ada Example.'}\n");
+    expect((await s.run("print(weir.library.read('doc-1')[1])")).output).toBe("{'page': 2, 'text': 'The ledger names Ada Example.', 'revision': 1}\n");
     expect((await s.run("print([(m['document'], m['page']) for m in weir.library.search('mill')])")).output).toBe("[('doc-1', 1)]\n");
   });
 
@@ -187,6 +187,11 @@ describe.skipIf(!onMac)("the session desk", () => {
         if (given.url.endsWith("/missing")) throw new Error(`${given.url} could not be downloaded: the site answered 404 Not Found.`);
         return { id: "doc-9", title: "Fictional gazette", url: given.url, pages: 1, characters: 80, existing: false };
       },
+      publish: async (given: any, context: any) => {
+        asked.push({ ...given, seat: context.key });
+        if (given.finding.evidence[0].page !== 2) throw new Error("Evidence 1 was not found in doc-1 (Harbor ledger.pdf). The quote is not on page 1; it is on page 2. Cite the page it is on.");
+        return { id: "report-1/f1", statement: given.finding.statement, evidence: [{ document: "doc-1", pages: [2, 2], check: "checked" }] };
+      },
     };
     const d = new SessionDesk({ home, library, wait, poll: 100, calls });
     cleanups.push(() => d.closeAll());
@@ -216,6 +221,18 @@ describe.skipIf(!onMac)("the session desk", () => {
     expect(asked[1]).toMatchObject({ fresh: true });
     const refused = await tool(folder, "try:\n    weir.save('https://example.org/missing')\nexcept weir.AppError as error:\n    print(error)", "lease-1");
     expect(refused.stdout).toBe("https://example.org/missing could not be downloaded: the site answered 404 Not Found.\n");
+  });
+
+  it("lets running code publish a finding, and hear why one is refused", async () => {
+    const { folder, asked } = desk();
+    const code = (page: number) =>
+      `try:\n    receipt = weir.publish("Ada Example is named in the ledger.", "supported", "The ledger names her.", [{"document": "doc-1", "page": ${page}, "quote": "The ledger names Ada Example.", "interpretation": "She is named."}], replaces="report-0/f1")\n    print(receipt["id"], receipt["evidence"][0]["check"])\nexcept weir.AppError as error:\n    print(error)`;
+    expect((await tool(folder, code(2), "lease-1")).stdout).toBe("report-1/f1 checked\n");
+    expect(asked[0]).toEqual({
+      seat: "seat-1",
+      finding: { statement: "Ada Example is named in the ledger.", qualification: "supported", explanation: "The ledger names her.", evidence: [{ document: "doc-1", page: 2, quote: "The ledger names Ada Example.", interpretation: "She is named." }], replaces: "report-0/f1" },
+    });
+    expect((await tool(folder, code(1), "lease-1")).stdout).toBe("Evidence 1 was not found in doc-1 (Harbor ledger.pdf). The quote is not on page 1; it is on page 2. Cite the page it is on.\n");
   });
 
   it("does nothing for code whose researcher has lost the seat while it ran", async () => {
