@@ -6,7 +6,7 @@
 //
 //   node tools/python.mjs <<'EOF'
 //   pages = weir.library.read("doc-1")
-//   len(pages)
+//   print(len(pages))
 //   EOF
 //
 // or node tools/python.mjs file.py

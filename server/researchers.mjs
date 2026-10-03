@@ -29,7 +29,7 @@ Open your own tab with new_page, with background set to true, use its page ID in
 If a page needs a sign-in, do not sign in yourself: ask for access help in checkpoint.json as described above.
 `;
 
-const SESSION_INSTRUCTIONS = `
+export const SESSION_INSTRUCTIONS = `
 ## Your Python session
 
 You have a Python session whose variables last between runs, and survive your being paused, switched or restarted. Run code in it with:

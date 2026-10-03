@@ -59,6 +59,7 @@ try {
   assert.equal(account.account, null, "The app's Codex home starts signed out, separate from the human's.");
   assert.equal((await exec("/bin/sh", "-c", "echo ok > made.txt && cat made.txt")).stdout, "ok\n");
   assert.equal((await exec(process.execPath, "--version")).exitCode, 0, "node runs in the sandbox");
+  assert.equal((await exec(process.execPath, "-e", "require('node:crypto').randomUUID()")).exitCode, 0, "node can load node:crypto, as the command tools do");
   for (const outside of [join(homedir(), "Documents"), join(homedir(), ".codex"), other]) {
     const listed = await exec("/bin/ls", outside);
     assert.notEqual(listed.exitCode, 0, `${outside} must be out of reach`);

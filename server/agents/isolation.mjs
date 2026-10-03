@@ -74,7 +74,9 @@ export function codexIsolationArgs(folder, { browser = null, compactAt = 0, read
     ...mcp,
     ...(compactAt ? ["-c", `model_auto_compact_token_limit=${compactAt}`] : []),
     "-c",
-    `permissions.agent.filesystem={":minimal"="read", ${JSON.stringify(node())}="read", ${shared}${JSON.stringify(own)}="write"}`,
+    // Node reads OpenSSL's configuration whenever it loads node:crypto, as the app's
+    // command tools do.
+    `permissions.agent.filesystem={":minimal"="read", ${JSON.stringify(node())}="read", "/System/Library/OpenSSL"="read", ${shared}${JSON.stringify(own)}="write"}`,
     "-c",
     "permissions.agent.network={enabled=true}",
     "-c",

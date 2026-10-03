@@ -27,7 +27,8 @@
     "context:review": "node --no-warnings scripts/context-review.mjs",
     "context:eval": "node --no-warnings scripts/context-eval.mjs",
     "test:integration": "npm run build && node scripts/test-coordinator.mjs && node scripts/test-project-start.mjs && node scripts/test-findings.mjs && node --no-warnings scripts/test-isolation.mjs && node --no-warnings scripts/test-research-browser.mjs",
-    "convert:batches": "node --no-warnings scripts/convert-to-batches.mjs"
+    "convert:batches": "node --no-warnings scripts/convert-to-batches.mjs",
+    "test:live-session": "node --no-warnings scripts/live-python-session.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.1",
