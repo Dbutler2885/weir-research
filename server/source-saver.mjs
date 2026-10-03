@@ -1,5 +1,5 @@
 // Saves a source from the web as a library document: the app downloads the address
-// itself, keeps the original, turns it into text, and registers it as a source, so the
+// itself, keeps the original, takes the text in it, and registers it as a source, so the
 // whole team shares one copy and every quote can be checked against it. A capture has
 // its own ID and never changes; a later capture of the same address is another document.
 import { createHash, randomUUID } from "node:crypto";
@@ -82,6 +82,19 @@ export class SourceSaver {
     return this.store.state.documents.filter((d) => d.url === url);
   }
 
+  // The capture that shows the address as it was last seen: not always the newest
+  // one, since a page can go back to what an earlier capture holds.
+  latest(url) {
+    const captures = this.captures(url);
+    return captures.find((d) => d.id === this.store.state.latestCaptures?.[url]) || captures.at(-1);
+  }
+
+  // A fresh download matched an earlier capture, which is how the address looks now.
+  seen(url, doc) {
+    if (this.latest(url)?.id !== doc.id) this.store.update((next) => ((next.latestCaptures ||= {})[url] = doc.id));
+    return this.receipt(doc, true);
+  }
+
   receipt(doc, existing) {
     const title = this.store.state.dataset.sources?.find((source) => source.id === doc.id)?.title || doc.name;
     return { id: doc.id, title, url: doc.url, pages: doc.pages ?? 1, characters: (doc.text || "").length, existing };
@@ -89,11 +102,11 @@ export class SourceSaver {
 
   async capture(url, fresh) {
     const earlier = this.captures(url);
-    if (earlier.length && !fresh) return this.receipt(earlier.at(-1), true);
+    if (earlier.length && !fresh) return this.receipt(this.latest(url), true);
     const { bytes, type } = await this.fetch(url);
     const hash = sha256(bytes);
     const same = earlier.findLast((d) => d.sha256 === hash);
-    if (same) return this.receipt(same, true);
+    if (same) return this.seen(url, same);
     const id = randomUUID();
     const pdf = !/html/i.test(type) && bytes.subarray(0, 1024).includes("%PDF-");
     const html = !pdf && (/html|xml/i.test(type) || (!type && /^\s*<(!doctype|html)/i.test(bytes.subarray(0, 200).toString("latin1"))));
@@ -120,7 +133,7 @@ export class SourceSaver {
         const unchanged = earlier.findLast((d) => d.text === page.text);
         if (unchanged) {
           rmSync(file, { force: true });
-          return this.receipt(unchanged, true);
+          return this.seen(url, unchanged);
         }
       }
     } catch (error) {
@@ -132,6 +145,7 @@ export class SourceSaver {
     const saved = { id, collectionId: COLLECTION, ...fields, size: bytes.length, sha256: hash, importedAt: at, url, capturedAt: at };
     this.store.update((next) => {
       next.documents.push(saved);
+      (next.latestCaptures ||= {})[url] = id;
       (next.dataset.sources ||= []).push({ id, title, repository: new URL(url).hostname, date: at.slice(0, 10), url, access: "full-text", accessedAt: at, note: `Saved by the app. SHA-256: ${hash}` });
     });
     this.written();

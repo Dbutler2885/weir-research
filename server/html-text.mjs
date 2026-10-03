@@ -1,13 +1,16 @@
-// Turns a web page into the text a reader would see, for saving as a source. All of
-// the page's visible text is kept, in order, rather than a guess at its main article,
-// so a quote from any part of the page can be found in the saved text.
+// Takes the text out of a web page as it was downloaded, for saving as a source. All of
+// the text in the page's HTML is kept, in order, rather than a guess at its main
+// article, so a quote from any part of the page can be found in the saved text. This
+// is the page's static text: what its scripts would draw, or a browser would hide or
+// show by its styles, is for a capture from the research browser.
 import { parse } from "parse5";
 
-// Elements whose content a reader never sees as text.
-const UNSEEN = new Set(["script", "style", "noscript", "template", "head", "iframe", "object", "svg", "canvas", "select", "textarea", "button", "audio", "video"]);
-// Elements that begin and end a line.
+// Elements whose content is not the page's text: code, styles, and what stands in
+// for media or frames that could not be shown.
+const UNSEEN = new Set(["script", "style", "noscript", "template", "head", "iframe", "object", "canvas", "audio", "video"]);
+// Elements that begin and end a line, so the words of one never run into the next.
 const BLOCKS = new Set(
-  "address article aside blockquote body caption dd details dialog div dl dt fieldset figcaption figure footer form h1 h2 h3 h4 h5 h6 header hgroup hr html li main menu nav ol p section summary table tbody tfoot thead tr ul".split(" "),
+  "address article aside blockquote body caption dd details dialog div dl dt fieldset figcaption figure footer form h1 h2 h3 h4 h5 h6 header hgroup hr html li main menu nav ol p section summary table tbody tfoot thead tr ul button textarea select option svg text".split(" "),
 );
 const SPACED = new Set(["h1", "h2", "h3", "h4", "h5", "h6", "p", "blockquote", "table", "ul", "ol", "dl", "pre", "section", "article"]);
 
@@ -26,7 +29,7 @@ const plain = (node) => (node.nodeName === "#text" ? node.value : (node.childNod
 const tidy = (text) => text.replace(/\s+/g, " ").trim();
 
 /**
- * A page's title and its visible text: one line per block, a blank line around
+ * A page's title and its text: one line per block, a blank line around
  * headings, paragraphs, lists and tables, and a tab between a table row's cells.
  * @param {string} html
  * @returns {{title: string, text: string}}

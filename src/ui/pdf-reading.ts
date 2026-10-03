@@ -56,6 +56,7 @@ export function readingNote(d: ResearchDocument, reading?: PdfReading): string {
     return `<p class="muted">${html(label)}: ${html(r.error)}</p><button type="button" data-read-again="${d.id}">Try again</button>`;
   if (r?.state !== "done") return `<p class="muted">${html(label)}.</p>`;
   const how = `Read with ${readerName(r.engine || "standard")}${r.ocrPages ? `, ${r.ocrPages} ${r.ocrPages === 1 ? "page" : "pages"} by OCR` : ""}.`;
-  const better = r.engine !== "docling" && reading?.docling.state === "ready";
+  // A source saved from the web keeps the text it was saved with.
+  const better = !d.capturedAt && r.engine !== "docling" && reading?.docling.state === "ready";
   return `<p class="muted">${html(how)}</p>${better ? `<button type="button" data-read-again="${d.id}" data-engine="docling">Read again with High accuracy</button>` : ""}`;
 }

@@ -12,6 +12,7 @@ import { SourceSaver } from "../server/source-saver.mjs";
 import { ResearchLibrary } from "../server/research-library.mjs";
 import { readableText } from "../server/html-text.mjs";
 import { sourceLibrary } from "../src/domain/findings";
+import { readingNote } from "../src/ui/pdf-reading";
 
 const cleanup: (() => void)[] = [];
 afterEach(() =>
@@ -67,16 +68,16 @@ async function fixture() {
   const save = (path: string, fresh = false) => saver.save({ url: `${base}${path}`, fresh });
   const doc = (id: string) => store.state.documents.find((d: any) => d.id === id) as any;
   const inLibrary = (path: string) => readFileSync(join(directory, "library", path), "utf8");
-  return { directory, store, site, base, saver, save, doc, inLibrary };
+  return { directory, store, site, base, saver, save, doc, inLibrary, reading };
 }
 
 describe("a page's readable text", () => {
-  it("keeps every visible word in order, a line per block, and nothing a reader does not see", () => {
+  it("keeps the page's own text in order, a line per block, without scripts, styles or hidden parts", () => {
     const { title, text } = readableText(
-      page('<nav><a href="/">Home</a> <a href="/about">About</a></nav><h1>Harbor   notes</h1><p>Example Mill<br>opened in <i>1882</i>.</p><p hidden>Draft only.</p><ul><li>First</li><li>Second</li></ul><pre>a  b\n  c</pre><table><tr><td>1901</td><td> Ben Example </td></tr></table>'),
+      page('<nav><a href="/">Home</a> <a href="/about">About</a></nav><h1>Harbor   notes</h1><p>Example Mill<br>opened in <i>1882</i>.</p><p hidden>Draft only.</p><ul><li>First</li><li>Second</li></ul><pre>a  b\n  c</pre><button>Show the Example ledger</button><textarea>Typed note on Ada Example</textarea><svg><style>text { fill: red }</style><text>Owner: Ben Example</text></svg><table><tr><td>1901</td><td> Ben Example </td></tr></table>'),
     );
     expect(title).toBe("Fictional Harbor Gazette");
-    expect(text).toBe("Home About\n\nHarbor notes\n\nExample Mill\nopened in 1882.\n\nFirst\nSecond\n\na  b\n  c\n\n1901\tBen Example");
+    expect(text).toBe("Home About\n\nHarbor notes\n\nExample Mill\nopened in 1882.\n\nFirst\nSecond\n\na  b\n  c\n\nShow the Example ledger\nTyped note on Ada Example\nOwner: Ben Example\n\n1901\tBen Example");
   });
   it("takes its title from the first heading when the page has no title", () => {
     expect(readableText("<h1>The Example  deed</h1><p>Text.</p>").title).toBe("The Example deed");
@@ -157,6 +158,34 @@ describe("saving sources", () => {
     // The latest capture is the one a repeated address gives.
     expect((await save("/edition")).id).toBe(second.id);
   });
+
+  it("gives the capture last seen at an address, when the page has gone back to an earlier one", async () => {
+    const { save, site, store } = await fixture();
+    const first = await save("/edition");
+    site.edition = 2;
+    const second = await save("/edition", true);
+    site.edition = 1;
+    // The page is as it first was: the fresh capture is the first one again.
+    expect((await save("/edition", true)).id).toBe(first.id);
+    expect((await save("/edition")).id).toBe(first.id);
+    expect(store.state.documents.map((d: any) => d.id)).toEqual([first.id, second.id]);
+  });
+
+  it("never reads a saved PDF again, so its text stays as it was when quoted", async () => {
+    const { save, doc, reading, store } = await fixture();
+    const receipt = await save("/ledger.pdf");
+    // As if the reader had made a mistake that reading again would correct.
+    store.update((next: any) => {
+      const d = next.documents.find((x: any) => x.id === receipt.id);
+      d.text = d.text.replace("1901", "190l");
+    });
+    const before = structuredClone(doc(receipt.id));
+    expect(reading.readAgain([receipt.id])).toBe(0);
+    expect(reading.readAgain("all")).toBe(0);
+    await new Promise((done) => setTimeout(done, 1500));
+    expect(doc(receipt.id)).toEqual(before);
+    expect(readingNote(doc(receipt.id), { reader: "standard", docling: { state: "ready" } } as any)).not.toContain("data-read-again");
+  }, 60_000);
 
   it("follows a redirect to the page", async () => {
     const { save, doc } = await fixture();

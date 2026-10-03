@@ -202,6 +202,8 @@ export interface ResearchState {
   conversation?: Message[];
   collections: SourceCollection[];
   documents: ResearchDocument[];
+  // For each address saved from the web, the capture that shows it as last seen.
+  latestCaptures?: Record<string, string>;
   library?: SourceRecord[];
   interfaceFeedback?: {
     id: string;

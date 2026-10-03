@@ -70,11 +70,13 @@ export class PdfReading {
 
   // Reads documents again, with a named reader or the chosen one. Their current
   // text stays until the new reading is done.
+  // A source saved from the web is never read again: a capture's text does not
+  // change once saved, so a quote checked against it stays found.
   readAgain(ids, engine) {
     if (ids !== "all" && !(Array.isArray(ids) && ids.every((id) => typeof id === "string"))) throw new Error("Say which documents to read again.");
     if (engine && !["standard", "docling"].includes(engine)) throw new Error("Choose Standard or High accuracy.");
     const result = this.store.update((next) => {
-      const chosen = next.documents.filter((d) => isPdf(d) && (ids === "all" || ids.includes(d.id)) && d.reading?.state !== "reading");
+      const chosen = next.documents.filter((d) => isPdf(d) && !d.capturedAt && (ids === "all" || ids.includes(d.id)) && d.reading?.state !== "reading");
       for (const d of chosen) d.reading = { state: "waiting", ...(engine ? { engine } : {}) };
       return chosen.length;
     });
