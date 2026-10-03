@@ -122,6 +122,7 @@ export class SourceSaver {
         const title = last.replace(/\.pdf$/i, "") || new URL(url).hostname;
         const ocr = pages.filter((p) => p.method === "ocr").length;
         doc = { title, name: fileName(title, ".pdf"), mime: "application/pdf", text: pageText(pages), pages: pages.length, reading: { state: "done", engine, at: new Date().toISOString(), ...(ocr ? { ocrPages: ocr } : {}) } };
+        doc.conversion = { engine, at: doc.reading.at };
         if (pages.reduce((n, p) => n + p.text.replace(/\s/g, "").length, 0) < READABLE_MINIMUM) throw new Error("This PDF has no readable text, so it was not saved.");
       } else {
         const decoded = decode(bytes, type);

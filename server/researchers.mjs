@@ -412,7 +412,7 @@ Other researchers may be working on other parts of the same batch at the same ti
 
 Everything the project has produced so far is in the research library at ${library}, which you can read and search with your shell but not change. Its README.md describes it. It holds every batch's brief and board, every research pass's direction, published findings with their evidence, and checkpoints, including those of researchers working now; the walkthroughs; the graph as tables; the source library in sources.csv; and the saved documents in documents/, by ID.
 The library is kept current while you work. Search it before repeating work someone else has done, and look up every ID the brief names.
-Each PDF's text is in documents/<id>.txt beside it, with "[Page n]" before each page; search that, quote from it exactly, and give the page. Look at the PDF's pages themselves when the text reads oddly, as a table or a damaged scan can. A PDF without a text file hasn't been read yet: look at its pages and quote what you see, with the page.
+Each PDF's text is beside it as documents/<id>.r<n>.txt, where n is the text's revision, with "[Page n]" before each page; documents.csv names the current one. Search that, quote from it exactly, and give the page. Look at the PDF's pages themselves when the text reads oddly, as a table or a damaged scan can. A PDF without a text file hasn't been read yet: look at its pages and quote what you see, with the page.
 ${this.sessions ? SESSION_INSTRUCTIONS : ""}
 ## Research
 
@@ -448,7 +448,7 @@ Your final message should be a short completion status. The coordinator reviews 
   startAgent(task, engine, executable, instructions, web, choice, browser) {
     const name = liveName(engine);
     const titles = Object.fromEntries(
-      this.store.state.documents.flatMap((d) => [[`${d.id}${extname(d.name).toLowerCase()}`, d.name], [`${d.id}.txt`, d.name]]),
+      this.store.state.documents.flatMap((d) => [[`${d.id}${extname(d.name).toLowerCase()}`, d.name], ...Array.from({ length: d.revision ?? 1 }, (_, n) => [`${d.id}.r${n + 1}.txt`, d.name])]),
     );
     task.agent = this.supervisor.start({
       key: `research:${task.id}`,

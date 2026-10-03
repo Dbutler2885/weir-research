@@ -187,7 +187,10 @@ export interface ResearchDocument {
   // The text's revision, raised each time the document is read again with a different
   // result. Earlier revisions are kept beside the document, as <id>.r<n>.txt.
   revision?: number;
-  textRevisions?: { revision: number; at: string; engine?: string; pages?: number; size: number }[];
+  textRevisions?: { revision: number; at?: string; engine?: string; pages?: number; size: number }[];
+  // The conversion that made the current text: which reader, and when. Kept apart
+  // from reading, which a later reading overwrites as soon as it is asked for.
+  conversion?: { engine?: string; at?: string };
   // Wording a published quote was checked against in an earlier revision, which the
   // current text no longer holds: kept until it is reconciled against the page.
   corrections?: TextCorrection[];

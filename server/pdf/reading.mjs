@@ -8,7 +8,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { doclingStatus, readWithDocling, startDoclingInstall } from "./docling.mjs";
-import { reviseText } from "../../src/domain/text-revisions.ts";
+import { keepConversion, reviseText } from "../../src/domain/text-revisions.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const settingsFile = (home) => join(home, "app-settings.json");
@@ -76,7 +76,11 @@ export class PdfReading {
     if (engine && !["standard", "docling"].includes(engine)) throw new Error("Choose Standard or High accuracy.");
     const result = this.store.update((next) => {
       const chosen = next.documents.filter((d) => isPdf(d) && (ids === "all" || ids.includes(d.id)) && d.reading?.state !== "reading");
-      for (const d of chosen) d.reading = { state: "waiting", ...(engine ? { engine } : {}) };
+      for (const d of chosen) {
+        // What made the text it has now, before this reading's progress replaces it.
+        keepConversion(d);
+        d.reading = { state: "waiting", ...(engine ? { engine } : {}) };
+      }
       return chosen.length;
     });
     this.pump();
@@ -130,9 +134,10 @@ export class PdfReading {
           const d = state.documents.find((x) => x.id === next.id);
           if (!d) return;
           // A new revision, against which every published quote citing it is checked again.
-          reviseText(state, d.id, text);
+          const at = new Date().toISOString();
+          reviseText(state, d.id, text, { engine, at });
           d.pages = pages.length;
-          d.reading = { state: "done", engine, at: new Date().toISOString(), ...(pages.some((p) => p.method === "ocr") ? { ocrPages: pages.filter((p) => p.method === "ocr").length } : {}) };
+          d.reading = { state: "done", engine, at, ...(pages.some((p) => p.method === "ocr") ? { ocrPages: pages.filter((p) => p.method === "ocr").length } : {}) };
         });
       },
       (error) => {

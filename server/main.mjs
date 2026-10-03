@@ -190,7 +190,7 @@ const pdfs = new PdfReading(store, { home: appDirectory, directory });
 process.on("exit", () => pdfs.stop());
 pdfs.pump();
 // Findings the researchers publish themselves, each quote checked against the saved text.
-const findings = new FindingPublisher(store, { published: () => library.write() });
+const findings = new FindingPublisher(store, { directory, published: () => library.write() });
 // Sources from the web, saved as documents for the whole team.
 const sources = new SourceSaver(store, { directory, readPdf: (file) => pdfs.readFile(file), written: () => library.write() });
 const workerCommands = new Set(["claim", "checkpoint", "propose"]);

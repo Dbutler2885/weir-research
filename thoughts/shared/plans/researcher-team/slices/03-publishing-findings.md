@@ -27,7 +27,7 @@ See **Publishing findings**, **Text revisions and reconciliation** and **Graph w
 - [x] A replacement supersedes the old finding; a second replacement of it is refused with the replacement's name
 - [x] A repeated publish is refused
 - [x] A finding published or replaced during graph work sends the builder a graph update and makes the stale draft impossible to sign off or accept
-- [x] Reading a cited PDF again keeps the earlier text revision, and every published quote still matches the current text
+- [x] Reading a cited PDF again keeps the earlier text revision; a published quote the new text still holds is checked in the new revision, and one it words differently keeps its wording, checked in the earlier revision and recorded as not yet reconciled
 - [x] A board post, checkpoint or researcher finishing leaves a draft valid
 
 ## How it was built
@@ -37,7 +37,12 @@ See **Publishing findings**, **Text revisions and reconciliation** and **Graph w
 - A refused quote says where the quote is when it is on another page, and otherwise gives the nearest passage on the cited pages.
 - Once a batch has a findings revision, the graph builder's inputs hold all of the batch's findings as they stand, not only those its walkthrough named.
 - A paused graph job takes the update and stays paused.
-- Earlier text revisions are kept beside the document as `<id>.r<n>.txt`, in the project and in the library.
+- Every revision of a document's text, the current one included, is its own file in the library, `<id>.r<n>.txt`, which never changes once written.
+  `documents.csv` names the current revision and its file, so a read gets the text of the revision it reports.
+  A change to a document's text is always a new revision; slice 07's reconciliation must keep to that.
+- A document records the conversion that made its current text, the reader and the time, apart from the progress of a later reading, so an earlier revision is recorded with what made it.
+- A findings file says which revision each quote was checked in and names that revision's file, and says so when the document has been read again and words the passage differently.
+  A quote refused because it comes from an earlier revision is refused with that explanation and the current revision's file.
 
 ## Left for later slices
 

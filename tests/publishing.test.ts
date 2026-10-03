@@ -45,7 +45,7 @@ function fixture() {
     (next.dataset.sources ||= []).push({ id: "ledger", title: "Harbor ledger" }, { id: "plaque", title: "Mill plaque" });
   });
   const library = new ResearchLibrary(store, directory);
-  const publisher = new FindingPublisher(store, { published: () => library.write() });
+  const publisher = new FindingPublisher(store, { directory, published: () => library.write() });
   cleanup.push(() => {
     library.stop();
     rmSync(directory, { recursive: true, force: true });
@@ -99,7 +99,7 @@ describe("publishing a finding", () => {
     expect(batch().findingsRevision).toBe(1);
     const page = inLibrary("batches/batch-1/pass-1/findings.md");
     expect(page).toContain(`Finding ${receipt.id} (finding f1 in report ${report.id}), published by Researcher 1: supported`);
-    expect(page).toContain("The app found this quote in the saved text at the pages cited.");
+    expect(page).toContain("The app found this quote at the page cited, in revision 1 of the saved text (documents/ledger.r1.txt).");
   });
 
   it("refuses a quote at the wrong page, or not in the text, saying why, and publishes nothing", () => {
@@ -245,7 +245,7 @@ describe("reading a cited document again", () => {
     writeFileSync(join(directory, "documents", "ledger"), fictionalPdf([{ text: ["Fictional Harbor Archive", "Example Trading Company was founded in 1842."] }, { text: ["Ada Example sold the mill", "to Ben Example in 1901."] }]));
     // As an earlier reading gave it, with a misread year.
     const earlier = "[Page 1]\nFictional Harbor Archive\nExample Trading Company was founded in 1842.\n\n[Page 2]\nAda Example sold the mill\nto Ben Example in 190l.";
-    store.update((next: any) => (next.documents.find((d: any) => d.id === "ledger").text = earlier));
+    store.update((next: any) => Object.assign(next.documents.find((d: any) => d.id === "ledger"), { text: earlier, reading: { state: "done", engine: "docling", at: "2025-09-01T00:00:00.000Z" } }));
     const quote = (text: string, page: number) => ({ statement: `The ledger says: ${text}`, qualification: "reported", explanation: "As the ledger has it.", evidence: [{ document: "ledger", page, quote: text, interpretation: "The ledger's words." }] });
     publisher.publish(one, quote("Example Trading Company was founded in 1842.", 1));
     publisher.publish(one, quote("to Ben Example in 190l.", 2));
@@ -258,7 +258,9 @@ describe("reading a cited document again", () => {
     await until(() => doc().reading?.state === "done", 60_000);
     expect(doc().revision).toBe(2);
     expect(doc().text).toContain("to Ben Example in 1901.");
-    expect(doc().textRevisions).toMatchObject([{ revision: 1, pages: 3 }]);
+    // The earlier text is recorded with the reader that made it and when, not the new reading's.
+    expect(doc().textRevisions).toEqual([{ revision: 1, at: "2025-09-01T00:00:00.000Z", engine: "docling", pages: 3, size: earlier.length }]);
+    expect(doc().conversion).toMatchObject({ engine: "standard", at: doc().reading.at });
     expect(readFileSync(join(directory, "documents", "ledger.r1.txt"), "utf8")).toBe(earlier);
     // The quote the new text still holds is checked against it; the other keeps its wording.
     const [founded, sold] = batch().proposals.map((p: any) => p.evidence[0]);
@@ -268,8 +270,20 @@ describe("reading a cited document again", () => {
     // The library names the revision and keeps the earlier text.
     new (await import("../server/research-library.mjs")).ResearchLibrary(store, directory).stop();
     expect(inLibrary("documents/documents.csv").split("\n")[0]).toBe("id,name,collection,file,text,pages,url,saved,revision");
-    expect(inLibrary("documents/documents.csv")).toMatch(/^ledger,.*,2$/m);
+    // Each revision's text is a file of its own that never changes, so the text a
+    // reader opens is the revision the list named.
+    expect(inLibrary("documents/documents.csv")).toMatch(/^ledger,Harbor ledger\.pdf,web,documents\/ledger\.pdf,documents\/ledger\.r2\.txt,.*,2$/m);
     expect(inLibrary("documents/ledger.r1.txt")).toBe(earlier);
+    expect(inLibrary("documents/ledger.r2.txt")).toBe(doc().text);
+    expect(existsSync(join(directory, "library", "documents", "ledger.txt"))).toBe(false);
+    // The findings say which revision each quote was checked in, and where that text is.
+    const findings = inLibrary("batches/batch-1/pass-1/findings.md");
+    expect(findings).toContain("The app found this quote at the page cited, in revision 2 of the saved text (documents/ledger.r2.txt).");
+    expect(findings).toContain("The app found this quote at the page cited, in revision 1 of the saved text (documents/ledger.r1.txt). The document has been read again since, and revision 2 (documents/ledger.r2.txt) words this passage differently; the quote keeps the wording it was checked in until the two are reconciled against the page.");
+    // A quote from a variable read before says so, rather than only that it is not there.
+    expect(() => publisher.publish(one, quote("Ada Example sold the mill to Ben Example in 190l.", 2))).toThrow(
+      'Quote the saved text exactly. The quote does match revision 1 of the text (documents/ledger.r1.txt), but the document has been read again since. Read revision 2 (documents/ledger.r2.txt), which weir.library.read gives, and quote that.',
+    );
     // Reading it again with the same result is not a new revision.
     reading.readAgain(["ledger"]);
     await until(() => doc().reading?.state === "done" && !existsSync(join(directory, "documents", "ledger.r2.txt")), 60_000);

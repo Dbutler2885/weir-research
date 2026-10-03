@@ -46,6 +46,8 @@ def read(doc_id):
 
     A PDF's text has "[Page n]" before each page; any other text document is one page.
     The revision is the document's text revision, which rises when it is read again.
+    Each revision's text is a file of its own that never changes, so the text returned
+    is always the revision named with it.
     """
     row = _document(doc_id)
     if row["text"] == "not read yet":

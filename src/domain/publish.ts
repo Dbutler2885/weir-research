@@ -5,6 +5,7 @@
 import type { ResearchState, Proposal, Evidence } from "./research.ts";
 import { getFinding, type Finding, type FindingRef } from "./findings.ts";
 import { checkQuote } from "./quotes.ts";
+import { textFile } from "./text-revisions.ts";
 
 export interface EvidenceInput {
   document: string;
@@ -52,9 +53,19 @@ export const findingContent = (input: FindingInput) =>
 /**
  * Publishes a seat's finding into its batch, changing the state given, and returns
  * its receipt. Throws, with the reason, when it is refused. key names this seat and
- * content; a finding already published under it is not published again.
+ * content; a finding already published under it is not published again. earlierText
+ * gives the kept text of a document's earlier revision, so a quote taken from text
+ * read before the document was read again is refused with that explanation.
  */
-export function publishFinding(next: ResearchState, assignmentId: string, input: FindingInput, key: string, now = new Date().toISOString(), id: () => string = () => crypto.randomUUID()): PublishedReceipt {
+export function publishFinding(
+  next: ResearchState,
+  assignmentId: string,
+  input: FindingInput,
+  key: string,
+  now = new Date().toISOString(),
+  id: () => string = () => crypto.randomUUID(),
+  earlierText: (documentId: string, revision: number) => string | undefined = () => undefined,
+): PublishedReceipt {
   const batch = next.investigations.find((i) => i.assignments?.some((a) => a.id === assignmentId));
   const seat = batch?.assignments?.find((a) => a.id === assignmentId);
   refuse(batch && seat, "This researcher has no place in a batch.");
@@ -81,7 +92,21 @@ export function publishFinding(next: ResearchState, assignmentId: string, input:
     refuse(range.length === 2 && Number.isInteger(from) && Number.isInteger(to) && from >= 1 && to >= from, `${label} needs the page its quote is on, as page, or as pages with the first and last page.`);
     refuse(document.text !== undefined, `${label} cites ${document.id}, whose text has not been read yet, so its quote cannot be checked.`);
     const check = checkQuote(document.text, from, to, e.quote);
-    refuse(check.found, `${label} was not found in ${document.id} (${document.name}). ${check.found ? "" : check.reason}`);
+    if (!check.found) {
+      // From a variable read before the document was read again, most likely.
+      const current = document.revision ?? 1;
+      const earlier = [...(document.textRevisions || [])].reverse().find((r) => {
+        const text = earlierText(document.id, r.revision);
+        return text !== undefined && checkQuote(text, from, to, e.quote).found;
+      });
+      throw new Error(
+        `${label} was not found in ${document.id} (${document.name}). ${check.reason}${
+          earlier
+            ? ` The quote does match revision ${earlier.revision} of the text (${textFile(document, earlier.revision)}), but the document has been read again since. Read revision ${current} (${textFile(document, current)}), which weir.library.read gives, and quote that.`
+            : ""
+        }`,
+      );
+    }
     return {
       id: `e${n + 1}`,
       sourceId: document.id,

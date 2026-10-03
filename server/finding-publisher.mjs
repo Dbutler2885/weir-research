@@ -2,16 +2,28 @@
 // finding, or the reason it was refused, out. The app checks every quote against the
 // saved text itself, so no one stands between a researcher's finding and the human.
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { findingContent, publishFinding } from "../src/domain/publish.ts";
 import { findingsChanged } from "./review-flow.mjs";
 
 export class FindingPublisher {
   // published() runs after a finding is published, to bring the library's files up
-  // to date at once.
-  /** @param {any} store @param {{published?: () => void}} [options] */
-  constructor(store, { published = () => {} } = {}) {
+  // to date at once. directory is the project's folder, where the earlier revisions
+  // of a document's text are kept.
+  /** @param {any} store @param {{published?: () => void, directory?: string}} [options] */
+  constructor(store, { published = () => {}, directory } = {}) {
     this.store = store;
     this.published = published;
+    this.directory = directory;
+  }
+  earlierText(documentId, revision) {
+    if (!this.directory) return undefined;
+    try {
+      return readFileSync(join(this.directory, "documents", `${documentId}.r${revision}.txt`), "utf8");
+    } catch {
+      return undefined;
+    }
   }
   // Publishes the finding for the seat, and resolves with its receipt; throws with
   // the reason when it is refused. Findings are applied one at a time.
@@ -20,7 +32,7 @@ export class FindingPublisher {
     // from code run a second time, is published once.
     const key = createHash("sha256").update(`${assignmentId}\n${findingContent(finding)}`).digest("hex");
     const receipt = this.store.update((next) => {
-      const published = publishFinding(next, assignmentId, finding, key);
+      const published = publishFinding(next, assignmentId, finding, key, undefined, undefined, (id, revision) => this.earlierText(id, revision));
       const batch = next.investigations.find((i) => i.assignments?.some((a) => a.id === assignmentId));
       // Graph work under way for the batch was built from findings that have now changed.
       findingsChanged(next, batch.id, `${published.replaced ? `Finding ${published.replaced} was replaced by ${published.id}` : `A new finding was published, ${published.id}`}: "${published.statement}". packet.json holds the batch's findings as they stand now; revise the draft to match them.`);

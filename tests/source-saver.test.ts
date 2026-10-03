@@ -94,9 +94,9 @@ describe("saving sources", () => {
     expect(receipt.characters).toBe(saved.text.length);
     expect(sourceLibrary(store.state).find((s) => s.id === receipt.id)).toMatchObject({ title: "Fictional Harbor Gazette", url: `${base}/gazette`, access: "full-text" });
     // No wait for the library's next write: it is there when the save returns.
-    expect(inLibrary(`documents/${receipt.id}.txt`)).toBe(saved.text);
+    expect(inLibrary(`documents/${receipt.id}.r1.txt`)).toBe(saved.text);
     expect(inLibrary(`documents/${receipt.id}.html`)).toContain("<h1>Harbor notes</h1>");
-    expect(inLibrary("documents/documents.csv")).toContain(`${receipt.id},Fictional Harbor Gazette.html,web,documents/${receipt.id}.html,documents/${receipt.id}.txt,1,${base}/gazette,`);
+    expect(inLibrary("documents/documents.csv")).toContain(`${receipt.id},Fictional Harbor Gazette.html,web,documents/${receipt.id}.html,documents/${receipt.id}.r1.txt,1,${base}/gazette,`);
     expect(inLibrary("sources.csv")).toContain(receipt.id);
   });
 
@@ -105,7 +105,7 @@ describe("saving sources", () => {
     const receipt = await save("/ledger.pdf");
     expect(receipt).toMatchObject({ title: "ledger", pages: 2, existing: false });
     expect(doc(receipt.id)).toMatchObject({ name: "ledger.pdf", mime: "application/pdf", pages: 2, reading: { state: "done", engine: "standard" } });
-    expect(inLibrary(`documents/${receipt.id}.txt`)).toBe("[Page 1]\nFictional Harbor Archive\nExample Trading Company was founded in 1842.\n\n[Page 2]\nAda Example sold the mill in 1901.");
+    expect(inLibrary(`documents/${receipt.id}.r1.txt`)).toBe("[Page 1]\nFictional Harbor Archive\nExample Trading Company was founded in 1842.\n\n[Page 2]\nAda Example sold the mill in 1901.");
   }, 60_000);
 
   it("saves plain text as it is, and reads a page in the character set it names", async () => {

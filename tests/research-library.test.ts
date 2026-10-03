@@ -85,7 +85,7 @@ describe("the research library", () => {
       "batches/batch-1/pass-2/checkpoints.md",
       "batches/batch-1/pass-2/findings.md",
       "documents/doc-1.pdf",
-      "documents/doc-1.txt",
+      "documents/doc-1.r1.txt",
       "documents/documents.csv",
       "graph/edges.csv",
       "graph/evidence.csv",
@@ -113,8 +113,8 @@ describe("the research library", () => {
     expect(text("graph/nodes.csv")).toContain("mill,place,Harbour Mill");
     expect(text("sources.csv").split("\n")[0]).toBe("id,title,repository");
     expect(text("sources.csv")).toContain("register,Fictional lease register,County archive");
-    expect(text("documents/doc-1.txt")).toContain("[Page 1]");
-    expect(text("documents/documents.csv")).toContain("doc-1,Deed.PDF,imports,documents/doc-1.pdf,documents/doc-1.txt,");
+    expect(text("documents/doc-1.r1.txt")).toContain("[Page 1]");
+    expect(text("documents/documents.csv")).toContain("doc-1,Deed.PDF,imports,documents/doc-1.pdf,documents/doc-1.r1.txt,");
   });
 
   it("leaves out the conversation, annotations, unreviewed results and worker credentials", () => {

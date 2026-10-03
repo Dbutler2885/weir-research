@@ -2,6 +2,7 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameS
 import { dirname, extname, join, relative } from "node:path";
 import { graphToTables } from "../src/domain/graph-csv.ts";
 import { sourceLibrary } from "../src/domain/findings.ts";
+import { textFile } from "../src/domain/text-revisions.ts";
 
 // The research library: everything the project has produced, as files a researcher
 // searches and reads with its shell. The app writes it from the project's saved state
@@ -21,7 +22,7 @@ You can read and search it; you cannot change it.
 - \`walkthroughs/batch-N.md\`: how each batch's research was explained to the human.
 - \`graph/\`: the project's graph as tables: \`nodes.csv\`, \`edges.csv\`, the project's types, fields and relationships, and \`evidence.csv\`, the evidence the graph cites.
 - \`sources.csv\`: every source the project knows, by ID.
-- \`documents/\`: the project's saved documents by ID, with \`documents.csv\` listing them, each with the address it was saved from, if any; a PDF's or a web page's text is beside it as \`<id>.txt\`, a PDF's with "[Page n]" before each page. A document read again has a new text revision, named in \`documents.csv\`; its earlier text is kept as \`<id>.r<n>.txt\`.
+- \`documents/\`: the project's saved documents by ID, with \`documents.csv\` listing them, each with the address it was saved from, if any; a PDF's or a web page's text is beside it as \`<id>.r<n>.txt\`, where n is the text's revision, a PDF's with "[Page n]" before each page. \`documents.csv\` names each document's current revision and the file that holds it. A document read again has a new revision in a new file; the files of its earlier revisions stay as they were.
 
 IDs here are the ones to cite and to name in your work.
 `;
@@ -88,10 +89,19 @@ function evidenceText(state, p, id) {
   const e = p.evidence.find((x) => x.id === id);
   if (!e) return `Evidence ${id} is missing.`;
   const source = sourceLibrary(state).find((s) => s.id === e.sourceId);
+  // Which revision of the document's text the quote was found in, and where that text is.
+  const d = e.check === "checked" ? state.documents.find((x) => x.id === e.documentId) : null;
+  const cited = e.pages && e.pages[0] !== e.pages[1] ? "pages" : "page";
+  const [found, now] = [e.revision ?? 1, d?.revision ?? 1];
+  const checked = !d
+    ? " The app found this quote in the saved text at the pages cited."
+    : ` The app found this quote at the ${cited} cited, in revision ${found} of the saved text (${textFile(d, found)}).${
+        found < now ? ` The document has been read again since, and revision ${now} (${textFile(d, now)}) words this passage differently; the quote keeps the wording it was checked in until the two are reconciled against the page.` : ""
+      }`;
   return lines(
     quote(e.quote),
     `Evidence ${e.id} (${e.stance}). Source: ${source?.title || "unknown"} (${e.sourceId}), ${e.locator}.${e.documentId ? ` Saved as documents/${e.documentId}.` : ""}${
-      e.check === "checked" ? " The app found this quote in the saved text at the pages cited." : e.check === "transcribed" ? " From a transcription, which the app cannot check against the image." : ""
+      e.check === "checked" ? checked : e.check === "transcribed" ? " From a transcription, which the app cannot check against the image." : ""
     }`,
     e.context ? `Context: ${e.context}` : "",
     `Interpretation: ${e.interpretation}`,
@@ -182,11 +192,13 @@ export function libraryFiles(state) {
     const original = `documents/${d.id}${extname(d.name).toLowerCase()}`;
     files.set(original, { copy: d.id, size: d.size });
     // A text document is its own text; a PDF's or a web page's text is kept beside it.
-    const textFile = d.text !== undefined && d.mime !== "text/plain" ? `documents/${d.id}.txt` : "";
-    if (textFile) files.set(textFile, d.text);
+    // Each revision of it has a file of its own that never changes, so a reader that
+    // takes the revision from documents.csv and then opens the file gets that revision.
+    const text = d.text !== undefined && d.mime !== "text/plain" ? textFile(d, d.revision ?? 1) : "";
+    if (text) files.set(text, d.text);
     // Earlier revisions of its text, kept when it was read again.
-    for (const r of d.textRevisions || []) files.set(`documents/${d.id}.r${r.revision}.txt`, { copy: `${d.id}.r${r.revision}.txt`, size: r.size });
-    documents.push([d.id, d.name, d.collectionId, original, textFile || (d.mime === "application/pdf" ? "not read yet" : original), d.pages ?? "", d.url ?? "", d.capturedAt ?? "", d.text !== undefined ? d.revision ?? 1 : ""]);
+    for (const r of d.textRevisions || []) files.set(textFile(d, r.revision), { copy: `${d.id}.r${r.revision}.txt`, size: r.size });
+    documents.push([d.id, d.name, d.collectionId, original, text || (d.mime === "application/pdf" ? "not read yet" : original), d.pages ?? "", d.url ?? "", d.capturedAt ?? "", d.text !== undefined ? d.revision ?? 1 : ""]);
   }
   files.set("documents/documents.csv", csv(["id", "name", "collection", "file", "text", "pages", "url", "saved", "revision"], documents));
   return files;

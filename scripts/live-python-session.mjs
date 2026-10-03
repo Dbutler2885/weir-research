@@ -56,7 +56,7 @@ for (const provider of only.length ? only : ["claude", "codex"]) {
   // A batch with one seat, whose researcher can publish findings.
   store.command({ type: "open-batch", title: "Who bought the Example mill", brief: { purpose: "Who bought the fictional mill.", scope: "Anything.", direction: "None." }, assignments: [{ title: "Researcher 1", brief: "The goal." }] });
   const seatId = store.state.investigations[0].assignments[0].id;
-  const publisher = new FindingPublisher(store, { published: () => files.write() });
+  const publisher = new FindingPublisher(store, { directory: project, published: () => files.write() });
   const desk = new SessionDesk({ home: appHome, library, calls: { save: (given) => saver.save(given), publish: (given, context) => publisher.publish(context.key, given.finding) } });
   const lease = "lease-1";
   desk.open(seatId, { folder, seat, authorize: (given) => given === lease, deliver: (text) => console.log(`${provider} message: ${text}`) });
