@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -47,24 +47,27 @@ describe.skipIf(!onMac)("a researcher's Python session", () => {
     const { session } = fixture();
     const first = session();
     await first.run("found = {'mill': 1882}");
-    expect((await first.run("found['mill'] + 1")).output).toBe("1883\n");
+    expect((await first.run("print(found['mill'] + 1)")).output).toBe("1883\n");
     first.process!.kill("SIGKILL");
-    expect((await first.run("found")).output).toBe("{'mill': 1882}\n");
+    expect((await first.run("print(found)")).output).toBe("{'mill': 1882}\n");
     first.stop();
     // As after the app restarts: another session on the same seat.
     const second = session();
     expect(await second.start()).toMatchObject({ interrupted: null, problem: null });
-    expect((await second.run("found['mill']")).output).toBe("1882\n");
+    expect((await second.run("print(found['mill'])")).output).toBe("1882\n");
   });
 
   it("returns only what the code prints, cut off past the limit with a note", async () => {
     const { session } = fixture();
     const s = session({ outputLimit: 100 });
     await s.run("text = 'x' * 50000");
-    expect((await s.run("len(text)")).output).toBe("50000\n");
+    expect((await s.run("print(len(text))")).output).toBe("50000\n");
+    // A value on its own is not shown: only what is printed enters the researcher's context.
+    expect((await s.run("text")).output).toBe("");
     const long = await s.run("print(text)");
     expect(long.output.startsWith("x".repeat(100))).toBe(true);
-    expect(long.output).toMatch(/\[Output truncated: 49901 more characters were printed/);
+    const id = long.output.match(/\[Output cut short: 49901 more characters were printed\. The whole output is kept: weir\.output\('([^']+)'\) returns it/)![1];
+    expect((await s.run(`print(len(weir.output(${JSON.stringify(id)})))`)).output).toBe("50001\n");
   });
 
   it("names a value it cannot keep, once", async () => {
@@ -75,7 +78,7 @@ describe.skipIf(!onMac)("a researcher's Python session", () => {
     expect((await s.run("kept += 1")).output).toBe("");
     s.stop();
     const again = session();
-    expect((await again.run("kept, 'rows' in dir()")).output).toBe("(2, False)\n");
+    expect((await again.run("print((kept, 'rows' in dir()))")).output).toBe("(2, False)\n");
   });
 
   it("reports errors as tracebacks of the run's own code", async () => {
@@ -100,18 +103,44 @@ describe.skipIf(!onMac)("a researcher's Python session", () => {
     await until(() => !first.process);
     const second = session();
     expect((await second.start()).interrupted).toBeTruthy();
-    expect((await second.run("count")).output).toBe("1\n");
+    expect((await second.run("print(count)")).output).toBe("1\n");
     // Reported once.
     second.stop();
     expect((await session().start()).interrupted).toBeNull();
   });
 
+  it("never lets a kernel left by a crashed app save over its replacement", async () => {
+    const { root, folder, library, session } = fixture();
+    // A stand-in app that starts a slow run and then crashes.
+    const app = join(root, "app.mjs");
+    writeFileSync(
+      app,
+      `import { PythonSession } from ${JSON.stringify(resolve("server/python-session/session.mjs"))};
+const s = new PythonSession({ folder: ${JSON.stringify(folder)}, library: ${JSON.stringify(library)}, home: ${JSON.stringify(home)} });
+await s.run("count = 1");
+s.run("import time\\ntime.sleep(3)\\ncount = 2");
+setTimeout(() => console.log("running"), 300);
+`,
+    );
+    const crashed = spawn(process.execPath, [app], { stdio: ["ignore", "pipe", "inherit"] });
+    cleanups.push(() => crashed.kill("SIGKILL"));
+    await new Promise<void>((done) => crashed.stdout!.on("data", (d) => String(d).includes("running") && done()));
+    crashed.kill("SIGKILL");
+    const replacement = session();
+    expect((await replacement.start()).interrupted).toBeTruthy();
+    await replacement.run("count = 3");
+    replacement.stop();
+    // Past the moment the old run would have finished and saved.
+    await new Promise((done) => setTimeout(done, 3500));
+    expect((await session().run("print(count)")).output).toBe("3\n");
+  });
+
   it("reads the library's documents as pages", async () => {
     const { session } = fixture();
     const s = session();
-    expect((await s.run("[d['name'] for d in weir.library.documents()]")).output).toBe("['Harbor ledger.pdf']\n");
-    expect((await s.run("weir.library.read('doc-1')[1]")).output).toBe("{'page': 2, 'text': 'The ledger names Ada Example.'}\n");
-    expect((await s.run("[(m['document'], m['page']) for m in weir.library.search('mill')]")).output).toBe("[('doc-1', 1)]\n");
+    expect((await s.run("print([d['name'] for d in weir.library.documents()])")).output).toBe("['Harbor ledger.pdf']\n");
+    expect((await s.run("print(weir.library.read('doc-1')[1])")).output).toBe("{'page': 2, 'text': 'The ledger names Ada Example.'}\n");
+    expect((await s.run("print([(m['document'], m['page']) for m in weir.library.search('mill')])")).output).toBe("[('doc-1', 1)]\n");
   });
 
   it("is confined to the library and its folder, without the network", async () => {
@@ -145,21 +174,36 @@ describe.skipIf(!onMac)("the session desk", () => {
       child.stdin!.end(code);
     });
 
+  // A seat whose researcher works in its own folder within it.
   function desk(wait = 60_000) {
-    const { folder, library } = fixture();
+    const { folder: seat, library } = fixture();
     const messages: string[] = [];
     let lease = "lease-1";
     const d = new SessionDesk({ home, library, wait, poll: 100 });
     cleanups.push(() => d.closeAll());
-    d.open("seat-1", { folder, authorize: (given: string) => given === lease, deliver: (text: string) => messages.push(text) });
-    return { folder, messages, revoke: () => (lease = "lease-2") };
+    const open = (name: string) => {
+      const folder = join(seat, name);
+      mkdirSync(folder, { recursive: true });
+      d.open("seat-1", { folder, seat, authorize: (given: string) => given === lease, deliver: (text: string) => messages.push(text) });
+      return folder;
+    };
+    const folder = open(lease);
+    return { folder, messages, open, revoke: (next = "lease-2") => (lease = next) };
   }
 
   it("runs the researcher's code through its tool", async () => {
     const { folder } = desk();
     expect(await tool(folder, "seen = weir.library.text('doc-1')\nprint(seen.count('Example'))", "lease-1")).toMatchObject({ code: 0, stdout: "2\n" });
-    expect(await tool(folder, "len(seen)", "lease-1")).toMatchObject({ code: 0, stdout: "59\n" });
+    expect(await tool(folder, "print(len(seen))", "lease-1")).toMatchObject({ code: 0, stdout: "59\n" });
     expect(await tool(folder, "1/0", "lease-1")).toMatchObject({ code: 1, stdout: expect.stringMatching(/ZeroDivisionError/) });
+  });
+
+  it("keeps the seat's variables when its researcher moves to another agent's folder", async () => {
+    const { folder, open, revoke } = desk();
+    await tool(folder, "remembered = 42", "lease-1");
+    revoke("lease-2");
+    const switched = open("lease-2");
+    expect(await tool(switched, "print(remembered)", "lease-2")).toMatchObject({ code: 0, stdout: "42\n" });
   });
 
   it("refuses code from a lease that is no longer the seat's", async () => {

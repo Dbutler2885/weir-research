@@ -39,7 +39,7 @@ pages = weir.library.read("<document id>")
 print(len(pages))
 EOF
 
-Only what the code prints comes back to you, cut off past 20,000 characters, and a last line that is an expression shows its value. Keep long material in variables and print only what you need to decide your next step.
+Only what the code prints comes back to you; past 20,000 characters it is cut short, and weir.output(<run id>) gives the whole of it. Keep long material in variables and print only what you need to decide your next step.
 The weir package is already imported: weir.library.documents() lists the saved documents, weir.library.sources() the sources, weir.library.read(id) gives a document's pages as [{"page", "text"}], weir.library.text(id) its whole text, and weir.library.search(pattern) the matching lines with their document and page.
 The session can read the library and this folder and write this folder; it cannot reach the web or start programs. Code running longer than a few minutes carries on, and its output reaches you as a message.
 `;
@@ -184,6 +184,8 @@ export class ResearcherPool {
   openSession(task) {
     this.sessions?.open(task.id, {
       folder: task.directory,
+      // The seat's own folder, above each researcher's, so a switched researcher keeps it.
+      seat: join(this.directory, "agents", task.batchId, task.id),
       authorize: (lease) => lease === task.token && !task.terminated && this.current(task),
       deliver: (text) => {
         if (task.terminated || !this.current(task)) return;

@@ -25,10 +25,12 @@ export class SessionDesk {
     this.makeSession = session;
     this.seats = new Map();
   }
-  // Opens a seat's desk: its tool is placed in its folder, its session starts, and a
-  // run cut short before is reported. authorize(lease) says whether a lease is the
-  // seat's current one; deliver(text) sends the researcher a message.
-  open(key, { folder, authorize, deliver }) {
+  // Opens a seat's desk: its tool is placed in the researcher's folder, the seat's
+  // session starts, and a run cut short before is reported. The session belongs to the
+  // seat, so it outlasts the researcher's folder when the researcher is switched to
+  // another agent. authorize(lease) says whether a lease is the seat's current one;
+  // deliver(text) sends the researcher a message.
+  open(key, { folder, seat: seatFolder, authorize, deliver }) {
     this.close(key);
     const requests = join(folder, "python", "requests");
     mkdirSync(requests, { recursive: true });
@@ -40,7 +42,7 @@ export class SessionDesk {
       folder,
       authorize,
       deliver,
-      session: this.makeSession({ folder, library: this.library, home: this.home, outputLimit: this.outputLimit }),
+      session: this.makeSession({ folder: seatFolder, library: this.library, home: this.home, outputLimit: this.outputLimit }),
       taken: new Set(),
     };
     this.seats.set(key, seat);

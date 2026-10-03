@@ -5,7 +5,8 @@
 // so they outlive the process, the agent and the app.
 import { spawn, spawnSync } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { existsSync, mkdirSync, realpathSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { downloadUv } from "../uv.mjs";
@@ -65,10 +66,35 @@ export function sandboxProfile({ python, library, folder }) {
 `;
 }
 
+const alive = (pid) => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error.code === "EPERM";
+  }
+};
+// Ends the kernel that last owned this state, if it is still running.
+async function retire(state) {
+  let pid;
+  try {
+    pid = JSON.parse(readFileSync(join(state, "owner.json"), "utf8")).pid;
+  } catch {
+    return;
+  }
+  if (!Number.isSafeInteger(pid) || !alive(pid)) return;
+  // Only a session kernel: the number may have passed to another program since.
+  const command = spawnSync("ps", ["-p", String(pid), "-o", "command="], { encoding: "utf8" }).stdout || "";
+  if (!command.includes(KERNEL)) return;
+  process.kill(pid, "SIGKILL");
+  for (let tries = 0; tries < 100 && alive(pid); tries++) await new Promise((resolve) => setTimeout(resolve, 20));
+}
+
 export const sandboxAvailable = () => process.platform === "darwin" && existsSync(SANDBOX);
 
 export class PythonSession extends EventEmitter {
-  // folder: the seat's folder, where the session keeps its variables in session/.
+  // folder: the seat's folder, which outlasts its researchers' leases and agents; the
+  // session keeps its variables in session/ there, and can read and write the folder.
   // library: the research library, read-only. home: the app's folder, for the environment.
   /** @param {{folder: string, library?: string | null, home: string, outputLimit?: number, launch?: typeof spawn}} options */
   constructor({ folder, library = null, home, outputLimit = 20_000, launch = spawn }) {
@@ -101,6 +127,10 @@ export class PythonSession extends EventEmitter {
       if (!sandboxAvailable()) throw new Error("Python sessions need the macOS sandbox, which this computer does not have, so the session will not start unconfined.");
       const environment = await pythonEnvironment(this.home);
       mkdirSync(join(this.state, "tmp"), { recursive: true });
+      // One process owns the session's state: one left from before, say by an app that
+      // crashed mid-run, is ended first, so it cannot save over its replacement's work.
+      await retire(this.state);
+      const owner = randomUUID();
       const profile = sandboxProfile({ python: environment.folder, library: this.library, folder: this.folder });
       const child = this.launch(SANDBOX, ["-p", profile, environment.python, "-u", KERNEL, realpathSync(this.state)], {
         cwd: this.folder,
@@ -113,6 +143,7 @@ export class PythonSession extends EventEmitter {
           TMPDIR: realpathSync(join(this.state, "tmp")),
           WEIR_LIBRARY: this.library ? realpathSync(this.library) : "",
           WEIR_OUTPUT_LIMIT: String(this.outputLimit),
+          WEIR_OWNER: owner,
         },
         stdio: ["pipe", "ignore", "pipe", "pipe"],
       });

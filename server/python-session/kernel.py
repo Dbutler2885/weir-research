@@ -4,16 +4,20 @@ namespace that lasts between runs.
 The app starts it with the session's folder as its argument. Requests come in on
 standard input as JSON lines, {"id", "code"}, and each answer goes out on file
 descriptor 3 as one JSON line, so nothing the code prints can be mistaken for one.
-After every completed run the variables are saved with dill, and a new session loads
-them back. A run in progress is recorded in running.json, so a run cut short by the
+Only what the code prints is answered; when that is long, the answer is cut short and
+the whole of it is kept in outputs/, where weir.output(id) reads it. After every
+completed run the variables are saved with dill, and a new session loads them back.
+
+One process owns the state at a time: the one named in owner.json. A process that is no
+longer its owner, or whose app has gone, exits without saving. A run in progress is recorded in running.json, so a run cut short by the
 process ending is known afterwards and never replayed.
 """
 
-import ast
 import io
 import json
 import os
 import sys
+import threading
 import time
 import traceback
 
@@ -24,6 +28,10 @@ dill.settings["recurse"] = True
 FOLDER = sys.argv[1]
 VARIABLES = os.path.join(FOLDER, "variables.pkl")
 RUNNING = os.path.join(FOLDER, "running.json")
+OWNER = os.path.join(FOLDER, "owner.json")
+OUTPUTS = os.path.join(FOLDER, "outputs")
+KEPT_OUTPUTS = 20
+ME = os.environ.get("WEIR_OWNER", "")
 LIMIT = int(os.environ.get("WEIR_OUTPUT_LIMIT", "20000"))
 
 requests = sys.stdin.buffer
@@ -39,6 +47,22 @@ def fresh():
 namespace = fresh()
 # Names already reported as not saved, so each is named once rather than every run.
 reported = set()
+
+
+def owns():
+    try:
+        with open(OWNER, encoding="utf-8") as file:
+            return json.load(file).get("owner") == ME
+    except Exception:
+        return False
+
+
+def watch(parent):
+    """Exits as soon as the app that started this process has gone."""
+    while True:
+        if os.getppid() != parent:
+            os._exit(0)
+        time.sleep(0.2)
 
 
 def kept():
@@ -60,6 +84,8 @@ def save():
             except Exception as error:
                 skipped.append((name, type(value).__name__, error))
         blob = dill.dumps(saveable)
+    if not owns():
+        os._exit(0)
     partial = VARIABLES + ".tmp"
     with open(partial, "wb") as file:
         file.write(blob)
@@ -94,14 +120,7 @@ def run(code):
     sys.stdin = io.StringIO("")
     failed = False
     try:
-        tree = ast.parse(code, "<run>", "exec")
-        # A last line that is an expression shows its value, as in an interactive session.
-        last = tree.body.pop() if tree.body and isinstance(tree.body[-1], ast.Expr) else None
-        exec(compile(tree, "<run>", "exec"), namespace)
-        if last is not None:
-            value = eval(compile(ast.Expression(last.value), "<run>", "eval"), namespace)
-            if value is not None:
-                print(repr(value))
+        exec(compile(code, "<run>", "exec"), namespace)
     except SyntaxError as error:
         failed = True
         output.write("".join(traceback.format_exception_only(type(error), error)))
@@ -118,7 +137,20 @@ def answer(message):
     answers.flush()
 
 
+def keep(run_id, output):
+    """Keeps a long output whole, and only the most recent few."""
+    os.makedirs(OUTPUTS, exist_ok=True)
+    with open(os.path.join(OUTPUTS, f"{run_id}.txt"), "w", encoding="utf-8") as file:
+        file.write(output)
+    names = sorted(os.listdir(OUTPUTS), key=lambda name: os.path.getmtime(os.path.join(OUTPUTS, name)))
+    for name in names[:-KEPT_OUTPUTS]:
+        os.remove(os.path.join(OUTPUTS, name))
+
+
 def main():
+    threading.Thread(target=watch, args=(os.getppid(),), daemon=True).start()
+    with open(OWNER, "w", encoding="utf-8") as file:
+        json.dump({"pid": os.getpid(), "owner": ME}, file)
     interrupted = None
     if os.path.exists(RUNNING):
         try:
@@ -147,7 +179,10 @@ def main():
             output += f"\n[Not kept after this session ends, because they cannot be saved: {names}.]\n"
         truncated = len(output) - LIMIT if len(output) > LIMIT else 0
         if truncated:
-            output = output[:LIMIT] + f"\n[Output truncated: {truncated} more characters were printed. Keep large values in variables and print only what you need.]\n"
+            keep(request["id"], output)
+            output = output[:LIMIT] + f"\n[Output cut short: {truncated} more characters were printed. The whole output is kept: weir.output({request['id']!r}) returns it. Keep large values in variables and print only what you need.]\n"
+        if not owns():
+            os._exit(0)
         answer({"id": request["id"], "output": output, "failed": failed, "seconds": round(time.time() - started, 3)})
 
 

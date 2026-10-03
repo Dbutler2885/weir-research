@@ -30,6 +30,11 @@ See **The Python session** and **The session's library**.
 - [x] The session can read the library and write its folder, and cannot read the home folder, write the library, or reach the internet
 - [x] `weir.library` lists documents and reads a document's pages into a variable
 
+## Known limitation
+
+Until slice 07, pausing or switching a researcher ends a run in progress, which is then reported as interrupted.
+Slice 07's job tickets let accepted work finish during a pause, as the PRD requires.
+
 ## User stories addressed
 
 Reference by number from the parent PRD:

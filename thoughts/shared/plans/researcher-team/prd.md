@@ -197,10 +197,14 @@ The coordinator talks with the human, opens batches, and moves the project betwe
 ### The Python session
 
 - Each researcher seat and each helper has a Python session: a long-running Python process the app starts, owns and keeps, separate from the agent's own process.
-- It uses the Python environment the app already manages for PDF conversion, extended with the session's own package.
-- The agent sends code to its session with its command tool and receives what the code prints, truncated beyond a fixed length with a note saying so.
+- It has its own small Python environment, which the app installs with the same uv it uses for PDF conversion, so sessions work without the PDF converter.
+- The session belongs to the seat, not to one researcher's lease or conversation: its state lives in the seat's folder, so a researcher switched to another agent or model keeps its variables.
+- The agent sends code to its session with its command tool, which reaches the app through request files in the researcher's folder, carrying the researcher's lease or the job's ticket.
+- Only what the code prints comes back; a bare expression shows nothing.
+  Output beyond a fixed length is cut short with a note, and the whole of it is kept for the session to read back.
   Code that runs longer than a few minutes keeps running; the tool returns at once with a note, and the output arrives later as a message.
 - After every completed run the session saves its variables to the seat's folder with dill, and a new session loads them back.
+- One process owns a session's state at a time: a session process exits when the app that started it goes, never saves once a newer process owns the state, and a new session ends any old process still running before it starts.
   The guarantee is the variables as of the last completed run, across pauses, model switches, wakes and restarts of the app.
   Values that cannot be saved are skipped and named in the run's output.
 - A run interrupted by a restart is never replayed.
@@ -215,12 +219,12 @@ The coordinator talks with the human, opens batches, and moves the project betwe
   A helper interrupted a second time fails.
 - A failed job delivers a notice saying why, and a cancelled one, from a stopped batch, delivers nothing; either way it no longer counts as outstanding, so it never keeps a seat from finishing.
 - A session ends when its batch closes or its seat is stopped.
-- The session is confined by an app-enforced macOS sandbox profile: it can read the library and the app's Python, read and write its seat's folder, reach the app over loopback, and nothing else, including the human's home folder and the internet.
+- The session is confined by an app-enforced macOS sandbox profile: it can read the library and its own Python, read and write its seat's folder, and nothing else, including the human's home folder, the internet and loopback.
   On a platform without that sandbox, the session refuses to start rather than run unconfined.
 
 ### The session's library
 
-- The session's package, `weir`, gives code everything the researcher needs, each call going through the app over loopback with the researcher's lease or the job's ticket:
+- The session's package, `weir`, gives code everything the researcher needs, each call reaching the app through request files in the seat's folder, with the researcher's lease or the job's ticket:
   - `library`: list and search the project's documents and sources, and read a document's text as pages.
   - `save`: save a URL, or the page open in the research browser, or an image with a transcription, as a library document, returning its ID.
   - `jev`: sweep a document and return passages.

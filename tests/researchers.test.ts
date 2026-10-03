@@ -81,7 +81,7 @@ describe("researchers' Python sessions", () => {
     assignQueued(f.store, f.pool, "claude");
     const assignment = assignmentOf(f.store, id);
     const seat = sessions.seats.get(assignment.id);
-    expect(seat).toMatchObject({ open: true, folder: f.task(id).directory });
+    expect(seat).toMatchObject({ open: true, folder: f.task(id).directory, seat: join(f.directory, "agents", id, assignment.id) });
     expect(f.launches[0]!.options.env.WEIR_LEASE).toBe(assignment.lease.token);
     expect(seat.authorize(assignment.lease.token)).toBe(true);
     expect(seat.authorize("someone-else")).toBe(false);
@@ -93,6 +93,22 @@ describe("researchers' Python sessions", () => {
     f.pool.pause(assignment.id);
     expect(seat.authorize(assignment.lease?.token ?? f.task(id)?.token)).toBe(false);
     expect(seat.open).toBe(false);
+  });
+  it("stay with the seat when the human switches its researcher to another agent", () => {
+    const sessions = fakeSessions();
+    const f = fixture({ sessions });
+    const id = f.queue();
+    assignQueued(f.store, f.pool, "claude");
+    const assignment = assignmentOf(f.store, id);
+    const before = sessions.seats.get(assignment.id);
+    f.pool.switch(assignment.id, { agent: "codex" }, "Codex");
+    f.launches[0]!.child.emit("close", 0);
+    f.launches[0]!.child.emit("exit", 0);
+    f.pool.pump();
+    const after = sessions.seats.get(assignment.id);
+    expect(after.open).toBe(true);
+    expect(after.folder).not.toBe(before.folder);
+    expect(after.seat).toBe(before.seat);
   });
   it("are not described when the app keeps none", () => {
     const f = fixture();
