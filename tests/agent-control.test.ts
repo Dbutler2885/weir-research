@@ -14,6 +14,7 @@ import { affectedBy, controlledAgents, costLine, switchCost, type ControlledAgen
 import { defaultDispatch, type Dispatch } from "../src/domain/dispatch";
 import { emptyGraph, prepareResearch } from "./fixtures/guided-flow";
 import { until } from "./fixtures/until";
+import { openTeam } from "./fixtures/assign";
 
 const cleanups: (() => void)[] = [];
 // Each pool is stopped, and its agents' processes have gone, before their folders are removed.
@@ -93,48 +94,37 @@ describe("what switching an agent costs", () => {
 
 describe.each(["claude", "codex"] as const)("a %s researcher the human controls", (engine) => {
   async function running() {
-    const { Coordinator } = await import("../server/coordinator.mjs");
     const directory = mkdtempSync(join(tmpdir(), "weir-control-"));
     cleanups.push(() => rmSync(directory, { recursive: true, force: true }));
-    slowly(engine, "brief.md");
+    slowly(engine, "AGENTS.md");
     const store = new WorkspaceStore(directory, dataset);
     const pool = new ResearcherPool(store, directory, resolve("."), { findExecutable });
     pools.push(pool);
-    const coordinator = new Coordinator(store);
-    const session = "coordinator-session-for-test-000005";
-    coordinator.attach("Test coordinator", session);
-    coordinator.researchers = pool;
-    pool.coordinator = coordinator as any;
-    pool.configure({ researchersPerBatch: 1 });
-    const { investigationId: id } = store.command({ type: "annotate", question: "Investigate", target: { label: "Record" }, dispatch: true }) as any;
-    store.update((next: any) => {
-      next.investigations[0].number = 1;
-    });
-    const assign = (title: string) => (coordinator.command({ session, investigationId: id, action: "assign", engine, title, brief: `Trace ${title}.` }) as any).assignmentId;
-    const first = assign("The lease registers");
-    const second = assign("The trade directories");
-    pool.pump();
+    const { investigationId: id } = openTeam(store, pool, engine, { size: 2 });
     const batch = () => store.state.investigations.find((i: any) => i.id === id);
+    const [first, second] = batch().assignments.map((a: any) => a.id);
     const assignment = (a: string) => batch().assignments.find((x: any) => x.id === a);
     const agents = () => controlledAgents({ ...store.state, live: pool.live.list() } as any);
-    await until(() => assignment(first).session && pool.live.list()[0]?.tokens === 84_000);
+    const tokens = (a: string) => pool.live.list().find((w: any) => w.assignmentId === a)?.tokens;
+    await until(() => assignment(first).session && assignment(second).session && tokens(first) === 84_000 && tokens(second) === 84_000);
     return { store, pool, batch, assignment, agents, first, second };
   }
 
-  it("pauses keeping its conversation and its place free, and resumes it in the same folder", async () => {
+  it("pauses keeping its conversation while its teammate carries on, and resumes it in the same folder", async () => {
     const r = await running();
     expect(r.agents()).toEqual([
-      expect.objectContaining({ ref: { kind: "researcher", assignmentId: r.first }, status: "running", choice: { agent: engine, model: null, effort: null }, tokens: 84_000 }),
+      expect.objectContaining({ ref: { kind: "researcher", assignmentId: r.first }, status: "running", activity: "Researcher 1", choice: { agent: engine, model: null, effort: null }, tokens: 84_000 }),
+      expect.objectContaining({ ref: { kind: "researcher", assignmentId: r.second }, status: "running", activity: "Researcher 2" }),
     ]);
     const session = r.assignment(r.first).session;
     r.pool.pause(r.first);
     expect(r.assignment(r.first)).toMatchObject({ status: "paused", session });
-    expect(r.batch().events.map((e: any) => e.message)).toContain('You paused the researcher on "The lease registers". It keeps its conversation until you resume it; do not steer it meanwhile.');
-    // The batch's one place goes to the next assignment.
-    await until(() => r.assignment(r.second).status === "running" && r.pool.active.has(r.second));
+    expect(r.batch().events.map((e: any) => e.message)).toContain("You paused Researcher 1. It keeps its conversation until you resume it.");
     await until(() => !r.pool.active.has(r.first));
     expect(r.agents().find((a) => a.ref.kind === "researcher" && a.ref.assignmentId === r.first)?.status).toBe("paused");
-    r.pool.pause(r.second);
+    // Its teammate is untouched, and the batch still runs.
+    expect(r.assignment(r.second).status).toBe("running");
+    expect(r.batch().status).toBe("running");
     r.pool.resume(r.first);
     await until(() => r.pool.active.has(r.first) && models(session.directory).length === 2);
     expect(models(session.directory)).toEqual(["start default", "resume default"]);
@@ -148,12 +138,12 @@ describe.each(["claude", "codex"] as const)("a %s researcher the human controls"
     const session = r.assignment(r.first).session;
     r.pool.switch(r.first, { agent: engine, model: "model-b", effort: null }, "the other model");
     const events = () => r.batch().events.map((e: any) => e.message);
-    expect(events()).toContain(`You switched the researcher on "The lease registers" to the other model; it keeps its conversation.`);
+    expect(events()).toContain("You switched Researcher 1 to the other model; it keeps its conversation.");
     await until(() => models(session.directory).at(-1) === "resume model-b");
     await until(() => r.pool.live.list().some((w: any) => w.assignmentId === r.first && w.choice?.model === "model-b"));
     expect(r.assignment(r.first)).toMatchObject({ status: "running", choice: { engine, model: "model-b" }, session: { id: session.id } });
     r.pool.switch(r.first, { agent: other(engine), model: null, effort: null }, "the other program");
-    expect(events()).toContain(`You switched the researcher on "The lease registers" to the other program; it starts again from its checkpoints.`);
+    expect(events()).toContain("You switched Researcher 1 to the other program; it starts again from its checkpoints.");
     await until(() => r.assignment(r.first).session?.engine === other(engine));
     expect(r.assignment(r.first).session.directory).not.toBe(session.directory);
     expect(models(r.assignment(r.first).session.directory)).toEqual(["start default"]);

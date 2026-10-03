@@ -25,7 +25,7 @@ import {
   coordinatorConversationCommands,
 } from "./conversation.ts";
 import type { Brief, Message } from "./conversation.ts";
-import { assignmentCommands, assignmentTransition, assignmentsOf, leased, runningIn, settle } from "./assignments.ts";
+import { assignmentCommands, assignmentTransition, assignmentsOf, isTeam, leased, runningIn, settle } from "./assignments.ts";
 import type { Assignment, BoardPost, Checkpoint } from "./assignments.ts";
 
 export type Table = "nodes" | "claims" | "sources";
@@ -119,12 +119,23 @@ export interface Proposal {
 // that one walkthrough and one graph update explain.
 export interface Investigation {
   number?: number;
+  // What the human asked for, restated plainly by the coordinator: the one goal its
+  // team of researchers shares. A batch with a goal is worked by a team.
+  goal?: string;
+  // From before teams: what the batch was for, in the coordinator's words.
   brief?: Brief;
-  // Each researcher's part of the batch, in the order the coordinator made them.
+  // The team's seats, one per researcher; before teams, each researcher's part of the
+  // batch, in the order the coordinator made them.
   assignments?: Assignment[];
   // What the batch's researchers posted for each other.
   board?: BoardPost[];
+  // Ready for Review: when every seat of its team finished, or, before teams, when the
+  // coordinator said so.
   readyAt?: string;
+  // When the human paused the whole batch, until they resume it, and when the
+  // coordinator stopped its team for good.
+  pausedAt?: string;
+  stoppedAt?: string;
   closedAt?: string;
   walkthroughRequestedAt?: string;
   // The batch's place in the queue, once the human has reordered it, and whether they hold it.
@@ -411,22 +422,17 @@ export interface ResearchCommand {
     | "decide"
     | "reply"
     | "open-batch"
-    | "assign"
-    | "steered"
     | "assignment-session"
-    | "assignment-returned"
     | "assignment-paused"
-    | "stop-assignment"
-    | "revise-assignment"
+    | "seat-finished"
+    | "stop-team"
     | "post"
     | "coordinator-post"
     | "pause-assignment"
     | "resume-assignment"
     | "switch-assignment"
-    | "batch-ready"
     | "request-approval"
     | "retitle"
-    | "set-brief"
     | "queue-move"
     | "queue-hold";
   investigationId?: string;
@@ -684,7 +690,7 @@ export function transition(
       if (asked && unavailable) (asked.unreachable ||= []).push({ instruction: i.accessRequest.instruction, ...(i.accessRequest.url ? { url: i.accessRequest.url } : {}), at: now });
       if (asked) {
         asked.status = "waiting";
-        settle(i);
+        settle(i, now);
       } else i.status = "queued";
       i.events.push({
         at: now,
@@ -924,10 +930,11 @@ export function transition(
       });
       if (command.type === "resume") {
         // Interrupted researchers pick up their conversations, and the others carry on;
-        // with none interrupted, a running one is replaced.
+        // before teams, with none interrupted, a running one is replaced.
+        delete investigation.pausedAt;
         const paused = (investigation.assignments || []).filter((a) => a.status === "paused");
         for (const a of paused) a.status = "waiting";
-        if (!paused.length)
+        if (!paused.length && !isTeam(investigation))
           for (const a of investigation.assignments || [])
             if (a.status === "running") {
               a.status = "waiting";
@@ -937,7 +944,7 @@ export function transition(
       } else fence(investigation, now);
       // With no assignment to take up, the batch waits for one.
       investigation.status = "queued";
-      if (active(investigation)) settle(investigation);
+      if (active(investigation) || isTeam(investigation)) settle(investigation, now);
       investigation.proposals.forEach((p) => {
         if (p.status === "pending" && p.kind !== "findings")
           p.status = "superseded";
@@ -946,11 +953,15 @@ export function transition(
         at: now,
         message:
           command.type === "resume"
-            ? "Queued for a replacement worker; saved findings retained."
+            ? isTeam(investigation)
+              ? "You resumed this batch; its researchers pick up where they stopped."
+              : "Queued for a replacement worker; saved findings retained."
             : "Queued annotations dispatched together.",
       });
     } else if (command.type === "pause") {
-      // Paused researchers keep their sessions; a returned result still waits for the coordinator.
+      // Paused researchers keep their sessions, and a finished one stays finished; a
+      // post that would wake it waits with the batch.
+      if (isTeam(investigation)) investigation.pausedAt = now;
       for (const a of investigation.assignments || [])
         if (a.status === "running" || a.status === "waiting") {
           a.status = "paused";
@@ -993,7 +1004,7 @@ export function transition(
       if (command.accessRequest) {
         assignment!.status = "paused";
         delete assignment!.lease;
-        settle(investigation);
+        settle(investigation, now);
         investigation.events.push({
           at: now,
           message:

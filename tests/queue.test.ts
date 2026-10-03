@@ -1,5 +1,4 @@
 // @vitest-environment node
-import { assignQueued } from "./fixtures/assign";
 import { afterEach, describe, expect, it } from "vitest";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
@@ -16,13 +15,13 @@ import { queueSection } from "../src/ui/queue-view";
 const cleanups: (() => void)[] = [];
 afterEach(() => cleanups.splice(0).reverse().forEach((clean) => clean()));
 
-// Three fictional batches, numbered 1 to 3, waiting for researchers.
-function project() {
+// Three fictional batches, numbered 1 to 3, each with a team of one waiting to start.
+function project(size = 1) {
   const directory = mkdtempSync(join(tmpdir(), "queue-"));
   cleanups.push(() => rmSync(directory, { recursive: true, force: true }));
   const store = new WorkspaceStore(directory, dataset);
-  const ids = ["Mill", "Ledger", "Wharf"].map((title) => (store.command({ type: "annotate", question: title, target: { label: title }, dispatch: true, scope: ["imports"] }) as any).investigationId);
-  store.update((next: any) => next.investigations.forEach((i: any, n: number) => Object.assign(i, { number: n + 1, title: ["Mill", "Ledger", "Wharf"][n] })));
+  store.update((next: any) => (next.researchSettings = { timeLimitMinutes: null, researchersPerBatch: size }));
+  const ids = ["Mill", "Ledger", "Wharf"].map((title) => (store.command({ type: "open-batch", title, goal: `Find out about the fictional ${title}.`, scope: ["imports"], choice: { engine: "claude", model: null, effort: null } }) as any).investigationId);
   const order = () => queueOf(store.state).map((b) => b.title);
   return { directory, store, ids, order };
 }
@@ -63,33 +62,35 @@ describe("the queue", () => {
     p.store.command({ type: "queue-hold", investigationId: p.ids[0], held: true });
     const pool = new ResearcherPool(p.store, p.directory, resolve("."), { launch: launch as any, findExecutable: (n: string) => `/test/${n}` });
     cleanups.push(() => pool.stop());
-    assignQueued(p.store, pool, "claude");
+    pool.pump();
     // Wharf, now first, starts first, then Ledger; Mill is held.
     expect(launched).toHaveLength(2);
     expect(launched[0]).toContain(p.ids[2]);
     expect(launched[1]).toContain(p.ids[1]);
-    expect(p.store.state.investigations[0].status).toBe("queued");
+    expect(p.store.state.investigations[0].assignments[0].status).toBe("waiting");
+    // Released, its team starts.
+    p.store.command({ type: "queue-hold", investigationId: p.ids[0], held: false });
+    pool.pump();
+    expect(launched).toHaveLength(3);
+    expect(launched[2]).toContain(p.ids[0]);
   });
 
-  it("limits researchers per batch, so other batches start beside a full one", async () => {
-    const { Coordinator } = await import("../server/coordinator.mjs");
-    const p = project();
+  it("starts every researcher of every batch's team, at the size the team had when its batch opened", () => {
+    const p = project(2);
     let launches = 0;
     const launch = () => {
       launches++;
       return Object.assign(new EventEmitter(), { stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(), exitCode: null, kill() {} });
     };
-    const coordinator = new Coordinator(p.store);
-    const session = "coordinator-session-for-queue-0001";
-    coordinator.attach("Test", session);
-    const pool = new ResearcherPool(p.store, p.directory, resolve("."), { launch: launch as any, findExecutable: (n: string) => `/test/${n}`, coordinator } as any);
+    const pool = new ResearcherPool(p.store, p.directory, resolve("."), { launch: launch as any, findExecutable: (n: string) => `/test/${n}` });
     cleanups.push(() => pool.stop());
+    // A smaller team size applies to batches opened from now on.
     pool.configure({ researchersPerBatch: 1 });
-    for (const id of p.ids) coordinator.command({ action: "assign", session, investigationId: id, engine: "claude", title: "One person", brief: "One agent per person, as the human asked." });
-    coordinator.command({ action: "assign", session, investigationId: p.ids[0], engine: "claude", title: "Another person", brief: "Waits for the first." });
     pool.pump();
-    expect(launches).toBe(3);
-    expect(p.store.state.investigations[0].assignments.map((a: any) => a.status)).toEqual(["running", "waiting"]);
+    expect(launches).toBe(6);
+    expect(p.store.state.investigations.map((i: any) => i.assignments.map((a: any) => a.status))).toEqual(Array(3).fill(["running", "running"]));
+    p.store.command({ type: "open-batch", title: "Quay", goal: "Find out about the fictional quay.", scope: ["imports"], choice: { engine: "claude", model: null, effort: null } });
+    expect(p.store.state.investigations[3].assignments).toHaveLength(1);
   });
 
   it("is what the coordinator reads, in the human's order with held batches marked", () => {
@@ -99,7 +100,7 @@ describe("the queue", () => {
     const text = buildCoordinatorContext(p.store.state).layers.find((l) => l.id === "queue")!.text;
     expect(text.indexOf("Ledger")).toBeLessThan(text.indexOf("Mill"));
     expect(text).toContain("held by the human: start nothing on it until they release it");
-    expect(buildCoordinatorContext(p.store.state).text).toContain("researchers per batch: at most 4 at once, which the app enforces; more assignments wait their turn");
+    expect(buildCoordinatorContext(p.store.state).text).toContain("team size: 1 researcher on each batch you open");
   });
 
   it("shows the human each batch in order, with controls to move and hold it", () => {

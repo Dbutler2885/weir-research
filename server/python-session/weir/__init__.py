@@ -2,6 +2,7 @@
 
 library: the project's research library, read into variables.
 save(url): saves a web page or PDF into the library, for the whole team.
+post(text): posts to the batch's board, for the whole team.
 publish(...): publishes a finding with its evidence, for the human and the team.
 output(id): the whole output of a run whose printed output was cut short.
 """
@@ -34,6 +35,18 @@ def save(url, fresh=False):
     return _app.call("save", url=url, fresh=bool(fresh))
 
 
+def post(text):
+    """Posts to your batch's board, and returns {"posted": True, "id": ...}.
+
+    Every teammate receives the post at once, as a message, and it wakes any who had
+    finished; it stays on the board in the library for those who start later. Post
+    what the team can use: what you mean to try, a source found or ruled out, an
+    identity settled, a lead you are leaving for someone else. Raises weir.AppError
+    when the same text was already posted from your seat.
+    """
+    return _app.call("post", text=text)
+
+
 def publish(statement, qualification, explanation, evidence, replaces=None):
     """Publishes one finding with its evidence, and returns its receipt:
     {"id", "statement", "evidence": [{"document", "pages", "check"}]}.
@@ -58,4 +71,4 @@ def publish(statement, qualification, explanation, evidence, replaces=None):
     return _app.call("publish", finding=finding)
 
 
-__all__ = ["AppError", "library", "output", "publish", "save"]
+__all__ = ["AppError", "library", "output", "post", "publish", "save"]

@@ -3,6 +3,7 @@ import { flowCommand, receiveDraft } from './review-flow.mjs';
 import { graphToTables } from '../src/domain/graph-csv.ts';
 import { readDelivery } from '../src/domain/graph-delivery.ts';
 import { defaultRelationships } from '../src/domain/graph-schema.ts';
+import { settle } from '../src/domain/assignments.ts';
 
 // The sample project a visitor can open from setup: a finished batch of research
 // on an invented family in an invented town, with its findings, a walkthrough and
@@ -130,7 +131,7 @@ export function buildSample(directory) {
   // The visitor's question, as it would have come in, and the coordinator's batch for it.
   store.command({type: 'send', text: 'I\'d like to know more about Edith\'s family.', annotation: {question: QUESTION, references: [{table: 'nodes', recordId: 'edith', label: 'Edith Marrow'}]}});
   store.command({type: 'reply', text: 'I\'ll look for Edith\'s baptism first, then follow her parents through the household lists and any marriage notice.', references: []});
-  const {investigationId} = store.command({type: 'open-batch', title: 'Edith\'s parents', brief: {purpose: 'Find who Edith Marrow\'s parents were and where they came from.', scope: 'Her parents and their birthplaces, not earlier generations.', direction: 'Start with the Tidewell baptisms.'}, assignments: [{title: QUESTION, brief: 'Find Edith Marrow\'s baptism in the Tidewell register, then follow her parents through the household lists and any marriage notice. Say where the lists disagree.'}]});
+  const {investigationId} = store.command({type: 'open-batch', title: 'Edith\'s parents', goal: 'Find who Edith Marrow\'s parents were and where they came from: her baptism in the Tidewell register, her parents in the household lists, and any notice of their marriage. Say where the records disagree.'});
   const assignmentId = store.state.investigations.find(i => i.id === investigationId).assignments[0].id;
   const task = store.command({type: 'claim', investigationId, assignmentId, worker: 'Sample researcher'});
   const {proposalId} = store.command({type: 'propose', investigationId, token: task.assignment.lease.token, proposal: {
@@ -143,7 +144,13 @@ export function buildSample(directory) {
     evidence: EVIDENCE,
     findings: FINDINGS,
   }});
-  store.command({type: 'batch-ready', investigationId, text: 'Batch 1 is ready: Edith\'s parents were Thomas and Ann Marrow, with one open question about where Thomas was born.'});
+  // The team has finished, so the batch is ready for review.
+  store.update((next) => {
+    const batch = next.investigations.find((i) => i.id === investigationId);
+    for (const a of batch.assignments) Object.assign(a, {status: 'finished', endedAt: new Date().toISOString()});
+    settle(batch);
+  });
+  store.command({type: 'reply', text: 'Batch 1 is ready: Edith\'s parents were Thomas and Ann Marrow, with one open question about where Thomas was born.', references: []});
   flowCommand(store, {action: 'publish-walkthrough', investigationId, walkthrough: {
     proposalIds: [proposalId],
     title: 'Finding Edith\'s parents',

@@ -9,6 +9,9 @@
 // received.jsonl. Its sessions are listed in sessions.txt in its folder, and
 // --resume picks one up, or fails as Claude does when there is no such session.
 // Each session started or resumed adds its model to models.txt.
+// A step {say: text} ends the turn with those words in place of "Done.". The steps
+// file can instead hold {"words in a message": [steps], default: [steps]}: a message
+// containing a key's words runs that key's steps, and any other the default.
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -18,7 +21,9 @@ const out = (event) => process.stdout.write(`${JSON.stringify(event)}\n`);
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const stepsFor = (text) => {
   if (text.startsWith("steps:")) return JSON.parse(text.slice(6));
-  return process.env.FAKE_CLAUDE_STEPS ? JSON.parse(readFileSync(process.env.FAKE_CLAUDE_STEPS, "utf8")) : [];
+  const scripted = process.env.FAKE_CLAUDE_STEPS ? JSON.parse(readFileSync(process.env.FAKE_CLAUDE_STEPS, "utf8")) : [];
+  if (Array.isArray(scripted)) return scripted;
+  return scripted[Object.keys(scripted).find((words) => words !== "default" && text.includes(words)) ?? "default"] || [];
 };
 
 const inbox = [];
@@ -43,8 +48,13 @@ out({ type: "system", subtype: "init", session_id: session, cwd: process.cwd(), 
 
 async function turn(steps) {
   let n = 0;
+  let reply = "Done.";
   for (let i = 0; i < steps.length; i++) {
     const step = steps[i];
+    if (step.say) {
+      reply = step.say;
+      continue;
+    }
     // {quota: seconds} hits the usage limit, reporting a reset that many seconds away, as Claude does.
     // Like Claude's limit window, the reset stays the same however often it refuses.
     if (step.quota) {
@@ -74,8 +84,8 @@ async function turn(steps) {
       i = -1;
     }
   }
-  out({ type: "assistant", message: { content: [{ type: "text", text: "Done." }] } });
-  out({ type: "result", subtype: "success", result: "Done." });
+  out({ type: "assistant", message: { content: [{ type: "text", text: reply }] } });
+  out({ type: "result", subtype: "success", result: reply });
 }
 
 // /compact compacts the conversation, as Claude reports it.

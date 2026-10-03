@@ -11,8 +11,8 @@ Keep user-facing output attached to the relevant research objects.
 
 ## Start and claim work
 
-The app opens a project and starts its coordinator, which divides each batch into assignments and has the app launch a researcher for each.
-A researcher works in its own folder, from the coordinator's brief in `brief.md`, and reads the project's research library, which the app keeps current and no researcher can change.
+The app opens a project and starts its coordinator, which opens each batch with a goal; the app starts a team of researchers on it.
+A researcher works in its own folder, from the batch's goal, and reads the project's research library, which the app keeps current.
 The independent mode below is also available through `npm run serve` before coordinator supervision is enabled.
 
 ```sh
@@ -23,24 +23,21 @@ npm run research -- claim "provider / investigator name"
 Claim returns the investigation, its assignment with a worker lease token and an immutable accepted-data snapshot, previous proposals, source scope, and documents.
 Null means no investigation is queued.
 Do not claim that work is running before a researcher has claimed it.
-In a coordinated project, the app prepares a scoped task directory for each researcher the coordinator assigns and launches it, with no time limit by default.
-The human may configure a time limit for new managed passes in Research settings.
-Follow the deadline in your pass instructions when one is set, and finish the bounded assignment when complete even without a deadline.
-This uses the existing CLI account and sends the assigned research context and scoped sources to its model service.
+In a coordinated project, the app prepares a folder for each researcher in a batch's team and launches it, with no limit on time or sources.
+This uses the existing CLI account and sends the research context and scoped sources to its model service.
 The application does not collect account credentials.
-Managed researchers write `checkpoint.json`, `post.md` and `result.json` in their task directory; the supervisor validates and imports those files through the same domain contract.
+A team's researchers save sources, post to their batch's board and publish each finding through their Python session's `weir` package, and write `checkpoint.json` in their folder; the app checks every quote against the saved source before a finding is published.
 They do not receive the workspace API credential.
 The manual CLI commands below are for externally managed researchers.
 
-Replacing a researcher sends its assignment to a fresh worker, which starts from the brief and the saved checkpoints.
+Replacing a researcher gives its seat to a fresh worker, which starts from the goal, the board and the saved checkpoints.
 Failures pause instead of retrying indefinitely.
 A researcher the human kept running when the app closed is taken back when it opens; any other running researcher pauses and can be explicitly resumed.
 
 ## Preserve intent and divide work
 
-A batch is the persistent user-facing unit, and an assignment is one researcher's bounded part of it.
-Work only on your assignment; other researchers in the batch may be working on its other parts.
-When you find something they should know, such as a source found or ruled out, or an identity settled, post it on the batch's board by writing `post.md`.
+A batch is the persistent user-facing unit, worked by a team of researchers who share its goal and divide the work on its board.
+When you find something your teammates should know, such as a source found or ruled out, or an identity settled, post it on the batch's board with `weir.post`.
 Related batches may share findings, but never silently merge or rename the user's units of work.
 Workers may delegate bounded independent source retrieval, identity checks, or contradiction searches when the host harness supports delegation.
 The coordinating worker owns reconciliation and the final proposal; sub-agents never mutate accepted records.

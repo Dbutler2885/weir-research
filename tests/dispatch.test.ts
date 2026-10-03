@@ -150,13 +150,16 @@ describe("dispatch rules in a project", () => {
     expect(p.coordinator.status().latest!.text).toBe("Updating who does which job");
   });
 
-  it("choose the researcher's agent, model and effort for an assignment", () => {
+  it("choose the agent, model and effort of a new batch's researchers", () => {
     const p = project();
     p.rules.change({ action: "set-role", role: "researcher", agent: "codex", model: "gpt-6-sol", effort: "low" }, "human");
-    const { investigationId } = p.store.command({ type: "annotate", question: "Q", target: { label: "R" }, dispatch: true }) as any;
-    const { assignmentId } = p.coordinator.command({ action: "assign", session: p.session, investigationId, title: "Look", brief: "Look." }) as any;
-    const assignment = p.store.state.investigations[0].assignments.find((a: any) => a.id === assignmentId);
-    expect(assignment.choice).toEqual({ engine: "codex", model: "gpt-6-sol", effort: "low" });
+    p.coordinator.command({ action: "open-batch", session: p.session, title: "Look", goal: "Look into the fictional record." });
+    const seats = p.store.state.investigations[0].assignments;
+    expect(seats).toHaveLength(4);
+    for (const seat of seats) expect(seat.choice).toEqual({ engine: "codex", model: "gpt-6-sol", effort: "low" });
+    // What the coordinator names for one batch wins over the role's entry.
+    p.coordinator.command({ action: "open-batch", session: p.session, title: "Look again", goal: "Look again.", engine: "claude", model: "opus" });
+    expect(p.store.state.investigations[1].assignments[0].choice).toEqual({ engine: "claude", model: "opus", effort: null });
   });
 });
 

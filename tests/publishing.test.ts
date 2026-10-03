@@ -29,15 +29,8 @@ function fixture() {
   const directory = mkdtempSync(join(tmpdir(), "publishing-"));
   mkdirSync(join(directory, "documents"), { recursive: true });
   const store = new WorkspaceStore(directory, emptyGraph);
-  const { investigationId } = store.command({
-    type: "open-batch",
-    title: "Who owned the Example mill",
-    brief: { purpose: "Who owned the fictional mill.", scope: "Anything.", direction: "None." },
-    assignments: [
-      { title: "Researcher 1", brief: "The goal." },
-      { title: "Researcher 2", brief: "The goal." },
-    ],
-  }) as any;
+  store.update((next: any) => (next.researchSettings = { timeLimitMinutes: null, researchersPerBatch: 2 }));
+  const { investigationId } = store.command({ type: "open-batch", title: "Who owned the Example mill", goal: "Find who owned the fictional mill, and when." }) as any;
   writeFileSync(join(directory, "documents", "ledger"), "fictional");
   store.update((next: any) => {
     next.documents.push({ id: "ledger", collectionId: "web", name: "Harbor ledger.pdf", mime: "application/pdf", size: 9, sha256: "x", importedAt: "2026-01-01T00:00:00Z", text: LEDGER, pages: 3, revision: 1, reading: { state: "done", engine: "standard" } });
@@ -97,7 +90,7 @@ describe("publishing a finding", () => {
     expect(report.findings[0]).toMatchObject({ status: "kept", qualification: "supported", evidenceIds: ["e1"] });
     expect(report.evidence[0]).toMatchObject({ sourceId: "ledger", documentId: "ledger", locator: "page 2", pages: [2, 2], check: "checked", revision: 1, stance: "supports" });
     expect(batch().findingsRevision).toBe(1);
-    const page = inLibrary("batches/batch-1/pass-1/findings.md");
+    const page = inLibrary("batches/batch-1/findings.md");
     expect(page).toContain(`Finding ${receipt.id} (finding f1 in report ${report.id}), published by Researcher 1: supported`);
     expect(page).toContain("The app found this quote at the page cited, in revision 1 of the saved text (documents/ledger.r1.txt).");
   });
@@ -277,7 +270,7 @@ describe("reading a cited document again", () => {
     expect(inLibrary("documents/ledger.r2.txt")).toBe(doc().text);
     expect(existsSync(join(directory, "library", "documents", "ledger.txt"))).toBe(false);
     // The findings say which revision each quote was checked in, and where that text is.
-    const findings = inLibrary("batches/batch-1/pass-1/findings.md");
+    const findings = inLibrary("batches/batch-1/findings.md");
     expect(findings).toContain("The app found this quote at the page cited, in revision 2 of the saved text (documents/ledger.r2.txt).");
     expect(findings).toContain("The app found this quote at the page cited, in revision 1 of the saved text (documents/ledger.r1.txt). The document has been read again since, and revision 2 (documents/ledger.r2.txt) words this passage differently; the quote keeps the wording it was checked in until the two are reconciled against the page.");
     // A quote from a variable read before says so, rather than only that it is not there.

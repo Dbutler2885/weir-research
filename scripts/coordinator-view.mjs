@@ -20,10 +20,9 @@ export function snapshotView(result, sessionFile, snapshotFile) {
     investigations: result.investigations,
     investigationCount: result.investigationCount,
     indexHint: result.indexHint,
-    candidates: result.candidates,
     conversation: result.conversation,
     instruction:
-      "Read the snapshot, answer new messages and sent annotations in the conversation, and act on dispatched work and returned findings.",
+      "Read the snapshot, answer new messages and sent annotations in the conversation, and open a batch with a goal where research is wanted.",
   };
 }
 

@@ -10,7 +10,10 @@
 // usage, and account/rateLimits/read allows usage unless a file "limited" is in its folder.
 // Any other turn runs the steps in the file FAKE_CODEX_STEPS names, or none. A step
 // {tokens} reports that much context in use. Each thread started or resumed adds its
-// model to models.txt in its folder.
+// model to models.txt in its folder. A step {say: text} ends the turn with those words
+// in place of "Done.". The steps file can instead hold {"words in a message": [steps],
+// default: [steps]}: a message containing a key's words runs that key's steps.
+// FAKE_CODEX_RECORD keeps every message received in received.jsonl.
 import { randomUUID } from "node:crypto";
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -22,7 +25,10 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const stepsFor = (input) => {
   const text = input.map((i) => i.text).join("");
   if (text.startsWith("steps:")) return JSON.parse(text.slice(6));
-  return process.env.FAKE_CODEX_STEPS ? JSON.parse(readFileSync(process.env.FAKE_CODEX_STEPS, "utf8")) : [];
+  if (process.env.FAKE_CODEX_RECORD) appendFileSync("received.jsonl", `${JSON.stringify({ text })}\n`);
+  const scripted = process.env.FAKE_CODEX_STEPS ? JSON.parse(readFileSync(process.env.FAKE_CODEX_STEPS, "utf8")) : [];
+  if (Array.isArray(scripted)) return scripted;
+  return scripted[Object.keys(scripted).find((words) => words !== "default" && text.includes(words)) ?? "default"] || [];
 };
 
 let threadId = null;
@@ -32,8 +38,13 @@ let active = null;
 async function run(turn, steps) {
   notify("turn/started", { threadId, turn: { id: turn.id, items: [], status: "inProgress" } });
   let n = 0;
+  let reply = "Done.";
   for (let i = 0; i < steps.length; i++) {
     const step = steps[i];
+    if (step.say) {
+      reply = step.say;
+      continue;
+    }
     if (step.quota) {
       active = null;
       return notify("turn/completed", { threadId, turn: { id: turn.id, items: [], status: "failed", error: { message: "You've hit your usage limit.", codexErrorInfo: "usageLimitExceeded" } } });
@@ -53,7 +64,7 @@ async function run(turn, steps) {
       i = -1;
     }
   }
-  notify("item/completed", { threadId, turnId: turn.id, item: { type: "agentMessage", id: "msg", text: "Done." } });
+  notify("item/completed", { threadId, turnId: turn.id, item: { type: "agentMessage", id: "msg", text: reply } });
   finish(turn, "completed");
 }
 function finish(turn, status) {

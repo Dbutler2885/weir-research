@@ -67,10 +67,14 @@ export class WorkspaceStore {
       decisions: new Map(
         (state.conversation || []).filter((m) => m.decision).map((m) => [m.id, m.decision.status]),
       ),
-      candidates: (state.coordination?.candidates || []).length,
       dispatch: JSON.stringify(state.dispatch ?? null),
       investigations: new Map(state.investigations.map((i) => [i.id, fingerprint(i)])),
       boards: new Map(state.investigations.map((i) => [i.id, (i.board || []).length])),
+      // What the researchers had published, which seats had finished, and which
+      // batches were ready for Review.
+      findings: new Map(state.investigations.map((i) => [i.id, i.proposals.length])),
+      seats: new Map(state.investigations.flatMap((i) => (i.assignments || []).map((a) => [a.id, a.status]))),
+      ready: new Set(state.investigations.filter((i) => i.readyAt).map((i) => i.id)),
     });
     if (this.marks.length > 300) this.marks.shift();
   }
@@ -91,9 +95,12 @@ export class WorkspaceStore {
       decisionsChanged: [...mark.decisions].some(
         ([id, status]) => now.decisions.get(id) !== status,
       ),
-      candidatesChanged: now.candidates !== mark.candidates,
-      // What researchers posted on their batches' boards since.
+      // What researchers posted on their batches' boards and published since, and how
+      // their seats and batches stood.
       boardFrom: mark.boards,
+      findingsFrom: mark.findings,
+      seatsBefore: mark.seats,
+      readyBefore: mark.ready,
       dispatchChanged: now.dispatch !== mark.dispatch,
     };
   }
@@ -137,14 +144,13 @@ export class WorkspaceStore {
     for (const i of state.investigations) for (const job of i.reviewFlow?.jobs || []) {
       for (const key of ["packet", "baseDataset", "candidate", "submissions", "runToken", "directory"]) delete job[key];
     }
+    // Results held for a coordinator's judgment, from before teams.
+    if (state.coordination) delete state.coordination.candidates;
     if (state.organization) {
       delete state.organization.preview;
       state.organization.history = state.organization.history.map(
         ({ before, ...record }) => record,
       );
-    }
-    if (state.coordination) {
-      delete state.coordination.candidates;
     }
     return state;
   }

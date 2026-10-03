@@ -1,15 +1,15 @@
 // @vitest-environment node
-import { assignQueued, assignmentOf } from "./fixtures/assign";
+import { openTeam, assignmentOf } from "./fixtures/assign";
 import { afterEach, describe, expect, it } from "vitest";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import dataset from "./fixtures/workshop.json";
 import { WorkspaceStore } from "../server/store.mjs";
-import { ResearcherPool } from "../server/researchers.mjs";
-import { liveRows } from "../src/ui/live-panel";
+import { ResearcherPool, DONE_PHRASE } from "../server/researchers.mjs";
+import { FindingPublisher } from "../server/finding-publisher.mjs";
 import { until } from "./fixtures/until";
 
 const cleanups: (() => void)[] = [];
@@ -19,16 +19,22 @@ afterEach(() => {
     .reverse()
     .forEach((clean) => clean());
 });
-function fixture({ sessions }: { sessions?: any } = {}) {
-  const directory = mkdtempSync(join(tmpdir(), "weir-pool-"));
+const tick = () => new Promise((done) => setImmediate(done));
+
+interface Launch {
+  child: any;
+  options: any;
+  executable: string;
+  args: string[];
+  // The messages the app sent this researcher, in order.
+  sent: string[];
+}
+// A project whose researchers are stand-in processes the test speaks for, as Claude
+// Code would: init gives its conversation an ID, and say ends a turn with those words.
+function fixture({ sessions, directory = mkdtempSync(join(tmpdir(), "weir-pool-")) }: { sessions?: any; directory?: string } = {}) {
   cleanups.push(() => rmSync(directory, { recursive: true, force: true }));
   const store = new WorkspaceStore(directory, dataset);
-  const launches: {
-    child: any;
-    options: any;
-    executable: string;
-    args: string[];
-  }[] = [];
+  const launches: Launch[] = [];
   const launch = (executable: string, args: string[], options: any) => {
     const child = Object.assign(new EventEmitter(), {
       stdin: new PassThrough(),
@@ -37,11 +43,24 @@ function fixture({ sessions }: { sessions?: any } = {}) {
       exitCode: null,
       killed: false,
       kill() {
+        if (this.killed) return;
         this.killed = true;
         this.exitCode = 1 as any;
+        (this as unknown as EventEmitter).emit("close", 1);
       },
     });
-    launches.push({ child, options, executable, args });
+    const sent: string[] = [];
+    let pending = "";
+    child.stdin.on("data", (chunk: Buffer) => {
+      pending += chunk.toString();
+      const lines = pending.split("\n");
+      pending = lines.pop()!;
+      for (const line of lines.filter(Boolean)) {
+        const event = JSON.parse(line);
+        if (event.type === "user") sent.push(event.message.content);
+      }
+    });
+    launches.push({ child, options, executable, args, sent });
     return child;
   };
   const pool = new ResearcherPool(store, directory, resolve("."), {
@@ -50,614 +69,611 @@ function fixture({ sessions }: { sessions?: any } = {}) {
     sessions,
   });
   cleanups.push(() => pool.stop());
-  const queue = () =>
-    (
-      store.command({
-        type: "annotate",
-        question: "Investigate fixture",
-        target: { label: "Fixture record" },
-        dispatch: true,
-      }) as any
-    ).investigationId;
-  // The researcher working on a batch's latest assignment.
-  const task = (id: string) => pool.active.get(assignmentOf(store, id).id);
-  return { directory, store, pool, launches, queue, task, live: pool.live };
+  const batch = () => store.state.investigations[0];
+  const seats = () => batch().assignments;
+  const statuses = () => seats().map((a: any) => a.status);
+  // The latest process started for a seat, by its place in the team.
+  const of = (place: number) => launches.filter((l) => l.options.cwd.includes(seats()[place].id)).at(-1)!;
+  const init = (l: Launch, id: string) => l.child.stdout.write(`${JSON.stringify({ type: "system", subtype: "init", session_id: id })}\n`);
+  const say = (l: Launch, text: string, event: object = {}) => l.child.stdout.write(`${JSON.stringify({ type: "result", subtype: "success", result: text, ...event })}\n`);
+  // A team of the given size, each researcher's conversation under way.
+  const team = (size: number, options: object = {}) => {
+    const opened = openTeam(store, pool, "claude", { size, goal: "Find who bought the fictional Example mill, and when.", title: "The Example mill", ...options });
+    launches.forEach((l, n) => init(l, `session-${n + 1}`));
+    return opened;
+  };
+  const inbox = (place: number) => {
+    const folder = join(directory, "agents", batch().id, seats()[place].id, "inbox");
+    return existsSync(folder) ? readdirSync(folder).filter((name) => name.endsWith(".json")) : [];
+  };
+  return { directory, store, pool, launches, batch, seats, statuses, of, init, say, team, inbox, live: pool.live };
 }
 // A stand-in for the app's Python sessions, recording each seat the pool opens.
 function fakeSessions() {
   const seats = new Map<string, any>();
+  const running = new Map<string, number>();
   return {
     seats,
+    running: (key: string) => running.get(key) ?? 0,
+    setRunning: (key: string, n: number) => running.set(key, n),
     open: (key: string, seat: any) => seats.set(key, { ...seat, open: true }),
     close: (key: string) => seats.has(key) && (seats.get(key).open = false),
     closeAll: () => seats.forEach((seat) => (seat.open = false)),
   };
 }
-describe("researchers' Python sessions", () => {
-  it("open with the researcher, answer only its lease, and are described to it", () => {
-    const sessions = fakeSessions();
-    const f = fixture({ sessions });
-    const id = f.queue();
-    assignQueued(f.store, f.pool, "claude");
-    const assignment = assignmentOf(f.store, id);
-    const seat = sessions.seats.get(assignment.id);
-    expect(seat).toMatchObject({ open: true, folder: f.task(id).directory, seat: join(f.directory, "agents", id, assignment.id) });
-    expect(f.launches[0]!.options.env.WEIR_LEASE).toBe(assignment.lease.token);
-    expect(seat.authorize(assignment.lease.token)).toBe(true);
-    expect(seat.authorize("someone-else")).toBe(false);
-    expect(f.launches[0]!.args.join(" ")).toContain("node tools/python.mjs");
-    // Pages are saved into the library through the session, not read into the conversation.
-    expect(f.launches[0]!.args.join(" ")).toContain("weir.save(url)");
-    expect(f.launches[0]!.args.join(" ")).toContain("weir.publish(statement, qualification, explanation, evidence)");
-    const args = f.launches[0]!.args;
-    expect(JSON.parse(args[args.indexOf("--settings") + 1]!).permissions.deny).toContain("WebFetch");
-    // Long output reaches the researcher as a message.
-    seat.deliver("Your long Python run has finished. Its output:\n\n40 pages");
-    expect(f.launches[0]!.child.stdin.read()?.toString()).toContain("40 pages");
-    // Paused, the researcher's lease no longer runs code, and its session closes.
-    f.pool.pause(assignment.id);
-    expect(seat.authorize(assignment.lease?.token ?? f.task(id)?.token)).toBe(false);
-    expect(seat.open).toBe(false);
-  });
-  it("stay with the seat when the human switches its researcher to another agent", () => {
-    const sessions = fakeSessions();
-    const f = fixture({ sessions });
-    const id = f.queue();
-    assignQueued(f.store, f.pool, "claude");
-    const assignment = assignmentOf(f.store, id);
-    const before = sessions.seats.get(assignment.id);
-    f.pool.switch(assignment.id, { agent: "codex" }, "Codex");
-    f.launches[0]!.child.emit("close", 0);
-    f.launches[0]!.child.emit("exit", 0);
-    f.pool.pump();
-    const after = sessions.seats.get(assignment.id);
-    expect(after.open).toBe(true);
-    expect(after.folder).not.toBe(before.folder);
-    expect(after.seat).toBe(before.seat);
-  });
-  it("are not described when the app keeps none", () => {
+
+describe("a team of researchers", () => {
+  it("starts on every seat when the batch opens, each with the goal, its name and the board", () => {
     const f = fixture();
-    f.queue();
-    assignQueued(f.store, f.pool, "claude");
-    expect(f.launches[0]!.args.join(" ")).not.toContain("tools/python.mjs");
-    const args = f.launches[0]!.args;
-    expect(JSON.parse(args[args.indexOf("--settings") + 1]!).permissions.deny).not.toContain("WebFetch");
+    const { investigationId } = f.team(3);
+    expect(f.launches).toHaveLength(3);
+    expect(f.statuses()).toEqual(["running", "running", "running"]);
+    expect(f.batch().status).toBe("running");
+    // Each has its own folder under its seat, and its own lease.
+    expect(new Set(f.launches.map((l) => l.options.cwd)).size).toBe(3);
+    f.launches.forEach((l, n) => {
+      const seat = f.seats()[n];
+      expect(l.options.cwd).toBe(join(f.directory, "agents", investigationId, seat.id, seat.lease.token));
+      expect(l.options.env.WEIR_LEASE).toBe(seat.lease.token);
+      const instructions = l.args.join(" ");
+      expect(instructions).toContain(`You are Researcher ${n + 1}, one of a team of 3 researchers`);
+      expect(instructions).toContain("## The goal\n\nFind who bought the fictional Example mill, and when.");
+      expect(instructions).toContain("The whole goal is yours");
+      expect(instructions).toContain("weir.post(text)");
+      expect(instructions).toContain(`library/batches/batch-1/board.md`);
+      expect(instructions).toContain("There is no limit on how many sources you read or how long you work");
+      expect(instructions).toContain(`end your turn with this line, alone, as the last line of your reply:\n\n${DONE_PHRASE}`);
+      // Nothing of the bounded pass is left: no brief, retrieval limit or result file.
+      expect(instructions).not.toMatch(/brief\.md|result\.json|post\.md|bounded|20 distinct|out of scope/);
+      expect(l.sent[0]).toContain(`You are Researcher ${n + 1} on batch 1, "The Example mill".`);
+      expect(l.sent[0]).toContain("post what you mean to try first with weir.post");
+      expect(readFileSync(join(l.options.cwd, "AGENTS.md"), "utf8")).toContain("## The goal");
+      expect(existsSync(join(l.options.cwd, "brief.md"))).toBe(false);
+    });
+    // The library holds the goal before anyone reads it.
+    expect(readFileSync(join(f.directory, "library", "batches", "batch-1", "goal.md"), "utf8")).toContain("Find who bought the fictional Example mill");
   });
-});
-describe("local researcher supervision", () => {
-  it("defaults to no time limit and tells the worker there is no deadline", () => {
-    const f = fixture();
-    const id = f.queue();
-    assignQueued(f.store, f.pool, "claude");
-    const task = f.task(id);
-    task.started = Date.now() - 24 * 60 * 60_000;
-    f.pool.pump();
-    expect(f.launches[0]!.child.killed).toBe(false);
-    expect(f.store.state.investigations[0].status).toBe("running");
-    expect(f.launches[0]!.args.join(" ")).toContain("No elapsed-time limit");
-    expect(f.launches[0]!.args.join(" ")).not.toContain("within ten minutes");
-    // Checkpoints hold discoveries; progress comes from the stream.
-    expect(f.launches[0]!.args.join(" ")).toContain("not progress reports");
-    expect(f.launches[0]!.args.join(" ")).not.toMatch(/status\.(txt|json)/);
-  });
-  it("persists optional limits, snapshots each pass, and retains checkpoints on expiry", () => {
-    const f = fixture();
-    for (const value of [0, -1, 1.5, "10", undefined, Infinity])
-      expect(() => f.pool.configure({ timeLimitMinutes: value })).toThrow(
-        "positive whole number",
-      );
-    f.pool.configure({ timeLimitMinutes: 2 });
-    const reopened = new WorkspaceStore(f.directory, dataset);
-    expect(reopened.state.researchSettings.timeLimitMinutes).toBe(2);
-    const id = f.queue();
-    assignQueued(f.store, f.pool, "claude");
-    expect(f.launches[0]!.args.join(" ")).toContain("2-minute time limit");
-    const task = f.task(id);
-    f.pool.configure({ timeLimitMinutes: null });
-    expect(task.timeLimitMinutes).toBe(2);
-    writeFileSync(
-      join(task.directory, "checkpoint.json"),
-      JSON.stringify({
-        summary: "Partial result",
-        findings: "Fictional archive inspected",
-        nextSteps: "Compare another source",
-      }),
-    );
-    task.started = Date.now() - 60_000;
-    f.pool.pump();
-    expect(f.launches[0]!.child.killed).toBe(false);
-    task.started = Date.now() - 2 * 60_000;
-    f.pool.pump();
-    expect(f.launches[0]!.child.killed).toBe(true);
-    expect(f.store.state.investigations[0].status).toBe("paused");
-    expect(assignmentOf(f.store, id)).toMatchObject({ status: "paused" });
-    expect(assignmentOf(f.store, id).checkpoints).toHaveLength(1);
-    expect(f.store.state.investigations[0].events.at(-1).message).toContain(
-      "2-minute time limit",
-    );
-    expect(
-      JSON.parse(readFileSync(join(f.directory, "workspace.json"), "utf8"))
-        .researchSettings.timeLimitMinutes,
-    ).toBeNull();
-    f.launches[0]!.child.emit("close", 1);
-    // Resumed, the same assignment starts again, under the setting now in force.
-    f.store.command({ type: "resume", investigationId: id });
-    f.pool.pump();
-    expect(f.task(id).timeLimitMinutes).toBeNull();
-  });
-  it("launches only on the coordinator's assignments, and limits researchers per batch, not in all", () => {
+
+  it("is as large as the human's setting, and runs on the agent the batch was opened with", () => {
     const f = fixture();
     expect(() => f.pool.configure({ researchersPerBatch: 0 })).toThrow("from 1 to 20");
     f.pool.configure({ researchersPerBatch: 2 });
     expect(f.store.state.researchSettings).toEqual({ timeLimitMinutes: null, researchersPerBatch: 2 });
-    f.queue();
-    f.queue();
-    f.queue();
+    const coordinator = openTeam(f.store, f.pool, "codex", { size: 2 }).coordinator;
+    expect(f.launches).toHaveLength(2);
+    expect(f.launches[0]!.executable).toBe("/test/codex");
+    expect(f.launches[0]!.args[0]).toBe("app-server");
+    // A second batch's team starts beside the first.
+    coordinator.command({ action: "open-batch", session: coordinator.session.secret, engine: "claude", title: "Another", goal: "Another fictional goal." });
+    f.pool.pump();
+    expect(f.launches).toHaveLength(4);
+    expect(f.launches[2]!.executable).toBe("/test/claude");
+  });
+
+  it("works with no time limit", () => {
+    const f = fixture();
+    f.team(1);
+    f.pool.active.get(f.seats()[0].id).started = Date.now() - 7 * 24 * 60 * 60_000;
+    f.pool.pump();
+    expect(f.launches[0]!.child.killed).toBe(false);
+    expect(f.statuses()).toEqual(["running"]);
+  });
+
+  it("starts nothing on assignments from before teams, which are kept as history", () => {
+    const f = fixture();
+    f.store.command({ type: "annotate", question: "An old question", target: { label: "Fixture record" }, dispatch: true });
+    f.store.update((next: any) => {
+      next.investigations[0].number = 1;
+      next.investigations[0].assignments = [{ id: "old", title: "An old part", brief: "Look.", status: "waiting", createdAt: "2026-01-01T00:00:00Z", checkpoints: [], steering: [] }];
+    });
     f.pool.pump();
     expect(f.launches).toHaveLength(0);
-    // Three batches with one assignment each: the limit is per batch, so all three start.
-    assignQueued(f.store, f.pool, "codex");
-    expect(f.launches).toHaveLength(3);
-    expect(f.launches[0]!.args[0]).toBe("app-server");
   });
-  it("runs a batch's assignments together up to the limit, and starts the next in order when one finishes", () => {
+});
+
+describe("the done phrase", () => {
+  it("finishes a seat, keeping its conversation, and the batch reaches Review when every seat has finished", async () => {
+    const sessions = fakeSessions();
+    const f = fixture({ sessions });
+    f.team(2);
+    f.say(f.of(0), `The deeds are read and published.\n\n${DONE_PHRASE}`);
+    expect(f.statuses()).toEqual(["finished", "running"]);
+    expect(f.seats()[0]).toMatchObject({ session: { engine: "claude", id: "session-1" } });
+    expect(f.seats()[0].lease).toBeUndefined();
+    // Its process and its Python session end; its variables stay on disk for a wake.
+    expect(f.of(0).child.killed).toBe(true);
+    expect(sessions.seats.get(f.seats()[0].id).open).toBe(false);
+    expect(f.pool.active.has(f.seats()[0].id)).toBe(false);
+    expect(f.batch().status).toBe("running");
+    expect(f.batch().readyAt).toBeUndefined();
+    f.say(f.of(1), DONE_PHRASE);
+    expect(f.statuses()).toEqual(["finished", "finished"]);
+    expect(f.batch().status).toBe("review");
+    expect(f.batch().readyAt).toBeTruthy();
+    expect(f.batch().events.map((e: any) => e.message)).toEqual(expect.arrayContaining(["Researcher 1 finished.", "Researcher 2 finished.", "Every researcher has finished; the batch is ready for review."]));
+  });
+
+  it("is the exact line, alone, at the end of the turn", async () => {
     const f = fixture();
-    f.pool.configure({ researchersPerBatch: 2 });
-    const id = f.queue();
-    const coordinator = assignQueued(f.store, f.pool, "codex");
-    for (const title of ["Second part", "Third part"])
-      coordinator.command({ action: "assign", session: coordinator.session.secret, investigationId: id, engine: "codex", title, brief: `Look into the ${title.toLowerCase()}.` });
+    f.team(1);
+    for (const text of [`I am not ${DONE_PHRASE} yet.`, `${DONE_PHRASE}.`, `${DONE_PHRASE}\nOne more thing to check.`, "research done"]) {
+      f.say(f.of(0), text);
+      expect(f.statuses()).toEqual(["running"]);
+    }
+    f.say(f.of(0), `Nothing is left.\n  ${DONE_PHRASE}  \n\n`);
+    expect(f.statuses()).toEqual(["finished"]);
+  });
+
+  it("keeps the seat at work while its code is still running, says so once, and finishes it once the output has reached it", async () => {
+    const sessions = fakeSessions();
+    const f = fixture({ sessions });
+    f.team(1);
+    const seat = f.seats()[0].id;
+    sessions.setRunning(seat, 1);
+    f.say(f.of(0), DONE_PHRASE);
+    await tick();
+    expect(f.statuses()).toEqual(["running"]);
+    expect(f.of(0).sent.at(-1)).toContain(`You said ${DONE_PHRASE}, but a Python run of yours is still going, and its output will reach you as a message.`);
+    // Saying it again changes nothing, and is not answered again.
+    const heard = f.of(0).sent.length;
+    f.say(f.of(0), DONE_PHRASE);
+    await tick();
+    expect(f.statuses()).toEqual(["running"]);
+    expect(f.of(0).sent).toHaveLength(heard);
+    // The run finishes; its output wakes the researcher, which then finishes.
+    sessions.setRunning(seat, 0);
+    sessions.seats.get(seat).deliver("Your long Python run has finished. Its output:\n\n40 pages");
+    await tick();
+    expect(f.of(0).sent.at(-1)).toBe("Your long Python run has finished. Its output:\n\n40 pages");
+    f.say(f.of(0), DONE_PHRASE);
+    expect(f.statuses()).toEqual(["finished"]);
+  });
+
+  it("asks again when a message reached the researcher as it was finishing", async () => {
+    const f = fixture();
+    f.team(2);
+    // A post arrives while Researcher 2 is mid-turn, and its turn then ends with the phrase.
+    f.pool.post(f.seats()[0].id, "The 1896 deed names the buyer.");
+    await tick();
+    expect(f.of(1).sent.at(-1)).toContain("A post on your batch's board, from Researcher 1:\n\nThe 1896 deed names the buyer.");
+    f.say(f.of(1), DONE_PHRASE);
+    await tick();
+    expect(f.statuses()[1]).toBe("running");
+    expect(f.of(1).sent.at(-1)).toContain("A message reached you as you were finishing.");
+    f.say(f.of(1), DONE_PHRASE);
+    expect(f.statuses()[1]).toBe("finished");
+  });
+
+  it("nudges once a turn that ends without it, and leaves a seat that ignores the nudge running and idle", async () => {
+    const f = fixture();
+    f.team(1);
+    f.say(f.of(0), "I have read the deeds.");
+    await tick();
+    expect(f.of(0).sent).toHaveLength(2);
+    expect(f.of(0).sent[1]).toContain(`You ended your turn without saying whether you have finished. Carry on with the goal, or, when nothing you or the board offers is left to pursue, end your turn with the line ${DONE_PHRASE}.`);
+    f.say(f.of(0), "Still thinking.");
+    await tick();
+    expect(f.of(0).sent).toHaveLength(2);
+    expect(f.statuses()).toEqual(["running"]);
+    expect(f.of(0).child.killed).toBe(false);
+    // Something new to act on earns one more.
+    f.pool.announce(f.batch().id, "The human asks about the 1890s.");
+    await tick();
+    f.say(f.of(0), "Looked; nothing there.");
+    await tick();
+    expect(f.of(0).sent.map((m) => m.slice(0, 24))).toEqual(["You are Researcher 1 on ", "You ended your turn with", "A post on your batch's b", "You ended your turn with"]);
+  });
+
+  it("does not finish or nudge a turn that was interrupted, or one that ended to ask the human for access", async () => {
+    const f = fixture();
+    f.team(1);
+    const agent = f.pool.active.get(f.seats()[0].id).agent;
+    agent.interrupt();
+    f.say(f.of(0), DONE_PHRASE);
+    await tick();
+    expect(f.statuses()).toEqual(["running"]);
+    expect(f.of(0).sent).toHaveLength(1);
+    writeFileSync(join(f.of(0).options.cwd, "checkpoint.json"), JSON.stringify({ summary: "Needs the archive", findings: "Login wall", nextSteps: "Read vol. 5", accessRequest: { instruction: "Sign in to the county archive.", url: "https://archive.example/" } }));
+    f.say(f.of(0), "I have asked for access.");
+    await tick();
+    expect(f.statuses()).toEqual(["paused"]);
+    expect(f.batch().accessRequest).toMatchObject({ instruction: "Sign in to the county archive." });
+    expect(f.of(0).sent).toHaveLength(1);
+    // The human could not get in: it carries on, told so, with its conversation.
+    f.store.command({ type: "resolve-access", investigationId: f.batch().id, outcome: "unavailable" });
     f.pool.pump();
-    const assignments = () => f.store.state.investigations[0].assignments;
     expect(f.launches).toHaveLength(2);
-    expect(assignments().map((a: any) => a.status)).toEqual(["running", "running", "waiting"]);
-    expect(f.store.state.investigations[0].status).toBe("running");
-    // Each has its own folder, and reads its own brief.
-    expect(f.launches[0]!.options.cwd).not.toBe(f.launches[1]!.options.cwd);
-    expect(readFileSync(join(f.launches[1]!.options.cwd, "brief.md"), "utf8")).toContain("Look into the second part.");
-    writeFileSync(join(f.launches[0]!.options.cwd, "result.json"), JSON.stringify({ title: "First", summary: "S", ambiguity: "A", evidence: [], changes: [] }));
-    f.launches[0]!.child.emit("close", 0);
-    expect(assignments().map((a: any) => a.status)).toEqual(["returned", "running", "running"]);
-    expect(f.launches).toHaveLength(3);
-    expect(readFileSync(join(f.launches[2]!.options.cwd, "brief.md"), "utf8")).toContain("# Third part");
+    expect(f.of(0).args).toContain("--resume");
+    expect(f.of(0).sent[0]).toContain("the human could not get in");
+    expect(f.of(0).sent[0]).toContain("https://archive.example/: Sign in to the county archive.");
   });
-  it("posts what a researcher writes for its batch to the others at work, and keeps it on the board", async () => {
+});
+
+describe("the board", () => {
+  it("takes a researcher's post from its session, delivers it to every other researcher at work, and refuses a repeat", async () => {
     const f = fixture();
-    const id = f.queue();
-    const coordinator = assignQueued(f.store, f.pool, "claude");
-    coordinator.command({ action: "assign", session: coordinator.session.secret, investigationId: id, engine: "claude", title: "Second part", brief: "Look elsewhere." });
-    f.pool.pump();
-    const other = f.launches[1]!;
-    const input: string[] = [];
-    other.child.stdin.on("data", (chunk: Buffer) => input.push(chunk.toString()));
-    const post = join(f.launches[0]!.options.cwd, "post.md");
-    writeFileSync(post, "The 1881 register is missing from the scans; don't look for it online.");
-    // A post being written is left until it has settled.
-    f.pool.pump();
-    expect(f.store.state.investigations[0].board).toBeUndefined();
-    const { utimesSync, existsSync } = await import("node:fs");
-    utimesSync(post, new Date(Date.now() - 5000), new Date(Date.now() - 5000));
-    f.pool.pump();
-    expect(f.store.state.investigations[0].board).toEqual([
-      expect.objectContaining({ assignmentId: f.store.state.investigations[0].assignments[0].id, text: "The 1881 register is missing from the scans; don't look for it online." }),
-    ]);
-    expect(existsSync(post)).toBe(false);
-    await new Promise((done) => setImmediate(done));
-    expect(input.join("")).toContain('A post on your batch\'s board, from the researcher on \\"Fixture assignment\\"');
-    // The library keeps it for researchers who start later.
+    f.team(3);
+    const coordinator = f.pool.coordinator;
+    const before = f.store.state.revision;
+    expect(f.pool.post(f.seats()[0].id, "  The 1881 register is missing from the scans.  ")).toEqual({ posted: true, id: expect.any(String) });
+    await tick();
+    expect(f.batch().board).toEqual([expect.objectContaining({ assignmentId: f.seats()[0].id, text: "The 1881 register is missing from the scans." })]);
+    expect(f.of(0).sent).toHaveLength(1);
+    for (const place of [1, 2]) expect(f.of(place).sent.at(-1)).toBe("A post on your batch's board, from Researcher 1:\n\nThe 1881 register is missing from the scans.");
+    // Delivered, nothing is left waiting for them.
+    expect([f.inbox(0), f.inbox(1), f.inbox(2)]).toEqual([[], [], []]);
+    // The same post from the same seat, as when code is run again, is refused.
+    expect(() => f.pool.post(f.seats()[0].id, "The 1881 register is missing from the scans.")).toThrow("already posted exactly this");
+    expect(f.batch().board).toHaveLength(1);
+    // The coordinator hears of it, and the library keeps it for those who start later.
+    expect(coordinator.delta(coordinator.session.secret, before).changed.boardPosts).toEqual([{ investigationId: f.batch().id, from: "Researcher 1", text: "The 1881 register is missing from the scans." }]);
+    expect(readFileSync(join(f.directory, "library", "batches", "batch-1", "board.md"), "utf8")).toContain("Nothing posted yet.");
     const { writeLibrary } = await import("../server/research-library.mjs");
     writeLibrary(f.store.state, f.directory);
-    expect(readFileSync(join(f.directory, "library", "batches", `investigation-${id}`, "board.md"), "utf8")).toContain("The 1881 register is missing");
+    expect(readFileSync(join(f.directory, "library", "batches", "batch-1", "board.md"), "utf8")).toContain("from Researcher 1\n\nThe 1881 register is missing");
   });
-  it("posts the coordinator's word to every researcher at work on the batch, and keeps it from the coordinator's own news", async () => {
+
+  it("gives the coordinator's post to the whole team, and keeps it from the coordinator's own news", async () => {
     const f = fixture();
-    const id = f.queue();
-    const coordinator = assignQueued(f.store, f.pool, "claude");
-    coordinator.researchers = f.pool;
-    coordinator.command({ action: "assign", session: coordinator.session.secret, investigationId: id, engine: "claude", title: "Second part", brief: "Look elsewhere." });
-    f.pool.pump();
-    const inputs = f.launches.map(() => [] as string[]);
-    f.launches.forEach((l, n) => l.child.stdin.on("data", (chunk: Buffer) => inputs[n]!.push(chunk.toString())));
+    const { coordinator, session, investigationId } = f.team(2);
     const before = f.store.state.revision;
-    coordinator.command({ action: "post", session: coordinator.session.secret, investigationId: id, text: "The human has added the 1891 directory to Sources." });
-    await new Promise((done) => setImmediate(done));
-    for (const input of inputs) expect(input.join("")).toContain("A post on your batch's board, from the coordinator:");
-    expect(f.store.state.investigations[0].board).toEqual([expect.objectContaining({ author: "coordinator", text: "The human has added the 1891 directory to Sources." })]);
+    coordinator.command({ action: "post", session, investigationId, text: "The human has added the 1891 directory to Sources." });
+    await tick();
+    for (const l of f.launches) expect(l.sent.at(-1)).toBe("A post on your batch's board, from the coordinator:\n\nThe human has added the 1891 directory to Sources.");
+    expect(f.batch().board).toEqual([expect.objectContaining({ author: "coordinator", text: "The human has added the 1891 directory to Sources." })]);
     expect(coordinator.delta(coordinator.session.secret, before).changed?.boardPosts).toBeUndefined();
-    expect(coordinator.status().latest!.text).toBe("Posting to a batch's board");
+    expect(coordinator.status().latest!.text).toBe("Posting to batch 1's board");
   });
-  it("saves checkpoints and holds a worker's result for the coordinator, applying nothing", () => {
+
+  it("wakes a finished seat, which resumes its conversation with the post as its message, and takes the batch out of Review", async () => {
     const f = fixture();
-    f.queue();
-    const coordinator = assignQueued(f.store, f.pool, "codex");
-    const process = f.launches[0]!;
-    writeFileSync(
-      join(process.options.cwd, "checkpoint.json"),
-      JSON.stringify({
-        summary: "Searched",
-        findings: "No original found",
-        nextSteps: "Inspect archive",
-      }),
-    );
-    f.pool.pump();
-    f.pool.pump();
-    expect(f.store.state.investigations[0]!.assignments[0].checkpoints).toHaveLength(1);
-    writeFileSync(
-      join(process.options.cwd, "result.json"),
-      JSON.stringify({
-        title: "Still unresolved",
-        summary: "Original not found",
-        ambiguity: "Identity remains open",
-        evidence: [],
-        changes: [],
-      }),
-    );
-    process.child.emit("close", 0);
-    expect(coordinator.candidates().map((c: any) => c.proposal.title)).toEqual(["Still unresolved"]);
-    expect(f.store.state.investigations[0]!.proposals).toEqual([]);
-    expect(f.store.state.dataset).toEqual(dataset);
-  });
-  it("terminates replaced work and starts a replacement with the selected provider", () => {
-    const f = fixture();
-    const id = f.queue();
-    const coordinator = assignQueued(f.store, f.pool, "codex");
-    const old = f.launches[0]!;
-    const assignmentId = assignmentOf(f.store, id).id;
-    // The coordinator stops it and sends it back to another agent.
-    coordinator.researchers = f.pool;
-    coordinator.command({ action: "stop-researcher", session: coordinator.session.secret, assignmentId, reason: "Another agent suits it better." });
-    expect(old.child.killed).toBe(true);
-    old.child.emit("close", 1);
-    coordinator.command({ action: "revise", session: coordinator.session.secret, assignmentId, engine: "claude", notes: "Start again with the deeds." });
-    f.pool.pump();
+    const { coordinator, session, investigationId } = f.team(2);
+    f.say(f.of(0), DONE_PHRASE);
+    f.say(f.of(1), DONE_PHRASE);
+    expect(f.batch().status).toBe("review");
     expect(f.launches).toHaveLength(2);
-    expect(f.launches[1]!.executable).toBe("/test/claude");
-    expect(f.store.state.investigations[0]!.executions.at(-1).provider).toBe(
-      "claude",
-    );
-    expect(assignmentOf(f.store, id).lease.worker).toBe("Claude Code researcher");
-    expect(readFileSync(join(f.launches[1]!.options.cwd, "brief.md"), "utf8")).toContain("Start again with the deeds.");
+    // The human says keep going; the coordinator's post wakes the whole team.
+    coordinator.command({ action: "post", session, investigationId, text: "The human wants the 1890s followed too." });
+    expect(f.statuses()).toEqual(["running", "running"]);
+    expect(f.batch().status).toBe("running");
+    expect(f.batch().readyAt).toBeUndefined();
+    expect(f.launches).toHaveLength(4);
+    [0, 1].forEach((place) => {
+      const woken = f.of(place);
+      // The same conversation, in the same folder.
+      expect(woken.args.slice(woken.args.indexOf("--resume"), woken.args.indexOf("--resume") + 2)).toEqual(["--resume", `session-${place + 1}`]);
+      expect(woken.options.cwd).toBe(f.launches[place]!.options.cwd);
+      expect(woken.sent).toHaveLength(1);
+      expect(woken.sent[0]).toContain("Your conversation has been picked up again in the same folder, and your Python session's variables are as your last completed run left them.");
+      expect(woken.sent[0]).toContain("A post on your batch's board, from the coordinator:\n\nThe human wants the 1890s followed too.");
+      expect(woken.sent[0]).toContain(`or end your turn with ${DONE_PHRASE} when nothing is left to pursue`);
+    });
+    // The post waits in each inbox until the woken conversation is under way.
+    expect(f.inbox(0)).toHaveLength(1);
+    f.init(f.of(0), "session-1");
+    expect(f.inbox(0)).toEqual([]);
+    // One finishes again and the other posts: only the finished one is woken.
+    f.init(f.of(1), "session-2");
+    f.say(f.of(0), DONE_PHRASE);
+    expect(f.statuses()).toEqual(["finished", "running"]);
+    f.pool.post(f.seats()[1].id, "A sale notice names the buyer.");
+    expect(f.statuses()).toEqual(["running", "running"]);
+    expect(f.launches).toHaveLength(5);
+    expect(f.of(0).sent[0]).toContain("A post on your batch's board, from Researcher 2:\n\nA sale notice names the buyer.");
+    // A researcher's own post does not wake its own seat.
+    f.init(f.of(0), "session-1");
+    f.say(f.of(0), DONE_PHRASE);
+    f.say(f.of(1), DONE_PHRASE);
+    expect(f.batch().status).toBe("review");
   });
-  it("pauses failures rather than entering an automatic retry loop", () => {
+
+  it("never wakes a paused seat, and gives it the posts it missed as one message when the human resumes it", async () => {
     const f = fixture();
-    f.queue();
-    assignQueued(f.store, f.pool, "claude");
-    f.launches[0]!.child.emit("close", 1);
+    f.team(2);
+    f.pool.pause(f.seats()[1].id);
+    expect(f.statuses()).toEqual(["running", "paused"]);
+    expect(f.of(1).child.killed).toBe(true);
+    f.pool.post(f.seats()[0].id, "The 1881 register is missing from the scans.");
+    f.pool.announce(f.batch().id, "The human has the 1895 directory on paper.");
     f.pool.pump();
-    expect(f.store.state.investigations[0]!.status).toBe("paused");
-    expect(f.store.state.investigations[0]!.assignments[0].status).toBe("paused");
-    expect(f.launches).toHaveLength(1);
-  });
-  it("pauses interrupted managed jobs on restart so old results cannot publish", () => {
-    const f = fixture();
-    const id = f.queue();
-    assignQueued(f.store, f.pool, "codex");
-    const token = assignmentOf(f.store, id).lease.token;
+    expect(f.statuses()).toEqual(["running", "paused"]);
+    expect(f.launches).toHaveLength(2);
+    // They wait on disk, in its seat's inbox, and survive the app restarting.
+    expect(f.inbox(1)).toHaveLength(2);
     f.pool.stop();
-    const restarted = new ResearcherPool(f.store, f.directory, resolve("."));
-    cleanups.push(() => restarted.stop());
-    expect(f.store.state.investigations[0]!.status).toBe("paused");
-    expect(() =>
-      f.store.command({
-        type: "checkpoint",
-        investigationId: id,
-        token,
-        summary: "late",
-        findings: "late",
-        nextSteps: "late",
-      }),
-    ).toThrow("lease");
+    const again = fixture({ directory: f.directory });
+    again.pool.coordinator = f.pool.coordinator;
+    again.pool.resume(again.seats()[1].id);
+    expect(again.launches).toHaveLength(1);
+    expect(again.launches[0]!.args).toContain("--resume");
+    expect(again.launches[0]!.sent).toHaveLength(1);
+    const message = again.launches[0]!.sent[0]!;
+    expect(message).toContain("While you were away:");
+    expect(message.indexOf("from Researcher 1:\n\nThe 1881 register is missing from the scans.")).toBeGreaterThan(0);
+    expect(message.indexOf("from the coordinator:\n\nThe human has the 1895 directory on paper.")).toBeGreaterThan(message.indexOf("from Researcher 1"));
+    // Delivered once: gone from the inbox once its conversation is under way.
+    again.init(again.launches[0]!, "session-2");
+    await tick();
+    expect(again.inbox(1)).toEqual([]);
+    expect(again.launches[0]!.sent).toHaveLength(1);
+  });
+
+  it("holds a post for a seat woken while the human has the whole batch paused", async () => {
+    const f = fixture();
+    const { investigationId } = f.team(2);
+    f.say(f.of(0), DONE_PHRASE);
+    f.store.command({ type: "pause", investigationId });
+    f.pool.pump();
+    expect(f.statuses()).toEqual(["finished", "paused"]);
+    f.pool.announce(investigationId, "A new lead.");
+    expect(f.statuses()).toEqual(["paused", "paused"]);
+    expect(f.launches).toHaveLength(2);
+    f.store.command({ type: "resume", investigationId });
+    f.pool.pump();
+    expect(f.statuses()).toEqual(["running", "running"]);
+    expect(f.of(0).sent[0]).toContain("from the coordinator:\n\nA new lead.");
+    expect(f.of(1).sent[0]).toContain("from the coordinator:\n\nA new lead.");
   });
 });
 
-describe("coordinator-managed research processes", () => {
-  it("requires a coordinator brief and holds results for synthesis", async () => {
-    const { Coordinator } = await import("../server/coordinator.mjs");
+describe("a batch reaching Review", () => {
+  it("starts what the human set to follow automatically, once its team has finished with findings", () => {
     const f = fixture();
-    const coordinator = new Coordinator(f.store);
-    const session = "coordinator-session-for-test-000001";
-    coordinator.attach("Test coordinator", session);
-    f.pool.coordinator = coordinator as any;
-    const id = f.queue();
-    f.pool.pump();
-    expect(f.launches).toHaveLength(0);
-    expect(() => coordinator.command({ action: "assign", session, investigationId: id, engine: "codex", brief: "No title." })).toThrow("Assignment title");
-    coordinator.command({
-      action: "assign",
-      session,
-      investigationId: id,
-      engine: "codex",
-      title: "The two identities",
-      brief: "Compare the two identities; preserve ambiguity.",
-    });
-    f.pool.pump();
-    expect(f.launches).toHaveLength(1);
-    const process = f.launches[0]!;
-    const { readFileSync } = await import("node:fs");
-    // The researcher reads the brief as prose, and gets no credential and no snapshot.
-    const brief = readFileSync(join(process.options.cwd, "brief.md"), "utf8");
-    expect(brief).toContain("# The two identities");
-    expect(brief).toContain("Compare the two identities; preserve ambiguity.");
-    expect(readFileSync(join(process.options.cwd, "AGENTS.md"), "utf8")).toContain(join(f.directory, "library"));
-    const { existsSync } = await import("node:fs");
-    expect(existsSync(join(process.options.cwd, "brief.json"))).toBe(false);
-    const token = assignmentOf(f.store, id).lease.token;
-    const { readdirSync } = await import("node:fs");
-    for (const file of readdirSync(process.options.cwd).filter((n) => /\.(md|json)$/.test(n)))
-      expect(readFileSync(join(process.options.cwd, file), "utf8")).not.toContain(token);
-    writeFileSync(
-      join(process.options.cwd, "result.json"),
-      JSON.stringify({
-        title: "Unresolved",
-        summary: "Two identities",
-        ambiguity: "No primary evidence yet",
-        evidence: [],
-        changes: [],
-      }),
-    );
-    process.child.emit("close", 0);
-    expect(f.store.state.investigations[0]!.proposals).toHaveLength(0);
-    expect(coordinator.candidates()).toHaveLength(1);
-    f.pool.stop();
-    const restarted = new ResearcherPool(f.store, f.directory, resolve("."), {
-      coordinator,
-    } as any);
-    cleanups.push(() => restarted.stop());
-    expect(f.store.state.investigations[0]!.status).toBe("running");
-    expect(assignmentOf(f.store, id).status).toBe("returned");
-    expect(coordinator.candidates()).toHaveLength(1);
-  });
-});
-
-describe("steerable researchers", () => {
-  async function steerable() {
-    const { Coordinator } = await import("../server/coordinator.mjs");
-    const f = fixture();
-    const coordinator = new Coordinator(f.store);
-    const session = "coordinator-session-for-test-000002";
-    coordinator.attach("Test coordinator", session);
-    coordinator.researchers = f.pool;
-    f.pool.coordinator = coordinator as any;
-    const id = f.queue();
-    const { assignmentId } = coordinator.command({ action: "assign", session, investigationId: id, engine: "claude", title: "The fixture record", brief: "Trace the fixture record." }) as any;
-    f.pool.pump();
-    const process = f.launches.at(-1)!;
-    const input: any[] = [];
-    let pending = "";
-    process.child.stdin.on("data", (chunk: Buffer) => {
-      pending += chunk.toString();
-      const lines = pending.split("\n");
-      pending = lines.pop()!;
-      input.push(...lines.map((l) => JSON.parse(l)));
-    });
-    const say = (event: object) => process.child.stdout.write(`${JSON.stringify(event)}\n`);
-    const command = (data: object) => coordinator.command({ session, assignmentId, ...data });
-    const investigation = () => f.store.state.investigations.find((i: any) => i.id === id);
-    const assignment = () => investigation().assignments.find((a: any) => a.id === assignmentId);
-    return { ...f, id, assignmentId, coordinator, process, input, say, command, investigation, assignment };
-  }
-  const result = { title: "Unresolved", summary: "Two identities", ambiguity: "Open", evidence: [], changes: [] };
-
-  it("keeps its input open and receives the assignment as its first message", async () => {
-    const s = await steerable();
-    await new Promise((done) => setImmediate(done));
-    expect(s.process.args).toEqual(expect.arrayContaining(["--input-format", "stream-json"]));
-    expect(s.process.child.stdin.writableEnded).toBe(false);
-    expect(s.input[0]).toMatchObject({ type: "user", message: { content: expect.stringContaining("brief.md") } });
-  });
-
-  it("delivers the coordinator's redirection to the running researcher", async () => {
-    const s = await steerable();
-    expect(s.command({ action: "steer", message: "Focus on the 1880 census instead." })).toEqual({ steered: true });
-    await new Promise((done) => setImmediate(done));
-    expect(s.input.at(-1)).toEqual({ type: "user", message: { role: "user", content: "Focus on the 1880 census instead." } });
-    expect(s.investigation().events.at(-1).message).toBe('Coordinator redirected the researcher on "The fixture record": Focus on the 1880 census instead.');
-    expect(s.assignment().steering).toEqual([{ at: expect.any(String), message: "Focus on the 1880 census instead." }]);
-    expect(s.coordinator.status().latest!.text).toBe('Redirecting the researcher on "The fixture record" in a batch');
-    expect(() => s.command({ action: "steer", message: " " })).toThrow("A redirection must be text");
-    expect(() => s.coordinator.command({ session: "coordinator-session-for-test-000002", action: "steer", investigationId: s.id, message: "Which one?" })).toThrow("Name the assignment with assignmentId");
-  });
-
-  it("stops a researcher outright, leaving the batch the coordinator's to assign again", async () => {
-    const s = await steerable();
-    s.say({ type: "assistant", message: { content: [{ type: "tool_use", name: "Read", input: { file_path: "brief.md" } }] } });
-    expect(s.live.list()).toHaveLength(1);
-    expect(s.command({ action: "stop-researcher", reason: "The human withdrew this question." })).toEqual({ stopped: true });
-    expect(s.process.child.killed).toBe(true);
-    expect(s.assignment()).toMatchObject({ status: "stopped" });
-    expect(s.assignment().lease).toBeUndefined();
-    expect(s.investigation().events.at(-1).message).toBe('Coordinator stopped "The fixture record": The human withdrew this question.');
-    s.process.child.emit("close", null);
-    expect(s.live.list()).toEqual([]);
-    // Its exit is not a failure, and nothing asks the human to approve resuming it.
-    expect(s.assignment().status).toBe("stopped");
-    expect(s.investigation().status).toBe("review");
-    s.store.update((next: any) => {
-      next.investigations.find((i: any) => i.id === s.id).number = 1;
-    });
-    expect(liveRows({ ...s.store.state, live: s.live.list() } as any).filter((r: any) => r.group === "attention")).toEqual([]);
-    expect(() => s.command({ action: "steer", message: "Too late" })).toThrow("No researcher is running");
-  });
-
-  it("closes once its turn ends with its findings written", async () => {
-    const s = await steerable();
-    writeFileSync(join(s.process.options.cwd, "result.json"), JSON.stringify(result));
-    s.say({ type: "result", subtype: "success", result: "Done." });
-    expect(s.process.child.stdin.writableEnded).toBe(true);
-    s.process.child.emit("close", 0);
-    expect(s.coordinator.candidates()).toHaveLength(1);
-    expect(s.pool.active.size).toBe(0);
-  });
-
-  it("waits for the coordinator when a turn ends without findings", async () => {
-    const s = await steerable();
-    s.say({ type: "result", subtype: "success", result: "I could not find the register." });
-    expect(s.process.child.stdin.writableEnded).toBe(false);
-    expect(s.investigation().status).toBe("running");
-    expect(s.investigation().events.at(-1).message).toContain("waiting for instructions");
-    s.command({ action: "steer", message: "Write up what you found as unresolved." });
-    expect(s.pool.active.get(s.assignmentId).agent.busy).toBe(true);
-  });
-});
-
-describe("a researcher the app crashed under", () => {
-  it("waits to be resumed with its session, taking in the checkpoint it last wrote", () => {
-    const f = fixture();
-    const id = f.queue();
-    assignQueued(f.store, f.pool, "codex");
-    const task = f.task(id);
-    const session = { engine: "codex", id: "thread-crashed", directory: task.directory, at: new Date().toISOString() };
     f.store.update((next: any) => {
-      next.investigations[0].assignments[0].session = session;
+      next.reviewSettings = { autoWalkthrough: true, autoGraph: false };
+      next.documents.push({ id: "deed", collectionId: "web", name: "Deed.pdf", mime: "application/pdf", size: 1, sha256: "x", importedAt: "t", text: "[Page 1]\nSold to Ann Example in 1896.", pages: 1, revision: 1 });
     });
-    writeFileSync(join(task.directory, "checkpoint.json"), JSON.stringify({ summary: "Found the deed", findings: "Registry book 4, page 12", nextSteps: "Check the tax rolls" }));
+    f.team(1);
+    new FindingPublisher(f.store).publish(f.seats()[0].id, { statement: "Ann Example bought the mill in 1896.", qualification: "supported", explanation: "The deed says so.", evidence: [{ document: "deed", page: 1, quote: "Sold to Ann Example in 1896.", interpretation: "The sale." }] } as any);
+    expect(f.batch().walkthroughRequestedAt).toBeUndefined();
+    f.say(f.of(0), DONE_PHRASE);
+    expect(f.batch().status).toBe("review");
+    expect(f.batch().walkthroughRequestedAt).toBeTruthy();
+  });
+});
+
+describe("stopping a batch's team", () => {
+  it("ends every researcher and its session at once, drops what waited for them, and keeps what they published", async () => {
+    const sessions = fakeSessions();
+    const f = fixture({ sessions });
+    f.store.update((next: any) => next.documents.push({ id: "deed", collectionId: "web", name: "Deed.pdf", mime: "application/pdf", size: 1, sha256: "x", importedAt: "t", text: "[Page 1]\nSold to Ann Example in 1896.", pages: 1, revision: 1 }));
+    const { coordinator, session, investigationId } = f.team(3);
+    const publisher = new FindingPublisher(f.store);
+    const finding = { statement: "Ann Example bought the mill in 1896.", qualification: "supported", explanation: "The deed says so.", evidence: [{ document: "deed", page: 1, quote: "Sold to Ann Example in 1896.", interpretation: "The sale." }] } as any;
+    publisher.publish(f.seats()[0].id, finding);
+    f.say(f.of(1), DONE_PHRASE);
+    f.pool.pause(f.seats()[2].id);
+    f.pool.post(f.seats()[0].id, "The deed is published.");
+    expect(f.statuses()).toEqual(["running", "running", "paused"]);
+    expect(f.inbox(2)).toHaveLength(1);
+    const leases = f.seats().map((a: any) => a.lease?.token);
+    expect(coordinator.command({ action: "stop-team", session, investigationId, reason: "The human no longer wants this." })).toEqual({ stopped: true });
+    expect(coordinator.status().latest!.text).toBe("Stopping the team on batch 1");
+    expect(f.statuses()).toEqual(["stopped", "stopped", "stopped"]);
+    for (const l of f.launches) expect(l.child.killed).toBe(true);
+    for (const seat of sessions.seats.values()) expect(seat.open).toBe(false);
+    expect(f.pool.active.size).toBe(0);
+    expect([f.inbox(0), f.inbox(1), f.inbox(2)]).toEqual([[], [], []]);
+    // A stopped batch stays stopped: its leases are refused, and no post reaches or wakes it.
+    expect(sessions.seats.get(f.seats()[0].id).authorize(leases[0])).toBe(false);
+    expect(() => f.pool.post(f.seats()[0].id, "A late post.")).toThrow("team was stopped");
+    expect(() => coordinator.command({ action: "post", session, investigationId, text: "Keep going." })).toThrow("team was stopped");
+    f.pool.pump();
+    expect(f.launches).toHaveLength(4);
+    // What the team published stays, for Review.
+    expect(f.batch().proposals).toHaveLength(1);
+    expect(f.batch().status).toBe("review");
+  });
+});
+
+describe("researchers' Python sessions", () => {
+  it("open with the researcher, answer only its lease, and are described to it", async () => {
+    const sessions = fakeSessions();
+    const f = fixture({ sessions });
+    const { investigationId: id } = f.team(1);
+    const assignment = assignmentOf(f.store, id);
+    const seat = sessions.seats.get(assignment.id);
+    expect(seat).toMatchObject({ open: true, folder: f.of(0).options.cwd, seat: join(f.directory, "agents", id, assignment.id) });
+    expect(seat.authorize(assignment.lease.token)).toBe(true);
+    expect(seat.authorize("someone-else")).toBe(false);
+    const instructions = f.launches[0]!.args.join(" ");
+    expect(instructions).toContain("node tools/python.mjs");
+    // Pages are saved into the library through the session, not read into the conversation.
+    expect(instructions).toContain("weir.save(url)");
+    expect(instructions).toContain("weir.publish(statement, qualification, explanation, evidence)");
+    const args = f.launches[0]!.args;
+    expect(JSON.parse(args[args.indexOf("--settings") + 1]!).permissions.deny).toContain("WebFetch");
+    // Long output reaches the researcher as a message.
+    seat.deliver("Your long Python run has finished. Its output:\n\n40 pages");
+    await tick();
+    expect(f.of(0).sent.at(-1)).toContain("40 pages");
+    // Paused, the researcher's lease no longer runs code, and its session closes.
+    const token = assignment.lease.token;
+    f.pool.pause(assignment.id);
+    expect(seat.authorize(token)).toBe(false);
+    expect(seat.open).toBe(false);
+  });
+
+  it("stay with the seat when the human switches its researcher to another agent", () => {
+    const sessions = fakeSessions();
+    const f = fixture({ sessions });
+    const { investigationId: id } = f.team(1);
+    const assignment = assignmentOf(f.store, id);
+    const before = sessions.seats.get(assignment.id);
+    f.pool.switch(assignment.id, { agent: "codex" }, "Codex");
+    const after = sessions.seats.get(assignment.id);
+    expect(f.launches).toHaveLength(2);
+    expect(f.launches[1]!.executable).toBe("/test/codex");
+    expect(after.open).toBe(true);
+    expect(after.folder).not.toBe(before.folder);
+    expect(after.seat).toBe(before.seat);
+  });
+});
+
+describe("a researcher that is cut short", () => {
+  it("saves the checkpoints it writes, and waits paused rather than being started again", () => {
+    const f = fixture();
+    f.team(2);
+    writeFileSync(join(f.of(0).options.cwd, "checkpoint.json"), JSON.stringify({ summary: "Searched", findings: "No original found", nextSteps: "Inspect archive" }));
+    f.pool.pump();
+    f.pool.pump();
+    expect(f.seats()[0].checkpoints).toHaveLength(1);
+    f.of(0).child.emit("close", 1);
+    f.pool.pump();
+    expect(f.statuses()).toEqual(["paused", "running"]);
+    expect(f.batch().events.at(-1).message).toBe("claude stopped work as Researcher 1 before it had finished. Resume to pick up its conversation where it left off.");
+    expect(f.launches).toHaveLength(2);
+    // Its teammate carries on, so the batch still runs.
+    expect(f.batch().status).toBe("running");
+  });
+
+  it("is paused when the app restarts, so its old lease cannot act", () => {
+    const f = fixture();
+    const { investigationId: id } = f.team(1);
+    const token = assignmentOf(f.store, id).lease.token;
+    writeFileSync(join(f.of(0).options.cwd, "checkpoint.json"), JSON.stringify({ summary: "Found the deed", findings: "Registry book 4, page 12", nextSteps: "Check the tax rolls" }));
     // The app ends without stopping its researchers, as a crash would.
     clearInterval(f.pool.timer);
     const reopened = new ResearcherPool(f.store, f.directory, resolve("."));
     cleanups.push(() => reopened.stop());
-    const i = f.store.state.investigations[0]!;
-    expect(i.status).toBe("paused");
-    expect(i.events.at(-1)!.message).toBe('The app closed while the researcher on "Fixture assignment" was working. Resume to pick up its conversation where it left off.');
-    expect(i.assignments![0]!.checkpoints.map((c: any) => c.summary)).toEqual(["Found the deed"]);
-    expect(i.assignments![0]!.session).toEqual(session);
+    expect(f.batch().status).toBe("paused");
+    expect(f.batch().events.at(-1).message).toBe("The app closed while Researcher 1 was working. Resume to pick up its conversation where it left off.");
+    expect(f.seats()[0].checkpoints.map((c: any) => c.summary)).toEqual(["Found the deed"]);
+    expect(f.seats()[0].session).toMatchObject({ id: "session-1" });
+    expect(() => f.store.command({ type: "checkpoint", investigationId: id, token, summary: "late", findings: "late", nextSteps: "late" })).toThrow("lease");
+  });
+
+  it("waits for the human to switch it when its agent is not installed", () => {
+    const f = fixture();
+    f.pool.findExecutable = (name: string) => (name === "codex" ? null : `/test/${name}`);
+    openTeam(f.store, f.pool, "codex", { size: 1 });
+    expect(f.launches).toHaveLength(0);
+    expect(f.statuses()).toEqual(["paused"]);
+    expect(f.batch().events.at(-1).message).toBe("Researcher 1 could not start: codex is not installed. Switch it to an installed agent, then resume it.");
+    f.pool.switch(f.seats()[0].id, { agent: "claude" }, "Claude Code");
+    f.pool.resume(f.seats()[0].id);
+    expect(f.launches).toHaveLength(1);
   });
 });
 
-describe.each(["claude", "codex"] as const)("a %s researcher under the coordinator", (engine) => {
+describe.each(["claude", "codex"] as const)("a team of %s researchers, end to end", (engine) => {
   const executables = { claude: resolve("tests/fixtures/fake-claude.mjs"), codex: resolve("tests/fixtures/fake-codex.mjs") };
-  async function running() {
-    const { Coordinator } = await import("../server/coordinator.mjs");
-    const directory = mkdtempSync(join(tmpdir(), "weir-steer-"));
+  // The stand-in researcher reads its instructions on its first turn, taking as long
+  // as the test says, and says the done phrase when asked whether it has finished or
+  // sent a post.
+  const reading = (delay: number) => (engine === "claude" ? { tool: "Read", input: { file_path: "AGENTS.md" }, delay } : { command: "cat AGENTS.md", delay });
+  async function running(size = 2, delay = 400) {
+    const directory = mkdtempSync(join(tmpdir(), "weir-team-"));
     cleanups.push(() => rmSync(directory, { recursive: true, force: true }));
+    const script = join(directory, "script.json");
+    // The stand-in reads its script afresh for every message, so a test can change it.
+    const first = (delay: number) =>
+      writeFileSync(
+        script,
+        JSON.stringify({
+          "post what you mean to try first": [reading(delay)],
+          "without saying whether you have finished": [{ say: `The leads are spent.\n\n${DONE_PHRASE}` }],
+          "A post on your batch's board": [{ say: `Noted; it changes nothing.\n\n${DONE_PHRASE}` }],
+          default: [],
+        }),
+      );
+    first(delay);
+    for (const name of ["FAKE_CLAUDE_STEPS", "FAKE_CODEX_STEPS"]) process.env[name] = script;
+    for (const name of ["FAKE_CLAUDE_RECORD", "FAKE_CODEX_RECORD"]) process.env[name] = "1";
+    cleanups.push(() => ["FAKE_CLAUDE_STEPS", "FAKE_CODEX_STEPS", "FAKE_CLAUDE_RECORD", "FAKE_CODEX_RECORD"].forEach((name) => delete process.env[name]));
     const store = new WorkspaceStore(directory, dataset);
-    const pool = new ResearcherPool(store, directory, resolve("."), { findExecutable: (name: string) => (executables as any)[name] });
-    cleanups.push(() => pool.stop());
-    const coordinator = new Coordinator(store);
-    const session = "coordinator-session-for-test-000003";
-    coordinator.attach("Test coordinator", session);
-    coordinator.researchers = pool;
-    pool.coordinator = coordinator as any;
-    const { investigationId: id } = store.command({ type: "annotate", question: "Investigate", target: { label: "Record" }, dispatch: true }) as any;
-    const { assignmentId } = coordinator.command({ session, investigationId: id, action: "assign", engine, title: "The fixture record", brief: "Trace the fixture record." }) as any;
-    const command = (data: object) => coordinator.command({ session, assignmentId, ...data });
-    pool.pump();
-    const investigation = () => store.state.investigations.find((i: any) => i.id === id);
-    const assignment = () => investigation().assignments.find((a: any) => a.id === assignmentId);
-    const events = () => investigation().events.map((e: any) => e.message);
-    return { pool, coordinator, command, investigation, assignment, events, until, store, directory, id, assignmentId };
+    const start = () => {
+      const pool = new ResearcherPool(store, directory, resolve("."), { findExecutable: (name: string) => (executables as any)[name] });
+      cleanups.push(() => pool.stop());
+      return pool;
+    };
+    const pool = start();
+    const opened = openTeam(store, pool, engine, { size, scope: ["imports"] });
+    const batch = () => store.state.investigations[0];
+    const statuses = () => batch().assignments.map((a: any) => a.status);
+    const received = (place: number) => {
+      const file = join(batch().assignments[place].session?.directory || "", "received.jsonl");
+      return existsSync(file) ? readFileSync(file, "utf8").trim().split("\n").map((line) => JSON.parse(line).text as string) : [];
+    };
+    const models = (place: number) => readFileSync(join(batch().assignments[place].session.directory, "models.txt"), "utf8").trim().split("\n");
+    return { ...opened, directory, store, pool, start, batch, statuses, received, models, first };
   }
-  // The app opens again and the human resumes the paused batch; with another engine named,
-  // the coordinator first stops the assignment and sends it back to that engine.
-  async function resumed(r: Awaited<ReturnType<typeof running>>, options: { engine?: string } = {}) {
-    const { Coordinator } = await import("../server/coordinator.mjs");
-    const pool = new ResearcherPool(r.store, r.directory, resolve("."), { findExecutable: (name: string) => (executables as any)[name] });
-    cleanups.push(() => pool.stop());
-    const coordinator = new Coordinator(r.store);
-    const session = "coordinator-session-for-test-000004";
-    coordinator.attach("Test coordinator", session);
-    coordinator.researchers = pool;
-    pool.coordinator = coordinator as any;
-    if (options.engine) {
-      coordinator.command({ session, action: "stop-researcher", assignmentId: r.assignmentId, reason: "Another agent takes it." });
-      coordinator.command({ session, action: "revise", assignmentId: r.assignmentId, engine: options.engine, notes: "Carry on with the fixture record." });
-      // Sent back within a paused batch, it waits for the human to resume the batch.
-      expect(r.assignment().status).toBe("paused");
-    }
-    r.store.command({ type: "resume", investigationId: r.id });
-    pool.pump();
-    return pool;
-  }
-  const result = JSON.stringify({ title: "Unresolved", summary: "Two identities", ambiguity: "Open", evidence: [], changes: [] });
-  const write = engine === "claude"
-    ? { tool: "Write", input: { file_path: "result.json" }, writes: { "result.json": result } }
-    : { change: "result.json", writes: { "result.json": result } };
-  const slow = engine === "claude" ? { tool: "Read", input: { file_path: "brief.md" }, delay: 10_000 } : { command: "cat brief.md", delay: 10_000 };
 
-  it("waits for instructions, takes a redirection, and closes once its findings are written", async () => {
+  it("starts on a new batch, finishes with the done phrase, is woken by a post, and the batch moves to Review each time", async () => {
     const r = await running();
-    await r.until(() => r.events().some((m: string) => m.includes("waiting for instructions")));
-    expect(r.command({ action: "steer", message: `steps:${JSON.stringify([write])}` })).toEqual({ steered: true });
-    await r.until(() => r.coordinator.candidates().length === 1);
-    await r.until(() => r.pool.active.size === 0);
+    // Both researchers start. Their first turns end without the phrase; nudged, they
+    // say it, and the batch reaches Review.
+    await until(() => r.batch().status === "review");
+    expect(r.statuses()).toEqual(["finished", "finished"]);
+    await until(() => r.pool.active.size === 0);
     expect(r.pool.live.list()).toEqual([]);
+    for (const place of [0, 1]) {
+      expect(r.received(place)[0]).toContain(`You are Researcher ${place + 1} on batch 1`);
+      expect(r.received(place)[1]).toContain("You ended your turn without saying whether you have finished");
+      expect(r.models(place)).toEqual(["start default"]);
+    }
+    // The coordinator's post wakes both, in their own conversations.
+    r.coordinator.command({ action: "post", session: r.session, investigationId: r.investigationId, text: "The human wants the 1890s followed too." });
+    expect(r.batch().status).toBe("running");
+    await until(() => r.batch().status === "review");
+    for (const place of [0, 1]) {
+      expect(r.models(place)).toEqual(["start default", "resume default"]);
+      expect(r.received(place).at(-1)).toContain("from the coordinator:\n\nThe human wants the 1890s followed too.");
+    }
+    await until(() => r.pool.active.size === 0);
   });
 
-  it("keeps its conversation when stopped, and picks it up in the same folder when the batch is resumed", async () => {
-    const r = await running();
-    await r.until(() => r.events().some((m: string) => m.includes("waiting for instructions")));
-    const session = r.assignment().session;
-    expect(session).toMatchObject({ engine, directory: expect.stringContaining(r.id) });
+  it("keeps its conversation when the app closes, and picks it up in the same folder when the human resumes it", async () => {
+    // Its first turn is still under way when the app closes.
+    const r = await running(1, 60_000);
+    await until(() => r.batch().assignments[0].session);
+    const session = r.batch().assignments[0].session;
+    expect(session).toMatchObject({ engine, directory: expect.stringContaining(r.investigationId) });
     // The human closes the app and chooses to stop its workers.
     r.pool.stop();
-    await r.until(() => r.investigation().status === "paused");
-    expect(r.events().at(-1)).toContain("Resume to pick up its conversation where it left off.");
-    expect(r.assignment().session).toEqual(session);
-    process.env.FAKE_CLAUDE_RECORD = "1";
-    cleanups.push(() => delete process.env.FAKE_CLAUDE_RECORD);
-    const pool = await resumed(r);
-    await r.until(() => r.investigation().status === "running" && pool.active.size === 1);
-    await r.until(() => r.events().filter((m: string) => m.includes("waiting for instructions")).length === 2);
-    // It is told it was stopped, and that messages it has not acted on still stand.
-    if (engine === "claude") {
-      const received = readFileSync(join(session.directory, "received.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l).text);
-      expect(received.at(-1)).toContain("You were stopped partway through this assignment");
-      expect(received.at(-1)).toContain("Any message above that you have not acted on still stands");
-    }
+    await until(() => r.batch().status === "paused");
+    expect(r.batch().events.at(-1).message).toContain("Resume to pick up its conversation where it left off.");
+    expect(r.batch().assignments[0].session).toEqual(session);
+    const pool = r.start();
+    pool.coordinator = r.coordinator;
+    pool.resume(r.batch().assignments[0].id);
     // The same session, in the same folder, rather than a fresh researcher.
-    expect(r.assignment().session).toMatchObject({ id: session.id, directory: session.directory });
     expect([...pool.active.values()][0].directory).toBe(session.directory);
-    // Handing in its result ends the session.
-    pool.steer(r.assignmentId, `steps:${JSON.stringify([write])}`);
-    await r.until(() => pool.active.size === 0);
-    expect(r.coordinator.candidates()).toHaveLength(1);
-    expect(r.assignment().session).toBeUndefined();
+    await until(() => r.models(0).length === 2);
+    expect(r.models(0)).toEqual(["start default", "resume default"]);
+    // It is told its conversation was picked up, and that messages it has not acted on still stand.
+    await until(() => r.received(0).some((text) => text.includes("Your conversation has been picked up again")));
+    expect(r.received(0).find((text) => text.includes("picked up again"))).toContain("Any message above that you have not acted on still stands");
+    await until(() => r.batch().status === "review");
+    expect(r.batch().assignments[0].session).toMatchObject({ id: session.id, directory: session.directory });
   });
 
   it("starts a fresh researcher from the checkpoints when its conversation cannot be picked up", async () => {
-    const r = await running();
-    await r.until(() => r.events().some((m: string) => m.includes("waiting for instructions")));
+    const r = await running(1, 60_000);
+    await until(() => r.batch().assignments[0].session);
     r.pool.stop();
-    await r.until(() => r.investigation().status === "paused");
-    const old = r.assignment().session;
+    await until(() => r.batch().status === "paused");
+    r.first(0);
+    const old = r.batch().assignments[0].session;
     r.store.update((next: any) => {
-      next.investigations.find((i: any) => i.id === r.id).assignments[0].session.id = "a-session-that-is-gone";
+      next.investigations[0].assignments[0].session.id = "a-session-that-is-gone";
     });
-    const pool = await resumed(r);
-    await r.until(() => r.events().some((m: string) => m.includes("could not be picked up")));
-    await r.until(() => r.assignment().session?.id && r.assignment().session.id !== "a-session-that-is-gone");
-    expect(r.assignment().session.directory).not.toBe(old.directory);
-    expect(r.investigation().status).toBe("running");
-    pool.stop();
-    await r.until(() => pool.active.size === 0);
+    const pool = r.start();
+    pool.coordinator = r.coordinator;
+    pool.resume(r.batch().assignments[0].id);
+    await until(() => r.batch().events.some((e: any) => e.message.includes("could not be picked up")));
+    await until(() => r.batch().assignments[0].session?.id && r.batch().assignments[0].session.id !== "a-session-that-is-gone");
+    expect(r.batch().assignments[0].session.directory).not.toBe(old.directory);
+    await until(() => r.batch().status === "review");
   });
 
-  it("starts afresh when the coordinator assigns another engine, or stopped the researcher itself", async () => {
-    const r = await running();
-    await r.until(() => r.events().some((m: string) => m.includes("waiting for instructions")));
-    r.command({ action: "stop-researcher", reason: "Moving this to another batch." });
-    await r.until(() => r.pool.active.size === 0);
-    expect(r.assignment().session).toBeUndefined();
-    const s = await running();
-    await s.until(() => s.events().some((m: string) => m.includes("waiting for instructions")));
-    s.pool.stop();
-    await s.until(() => s.investigation().status === "paused");
-    const old = s.assignment().session;
-    const pool = await resumed(s, { engine: engine === "claude" ? "codex" : "claude" });
-    await s.until(() => s.assignment().session && s.assignment().session.id !== old.id);
-    expect(s.assignment().session.directory).not.toBe(old.directory);
-    pool.stop();
-    await s.until(() => pool.active.size === 0);
-  });
-
-  it("stops mid-run when the coordinator says so", async () => {
-    const r = await running();
-    await r.until(() => r.events().some((m: string) => m.includes("waiting for instructions")));
-    r.command({ action: "steer", message: `steps:${JSON.stringify([slow])}` });
-    await r.until(() => r.pool.live.list()[0]?.latest?.text === "Reading its assignment");
-    r.command({ action: "stop-researcher", reason: "Wrong direction." });
-    await r.until(() => r.pool.active.size === 0);
-    expect(r.assignment().status).toBe("stopped");
-    expect(r.events().at(-1)).toBe('Coordinator stopped "The fixture record": Wrong direction.');
+  it("stops mid-run when the coordinator stops the team", async () => {
+    const r = await running(2, 60_000);
+    await until(() => r.pool.live.list().length === 2 && r.pool.live.list().every((w: any) => w.latest?.text === "Reading its instructions"));
+    r.coordinator.command({ action: "stop-team", session: r.session, investigationId: r.investigationId, reason: "Wrong direction." });
+    await until(() => r.pool.active.size === 0);
+    expect(r.statuses()).toEqual(["stopped", "stopped"]);
+    expect(r.batch().events.map((e: any) => e.message)).toContain("The coordinator stopped this batch's team: Wrong direction.");
     expect(r.pool.live.list()).toEqual([]);
   });
 });
@@ -668,8 +684,7 @@ describe("the research browser for web researchers", () => {
     // A stand-in for the app's research browser.
     const server = { command: "/bin/node", args: ["chrome-devtools-mcp.js", "--browserUrl", "http://127.0.0.1:9333"], env: {} };
     f.pool.browser = { available: true, open: async () => "http://127.0.0.1:9333", mcpServer: () => server } as any;
-    f.queue();
-    assignQueued(f.store, f.pool, "claude");
+    openTeam(f.store, f.pool, "claude");
     await new Promise((done) => setTimeout(done, 10));
     const args = f.launches[0]!.args;
     expect(JSON.parse(args[args.indexOf("--mcp-config") + 1]!)).toEqual({ mcpServers: { browser: server } });
@@ -681,11 +696,11 @@ describe("the research browser for web researchers", () => {
     const f = fixture();
     let opened = false;
     f.pool.browser = { available: true, open: async () => ((opened = true), "http://127.0.0.1:9333"), mcpServer: () => ({}) } as any;
-    f.store.command({ type: "annotate", question: "Local only", target: { label: "R" }, dispatch: true, scope: ["imports"] });
-    assignQueued(f.store, f.pool, "claude");
+    openTeam(f.store, f.pool, "claude", { scope: ["imports"] });
     await new Promise((done) => setTimeout(done, 10));
     expect(opened).toBe(false);
     const args = f.launches[0]!.args;
     expect(JSON.parse(args[args.indexOf("--mcp-config") + 1]!)).toEqual({ mcpServers: {} });
+    expect(args.join(" ")).toContain("The project's saved documents are in scope");
   });
 });

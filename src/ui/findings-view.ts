@@ -6,7 +6,7 @@ import type {
   ResearchState,
 } from "../domain/research";
 import type { Assignment } from "../domain/assignments";
-import { researchersPerBatch } from "../domain/assignments";
+import { isTeam } from "../domain/assignments";
 import { batchStatus } from "../domain/conversation";
 import { sourceLibrary } from "../domain/findings";
 import { html, target } from "./finding-review";
@@ -157,6 +157,7 @@ function requests(state: ResearchState, b: Investigation): string {
 const passStates: Record<Assignment["status"], string> = {
   waiting: "Waiting",
   running: "running",
+  finished: "finished",
   returned: "returned; your coordinator is checking it",
   done: "returned",
   paused: "paused",
@@ -165,10 +166,7 @@ const passStates: Record<Assignment["status"], string> = {
 
 // Where a research pass stands: who did it and when.
 function passState(state: ResearchState, b: Investigation, a: Assignment): string {
-  if (a.status === "waiting")
-    return (b.assignments || []).filter((x) => x.status === "running").length >= researchersPerBatch(state)
-      ? "Waiting. This batch already has as many researchers working as your setting allows; this starts when one finishes."
-      : "Waiting for a researcher.";
+  if (a.status === "waiting") return a.startedAt ? "Starting again." : "Waiting to start.";
   if (!a.startedAt) return a.status === "stopped" ? "Not started." : passStates[a.status];
   const who = a.worker?.startsWith("Coordinator") ? "Your coordinator" : a.worker || "A researcher";
   if (a.status === "paused") return `${who} · paused.`;
@@ -213,7 +211,7 @@ function pass(state: ResearchState, b: Investigation, a: Assignment, expanded: R
     : "";
   const pending =
     a.status === "running"
-      ? '<p class="report-pending">The researcher is working on this now.</p>'
+      ? `<p class="report-pending">${isTeam(b) ? "Working now." : "The researcher is working on this now."}</p>`
       : a.status === "returned"
         ? '<p class="report-pending">The researcher has returned its findings; your coordinator is checking them.</p>'
         : "";
@@ -233,7 +231,7 @@ function board(b: Investigation): string {
 function postList(b: Investigation): string {
   const title = (id?: string) => b.assignments?.find((a) => a.id === id)?.title || "a research pass";
   return `<ol class="board-posts">${(b.board || [])
-    .map((p) => `<li><span class="board-who">${p.author === "coordinator" ? "Your coordinator" : `The researcher on "${html(title(p.assignmentId))}"`} · ${html(when(p.at))}</span>${html(p.text)}</li>`)
+    .map((p) => `<li><span class="board-who">${p.author === "coordinator" ? "Your coordinator" : isTeam(b) ? html(title(p.assignmentId)) : `The researcher on "${html(title(p.assignmentId))}"`} · ${html(when(p.at))}</span>${html(p.text)}</li>`)
     .join("")}</ol>`;
 }
 

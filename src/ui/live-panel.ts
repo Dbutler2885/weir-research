@@ -113,12 +113,10 @@ export function liveRows(state: ResearchState): LiveRow[] {
     for (const a of i.assignments || []) {
       if (a.status === "running") rows.push({ ...researcherRow(a, live, batch), agent: agent({ kind: "researcher", assignmentId: a.id }) });
       else if (a.status === "waiting")
-        rows.push({ group: "waiting", who: "Researcher", batch, stage: i.held ? `Held in the queue: ${a.title}` : `Waiting for a free place: ${a.title}` });
+        rows.push({ group: "waiting", who: "Researcher", batch, stage: i.held ? `Held in the queue: ${a.title}` : `Starting: ${a.title}` });
       else if (a.status === "paused")
         rows.push({ group: "attention", who: "Researcher", batch, stage: `Paused: ${a.title}`, agent: agent({ kind: "researcher", assignmentId: a.id }) });
     }
-    if (i.status === "queued" && !(i.assignments || []).some((a) => a.status === "waiting"))
-      rows.push({ group: "waiting", who: "Researcher", batch, stage: "Waiting for the coordinator to assign researchers." });
     if (i.status === "paused" && !(i.assignments || []).some((a) => a.status === "paused"))
       rows.push({ group: "attention", who: "Researcher", batch, stage: `Research paused. ${firstSentence(i.events.at(-1)?.message || "")}`.trim() });
     if (i.walkthroughRequestedAt) {

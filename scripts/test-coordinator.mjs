@@ -14,22 +14,23 @@ import assert from "node:assert/strict";
 const exec = promisify(execFile);
 const directory = mkdtempSync(join(tmpdir(), "weir-coordinator-e2e-"));
 // The test drives the coordinator API itself, so the app starts no coordinator agent.
-// Researchers are a stand-in Claude CLI that saves a checkpoint and returns an unresolved result.
+// Researchers are a stand-in Claude CLI that saves a checkpoint on its first turn and
+// ends every turn by saying it has finished.
 const steps = join(directory, "researcher-steps.json");
+const done = { say: "Nothing is left to pursue.\n\nRESEARCH DONE" };
 writeFileSync(
   steps,
-  JSON.stringify([
-    {
-      tool: "Write",
-      input: { file_path: "checkpoint.json" },
-      writes: { "checkpoint.json": JSON.stringify({ summary: "Local checkpoint", findings: "Inspected the existing record only.", nextSteps: "Preserve an unresolved outcome." }) },
-    },
-    {
-      tool: "Write",
-      input: { file_path: "result.json" },
-      writes: { "result.json": JSON.stringify({ title: "Local workflow verified", summary: "This is a protocol test, not a new historical finding.", ambiguity: "The historical question remains uninvestigated.", evidence: [], changes: [] }) },
-    },
-  ]),
+  JSON.stringify({
+    "post what you mean to try first": [
+      {
+        tool: "Write",
+        input: { file_path: "checkpoint.json" },
+        writes: { "checkpoint.json": JSON.stringify({ summary: "Local checkpoint", findings: "Inspected the existing record only.", nextSteps: "Nothing further." }) },
+      },
+      done,
+    ],
+    default: [done],
+  }),
 );
 const env = {
   ...process.env,
@@ -53,16 +54,6 @@ const command = async (data) => {
   return run("coordinator", ["command", path, "--session", sessionFile]);
 };
 let url;
-const browser = async (data) => {
-  const response = await fetch(`${url}/api/commands`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
-  });
-  const result = await response.json();
-  assert.equal(response.ok, true, JSON.stringify(result));
-  return result;
-};
 const state = async () => (await fetch(`${url}/api/state`)).json();
 const waitForExit = async (pid) => {
   for (let n = 0; n < 100; n++) {
@@ -110,18 +101,6 @@ try {
     ]),
     /Another coordinator/,
   );
-  const annotated = await browser({
-    type: "annotate",
-    question:
-      "Local protocol test: inspect this identity without adding historical claims.",
-    target: {
-      label: "Alex Example",
-      table: "nodes",
-      recordId: "alex",
-    },
-    dispatch: true,
-  });
-  const id = annotated.result.investigationId;
   const searched = await run("coordinator", [
     "search",
     "Alex",
@@ -136,21 +115,32 @@ try {
     id: "alex",
   });
   assert.equal(entity.record.id, "alex");
-  await command({
-    action: "assign",
-    investigationId: id,
+  // The human sets a team of one; the coordinator opens a batch with a goal, and the
+  // app starts the team.
+  const settings = await fetch(`${url}/api/research-settings`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ researchersPerBatch: 1 }) });
+  assert.equal(settings.ok, true);
+  const batchOpened = await command({
+    action: "open-batch",
     engine: "claude",
     title: "Local workflow check",
-    brief: "Local integration check only. Record an unresolved outcome; perform no external research.",
+    goal: "Local integration check only: inspect the Alex Example record, and perform no external research.",
+    scope: ["imports"],
   });
-  // The app launches the researcher; its result waits for the coordinator.
-  let candidate;
-  for (let n = 0; n < 200 && !candidate; n++) {
-    await new Promise((r) => setTimeout(r, 100));
-    candidate = (await run("coordinator", ["snapshot", "--session", sessionFile])).candidates[0];
-  }
-  assert.equal(candidate.title, "Local workflow verified");
-  assert.equal((await state()).investigations[0].assignments[0].checkpoints.length, 1);
+  const id = batchOpened.investigationId;
+  assert.deepEqual(batchOpened.researchers, ["Researcher 1"]);
+  await assert.rejects(command({ action: "assign", investigationId: id, title: "A part", brief: "Look." }), /Unknown coordinator action/);
+  // Its researcher saves a checkpoint and says it has finished: the batch reaches Review.
+  const batch = async () => (await state()).investigations[0];
+  const waitFor = async (check, what) => {
+    for (let n = 0; n < 300; n++) {
+      if (check(await batch())) return;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    throw new Error(`Timed out waiting for ${what}: ${JSON.stringify(await batch(), null, 1).slice(0, 2000)}`);
+  };
+  await waitFor((b) => b.status === "review" && b.readyAt, "the batch to reach Review");
+  assert.equal((await batch()).assignments[0].status, "finished");
+  assert.equal((await batch()).assignments[0].checkpoints.length, 1);
   await command({
     action: "map",
     notes:
@@ -168,24 +158,22 @@ try {
     "fixture",
   ]);
   sessionFile = recovered.sessionFile;
-  // The researcher's result is still there for the next coordinator to publish.
+  // The batch and its researcher's checkpoint are there for the next coordinator.
   assert.equal(recovered.investigations[0].assignments[0].checkpointCount, 1);
-  assert.equal(recovered.candidates[0].id, candidate.id);
-  const published = await command({
-    action: "publish",
-    investigationId: id,
-    candidateId: candidate.id,
-  });
-  assert.equal((await state()).investigations[0].status, "review");
+  assert.equal(recovered.investigations[0].ready, true);
+  // Its post wakes the finished researcher, which takes it up and finishes again.
+  await command({ action: "post", investigationId: id, text: "The human asks whether anything was missed." });
+  await waitFor((b) => b.events.some((e) => e.message.includes("woke the team")) && b.status === "review", "the woken team to finish again");
+  assert.equal((await batch()).board[0].author, "coordinator");
   await assert.rejects(
     command({
       action: "accept",
       investigationId: id,
-      proposalId: published.proposalId,
+      proposalId: "none",
     }),
     /cannot accept/,
   );
-  // An old manual-worker credential cannot bypass coordinating synthesis.
+  // An old manual-worker credential cannot publish around the app.
   const worker = JSON.parse(
     readFileSync(join(directory, "projects/fixture/connection.json"), "utf8"),
   );
@@ -198,11 +186,10 @@ try {
     body: JSON.stringify({ type: "claim", worker: "bypass" }),
   });
   assert.equal(forbidden.status, 409);
-  await browser({
-    type: "accept",
-    investigationId: id,
-    proposalId: published.proposalId,
-  });
+  // The human's word ends the work: the coordinator stops the batch's team.
+  assert.deepEqual(await command({ action: "stop-team", investigationId: id, reason: "The human no longer wants this." }), { stopped: true });
+  assert.deepEqual((await batch()).assignments.map((a) => a.status), ["stopped"]);
+  await assert.rejects(command({ action: "post", investigationId: id, text: "Keep going." }), /team was stopped/);
   await run("coordinator", ["detach", "--session", sessionFile]);
   const pid = Number(
     readFileSync(join(directory, "projects/fixture/server.lock"), "utf8"),
@@ -212,8 +199,9 @@ try {
   const restarted = await run("workspace", ["open", "fixture", "--no-browser"]);
   url = restarted.url;
   const final = await state();
-  assert.equal(final.investigations[0].proposals[0].status, "accepted");
+  assert.equal(final.investigations[0].stoppedAt !== undefined, true);
   assert.equal(final.investigations[0].assignments[0].checkpoints.length, 1);
+  assert.equal(final.investigations[0].board.length, 1);
   await run("workspace", [
     "create",
     "second",
@@ -231,9 +219,9 @@ try {
           "project discovery and reuse",
           "exclusive coordinator",
           "targeted context retrieval",
-          "researcher checkpoint and recovery",
-          "coordinator-only synthesis",
-          "human-only acceptance",
+          "a team started on a new batch",
+          "the done phrase, a waking post, and Review",
+          "stopping a team",
           "restart persistence",
           "project isolation",
         ],

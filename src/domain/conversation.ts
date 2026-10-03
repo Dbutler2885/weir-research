@@ -1,5 +1,5 @@
 import { assert, validateReferences } from "./findings.ts";
-import { newAssignment } from "./assignments.ts";
+import { isTeam, newSeats, researchersPerBatch, settle } from "./assignments.ts";
 import type { Choice } from "./assignments.ts";
 import type {
   Annotation,
@@ -9,7 +9,8 @@ import type {
   ResearchState,
 } from "./research.ts";
 
-// What a batch is for, kept current by the coordinator so a fresh one can pick it up.
+// What a batch from before teams was for, in the coordinator's words. A team's batch
+// has a goal instead.
 export interface Brief {
   purpose: string;
   // What belongs in this batch and what does not.
@@ -49,10 +50,8 @@ export const humanConversationCommands = new Set([
 export const coordinatorConversationCommands = new Set([
   "reply",
   "open-batch",
-  "batch-ready",
   "request-approval",
   "retitle",
-  "set-brief",
 ]);
 
 const text = (value: unknown, label: string, max = 50_000): string => {
@@ -79,22 +78,6 @@ export function repairClosedBatches(state: ResearchState): number {
   return stale.length;
 }
 
-function briefFrom(input: unknown, now: string, prior?: Brief): Brief {
-  const raw = (input || {}) as Record<string, unknown>;
-  assert(
-    typeof input === "object" && input !== null,
-    "A brief needs purpose, scope and direction.",
-  );
-  const field = (key: "purpose" | "scope" | "direction", label: string) =>
-    raw[key] === undefined && prior ? prior[key] : text(raw[key], label, 2000);
-  return {
-    purpose: field("purpose", "Brief purpose"),
-    scope: field("scope", "Brief scope"),
-    direction: field("direction", "Brief direction"),
-    updatedAt: now,
-  };
-}
-
 function annotationFrom(
   state: ResearchState,
   input: Record<string, unknown>,
@@ -110,14 +93,6 @@ function annotationFrom(
     question: text(input.question, "Annotation"),
     createdAt: now,
   };
-}
-
-// The researchers' parts of a new batch, each with the coordinator's title and brief.
-function assignmentsFrom(batch: Investigation, input: unknown, now: string, id: () => string): void {
-  if (input === undefined) return;
-  assert(Array.isArray(input), "Assignments must be a list.");
-  for (const raw of input as Record<string, unknown>[])
-    (batch.assignments ||= []).push(newAssignment(raw, raw.choice as Choice | undefined, now, id()));
 }
 
 export function conversationTransition(
@@ -244,6 +219,9 @@ export function conversationTransition(
       conversation.push(request);
       return { messageId: request.id };
     }
+    // A batch opens with the human's goal, restated plainly, and a team to work it:
+    // one seat per place in the team, as the human set its size. The researchers
+    // share the goal and divide the work among themselves.
     case "open-batch": {
       const scope = (command.scope as string[]) ?? ["web", "imports"];
       assert(
@@ -252,25 +230,28 @@ export function conversationTransition(
           scope.every((s) => next.collections.some((c) => c.id === s)),
         "Unknown source collection.",
       );
+      assert(
+        command.brief === undefined && command.assignments === undefined && command.questions === undefined,
+        "A batch opens with a title and a goal: what the human asked for, restated plainly. Its team of researchers shares the goal and divides the work itself.",
+      );
       const batch: Investigation = {
         id: id(),
         number:
           Math.max(0, ...next.investigations.map((i) => i.number || 0)) + 1,
         title: text(command.title, "Batch title", 300),
-        brief: briefFrom(command.brief, now),
+        goal: text(command.goal, "The batch's goal", 5000),
         createdAt: now,
-        status: "queued",
+        status: "running",
         scope,
         annotations: [],
-        assignments: [],
+        assignments: newSeats(researchersPerBatch(next), command.choice as Choice | undefined, now, id),
         proposals: [],
         events: [],
       };
-      assert(command.questions === undefined, "Batches no longer take questions; give each researcher's part as an assignment with a title and a brief.");
-      assignmentsFrom(batch, command.assignments, now, id);
-      batch.events.push({ at: now, message: "Coordinator opened this batch." });
+      batch.events.push({ at: now, message: `Coordinator opened this batch for a team of ${batch.assignments!.length}.` });
+      settle(batch, now);
       next.investigations.push(batch);
-      return { investigationId: batch.id };
+      return { investigationId: batch.id, researchers: batch.assignments!.map((a) => a.title) };
     }
     case "retitle": {
       const batch = next.investigations.find(
@@ -282,39 +263,10 @@ export function conversationTransition(
       for (const raw of (command.assignments || []) as Record<string, unknown>[]) {
         const assignment = batch.assignments?.find((a) => a.id === raw.assignmentId);
         assert(assignment, "Assignment is not part of this batch.");
+        assert(!isTeam(batch), "A team's researchers keep their names.");
         assignment.title = text(raw.title, "Assignment title", 300);
       }
       return { investigationId: batch.id };
-    }
-    case "set-brief": {
-      const batch = next.investigations.find(
-        (i) => i.id === command.investigationId,
-      );
-      assert(batch, "Unknown batch.");
-      assert(!batch.closedAt, "This batch is closed.");
-      batch.brief = briefFrom(command.brief, now, batch.brief);
-      batch.events.push({
-        at: now,
-        message: `Coordinator updated the brief. Direction: ${batch.brief.direction}`,
-      });
-      return { investigationId: batch.id };
-    }
-    case "batch-ready": {
-      const batch = next.investigations.find(
-        (i) => i.id === command.investigationId,
-      );
-      assert(batch && !batch.closedAt, "Unknown or closed batch.");
-      batch.readyAt = now;
-      batch.events.push({ at: now, message: "Coordinator marked this batch ready for review." });
-      const notice: Message = {
-        id: id(),
-        at: now,
-        author: "coordinator",
-        text: text(command.text, "Ready message"),
-        readyBatchId: batch.id,
-      };
-      conversation.push(notice);
-      return { messageId: notice.id };
     }
   }
   throw new Error("Unknown conversation command.");

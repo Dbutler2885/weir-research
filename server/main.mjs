@@ -129,7 +129,7 @@ const researchers = new ResearcherPool(store, directory, root, {
     library: join(directory, "library"),
     // What a researcher's running code may ask of the app.
     // A seat's key is its assignment's ID.
-    calls: { save: (given) => sources.save(given), publish: (given, seat) => findings.publish(seat.key, given.finding) },
+    calls: { save: (given) => sources.save(given), publish: (given, seat) => findings.publish(seat.key, given.finding), post: (given, seat) => researchers.post(seat.key, given.text) },
   }),
 });
 coordinator.researchers = researchers;
@@ -146,12 +146,9 @@ process.on("exit", () => graphBuilders.stop());
 process.on("exit", () => researchers.stop());
 // A coordinator command, from the app's coordinator or one attached from outside.
 function coordinatorCommand(data) {
-  // An agent, model or effort named for one assignment must be one the installed CLIs offer.
-  if (["assign", "revise", "request-graph", "assign-graph", "assign-walkthrough", "ask-helper"].includes(data.action) && data.engine && data.engine !== "manual")
+  // An agent, model or effort named for one job must be one the installed CLIs offer.
+  if (["open-batch", "request-graph", "assign-graph", "assign-walkthrough", "ask-helper"].includes(data.action) && data.engine && data.engine !== "manual")
     validateChoice({ agent: data.engine, model: data.model ?? null, effort: data.effort ?? null }, catalog, "The named agent");
-  if (data.action === "open-batch" && Array.isArray(data.assignments))
-    for (const a of data.assignments)
-      if (a?.engine) validateChoice({ agent: a.engine, model: a.model ?? null, effort: a.effort ?? null }, catalog, "The named agent");
   const result = coordinator.command(data);
   researchers.pump();
   graphBuilders.pump();

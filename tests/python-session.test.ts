@@ -192,6 +192,11 @@ describe.skipIf(!onMac)("the session desk", () => {
         if (given.finding.evidence[0].page !== 2) throw new Error("Evidence 1 was not found in doc-1 (Harbor ledger.pdf). The quote is not on page 1; it is on page 2. Cite the page it is on.");
         return { id: "report-1/f1", statement: given.finding.statement, evidence: [{ document: "doc-1", pages: [2, 2], check: "checked" }] };
       },
+      post: async (given: any, context: any) => {
+        if (asked.some((a) => a.text === given.text)) throw new Error("You already posted exactly this, so it was not posted again.");
+        asked.push({ ...given, seat: context.key });
+        return { posted: true, id: "post-1" };
+      },
     };
     const d = new SessionDesk({ home, library, wait, poll: 100, calls });
     cleanups.push(() => d.closeAll());
@@ -202,7 +207,7 @@ describe.skipIf(!onMac)("the session desk", () => {
       return folder;
     };
     const folder = open(lease);
-    return { folder, messages, open, asked, revoke: (next = "lease-2") => (lease = next) };
+    return { folder, messages, open, asked, revoke: (next = "lease-2") => (lease = next), running: () => d.running("seat-1") };
   }
 
   it("runs the researcher's code through its tool", async () => {
@@ -233,6 +238,21 @@ describe.skipIf(!onMac)("the session desk", () => {
       finding: { statement: "Ada Example is named in the ledger.", qualification: "supported", explanation: "The ledger names her.", evidence: [{ document: "doc-1", page: 2, quote: "The ledger names Ada Example.", interpretation: "She is named." }], replaces: "report-0/f1" },
     });
     expect((await tool(folder, code(1), "lease-1")).stdout).toBe("Evidence 1 was not found in doc-1 (Harbor ledger.pdf). The quote is not on page 1; it is on page 2. Cite the page it is on.\n");
+  });
+
+  it("lets running code post to the board, hear when the same post was already made, and counts as under way while it runs", async () => {
+    const { folder, asked, running } = desk();
+    const code = `import time\ntime.sleep(0.6)\ntry:\n    print(weir.post("The 1881 register is missing from the scans."))\nexcept weir.AppError as error:\n    print(error)`;
+    expect(running()).toBe(0);
+    const first = tool(folder, code, "lease-1");
+    await new Promise((done) => setTimeout(done, 300));
+    expect(running()).toBe(1);
+    expect((await first).stdout).toBe("{'posted': True, 'id': 'post-1'}\n");
+    expect(running()).toBe(0);
+    expect(asked).toEqual([{ text: "The 1881 register is missing from the scans.", seat: "seat-1" }]);
+    // Run again, the same code does not post twice.
+    expect((await tool(folder, code, "lease-1")).stdout).toBe("You already posted exactly this, so it was not posted again.\n");
+    expect(asked).toHaveLength(1);
   });
 
   it("does nothing for code whose researcher has lost the seat while it ran", async () => {

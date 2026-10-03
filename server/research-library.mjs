@@ -3,22 +3,24 @@ import { dirname, extname, join, relative } from "node:path";
 import { graphToTables } from "../src/domain/graph-csv.ts";
 import { sourceLibrary } from "../src/domain/findings.ts";
 import { textFile } from "../src/domain/text-revisions.ts";
+import { isTeam } from "../src/domain/assignments.ts";
 
 // The research library: everything the project has produced, as files a researcher
 // searches and reads with its shell. The app writes it from the project's saved state
 // and keeps it current; researchers can read it but not change it. It leaves out the
-// human's conversation and annotations, results the coordinator has not reviewed, and
-// the app's own records, such as worker credentials.
+// human's conversation and annotations, and the app's own records, such as worker
+// credentials.
 
 const README = `# Research library
 
 Everything this project has produced so far, kept current by the app while you work.
 You can read and search it; you cannot change it.
 
-- \`batches/batch-N/brief.md\`: what each batch is for, from the coordinator.
-- \`batches/batch-N/board.md\`: what the batch's researchers, and the coordinator, posted for its researchers.
-- \`batches/batch-N/pass-K/\`: one folder per research pass, in the order the coordinator made them.
-  \`assignment.md\` is the coordinator's direction and any steering that followed, \`findings.md\` the findings it returned once the coordinator published them, with their evidence, and \`checkpoints.md\` the researcher's saved progress, including dead ends.
+- \`batches/batch-N/goal.md\`: the goal a batch's team of researchers shares, as the coordinator restated what the human asked for.
+- \`batches/batch-N/board.md\`: what the batch's researchers, and the coordinator, posted for the team.
+- \`batches/batch-N/findings.md\`: every finding the team has published, newest first, each with its evidence and the researcher who published it.
+- \`batches/batch-N/researcher-K/checkpoints.md\`: each researcher's saved progress, including dead ends.
+- A batch from before teams has \`brief.md\` in place of \`goal.md\`, and one folder per research pass, \`pass-K/\`, holding \`assignment.md\`, the coordinator's direction for it, \`findings.md\`, the findings it returned, and \`checkpoints.md\`.
 - \`walkthroughs/batch-N.md\`: how each batch's research was explained to the human.
 - \`graph/\`: the project's graph as tables: \`nodes.csv\`, \`edges.csv\`, the project's types, fields and relationships, and \`evidence.csv\`, the evidence the graph cites.
 - \`sources.csv\`: every source the project knows, by ID.
@@ -38,6 +40,7 @@ const csv = (header, rows) => [header, ...rows].map((r) => r.map(cell).join(",")
 const statusWords = {
   waiting: "Waiting for a researcher.",
   running: "A researcher is working on it now.",
+  finished: "Finished.",
   returned: "Returned; the coordinator is reviewing the result.",
   done: "Finished; its findings are published.",
   paused: "Paused.",
@@ -55,13 +58,21 @@ function batchBrief(b) {
   );
 }
 
+function batchGoal(b) {
+  return lines(`# ${b.number ? `Batch ${b.number}: ` : ""}${b.title}`, `ID ${b.id}. Source collections: ${b.scope.join(", ")}.`, `## The goal\n\n${b.goal}`, `## The team\n\n${(b.assignments || []).map((a) => `- ${a.title}: ${statusWords[a.status].replace(/\.$/, "").toLowerCase()}`).join("\n")}`);
+}
+
+// A seat's folder in a team's batch: its place in the team.
+export const seatFolderName = (b, a) => `researcher-${b.assignments.findIndex((x) => x.id === a.id) + 1}`;
+
 function boardFile(b) {
   const posts = b.board || [];
   const title = (id) => b.assignments?.find((a) => a.id === id)?.title || "an assignment";
+  const from = (p) => (p.author === "coordinator" ? "the coordinator" : isTeam(b) ? title(p.assignmentId) : `the researcher on "${title(p.assignmentId)}"`);
   return lines(
     `# Board for ${b.number ? `batch ${b.number}` : b.title}`,
     posts.length
-      ? posts.map((p) => `## ${p.at.slice(0, 16).replace("T", " ")}, from ${p.author === "coordinator" ? "the coordinator" : `the researcher on "${title(p.assignmentId)}"`}\n\n${p.text}`).join("\n\n")
+      ? posts.map((p) => `## ${p.at.slice(0, 16).replace("T", " ")}, from ${from(p)}\n\n${p.text}`).join("\n\n")
       : "Nothing posted yet.",
   );
 }
@@ -111,7 +122,7 @@ function evidenceText(state, p, id) {
 function findingsFile(state, title, proposals) {
   // The seat whose researcher published a finding.
   const seat = (p) => state.investigations.flatMap((b) => b.assignments || []).find((a) => a.id === p.assignmentId)?.title || "a researcher";
-  if (!proposals.length) return lines(`# Findings: ${title}`, "Nothing published from this pass yet.");
+  if (!proposals.length) return lines(`# Findings: ${title}`, "Nothing published yet.");
   return lines(
     `# Findings: ${title}`,
     ...proposals.map((p) =>
@@ -166,8 +177,17 @@ export function libraryFiles(state) {
   const files = new Map([["README.md", README]]);
   for (const b of state.investigations) {
     const base = `batches/${batchFolder(b)}`;
-    files.set(`${base}/brief.md`, batchBrief(b));
     files.set(`${base}/board.md`, boardFile(b));
+    // A team's batch: its goal, one list of its findings, and each seat's checkpoints.
+    if (isTeam(b)) {
+      files.set(`${base}/goal.md`, batchGoal(b));
+      files.set(`${base}/findings.md`, findingsFile(state, b.title, [...b.proposals].filter((p) => p.kind === "findings" || !p.kind).reverse()));
+      for (const a of b.assignments || []) files.set(`${base}/${seatFolderName(b, a)}/checkpoints.md`, checkpointsFile(a.title, a.checkpoints));
+      const walkthrough = b.reviewFlow?.walkthroughs.at(-1);
+      if (walkthrough) files.set(`walkthroughs/${batchFolder(b)}.md`, walkthroughFile(b, walkthrough));
+      continue;
+    }
+    files.set(`${base}/brief.md`, batchBrief(b));
     (b.assignments || []).forEach((a, n) => {
       const pass = `${base}/pass-${n + 1}`;
       files.set(`${pass}/assignment.md`, assignmentFile(state, b, a));

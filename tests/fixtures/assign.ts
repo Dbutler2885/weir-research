@@ -1,23 +1,28 @@
 import { Coordinator } from "../../server/coordinator.mjs";
 
-// Researchers start only on a coordinator's assignments: this stands in for the
-// coordinator, giving every queued batch with nothing assigned one assignment for the given agent.
-export function assignQueued(store: any, pool: any, engine: "claude" | "codex", brief = "Fixture brief: investigate the fictional record.") {
+// Stands in for the coordinator: opens a batch with a goal, whose team the pool starts.
+// The team has one researcher unless a size is given.
+export function openTeam(
+  store: any,
+  pool: any,
+  engine: "claude" | "codex",
+  { size = 1, goal = "Fixture goal: find out about the fictional record.", title = "Fixture batch", scope }: { size?: number; goal?: string; title?: string; scope?: string[] } = {},
+) {
   let coordinator = pool.coordinator;
   if (!coordinator) {
     coordinator = new Coordinator(store);
     coordinator.attach("Test coordinator", "coordinator-session-for-fixture-01");
     pool.coordinator = coordinator;
+    coordinator.researchers = pool;
   }
+  store.update((next: any) => (next.researchSettings = { timeLimitMinutes: null, ...(next.researchSettings || {}), researchersPerBatch: size }));
   const session = coordinator.session.secret;
-  const assigned = (i: any) => (i.assignments || []).some((a: any) => ["waiting", "running", "returned"].includes(a.status));
-  for (const i of store.state.investigations.filter((i: any) => i.status === "queued" && !assigned(i)))
-    coordinator.command({ action: "assign", session, investigationId: i.id, engine, title: "Fixture assignment", brief });
+  const { investigationId } = coordinator.command({ action: "open-batch", session, engine, title, goal, ...(scope ? { scope } : {}) });
   pool.pump();
-  return coordinator;
+  return { coordinator, session, investigationId: investigationId as string };
 }
 
-// The assignment a batch's researcher is working on, or last worked on.
-export function assignmentOf(store: any, investigationId: string): any {
-  return store.state.investigations.find((i: any) => i.id === investigationId).assignments.at(-1);
+// A batch's seat, by its place in the team: the first unless another is named.
+export function assignmentOf(store: any, investigationId: string, place = 0): any {
+  return store.state.investigations.find((i: any) => i.id === investigationId).assignments[place];
 }

@@ -39,7 +39,8 @@ A draft that holds together becomes the job's candidate, with the computed diffe
 ## Reorganizing the graph
 
 A graph made before the project defined its own types has nodes without summaries and facts scattered under names invented one at a time.
-When the human asks for the graph to be reorganized, open a batch for it and send `reorganize-graph` with investigationId and `message`, the human's own request in your words.
+When the human asks for the graph to be reorganized, send `reorganize-graph` with `message`, the human's own request in your words, and a short `title`.
+The app opens a batch for it, with no researchers, and answers with its `investigationId` and the `jobId`.
 The builder then organizes the graph as it stands, adding no new research: it defines the types and their fields, files every fact under its field, gives relationships their reverse readings, and writes a summary for every node.
 The draft is signed off and reviewed like any other; check that nothing was added, removed or merged without a reason in its notes.
 Offer a reorganization when many nodes lack a summary, rather than starting one unasked.

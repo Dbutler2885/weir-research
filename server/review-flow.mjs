@@ -66,9 +66,22 @@ export { graphBlocker };
 // What a reorganization asks of its builder, before the human's own words.
 const REORGANIZATION = 'Reorganize the graph as it stands; there is no new research to add. Define the project\'s types and the fields each records, file every existing fact under its field, give each relationship the human sees from both ends a reverse reading, and write a summary for every node. Rewrite reasoning that mentions ids, tables or earlier versions of the graph so a reader can follow it. Keep every citation, qualification and time; do not add, remove or merge anything the research does not warrant.';
 export function flowCommand(store, command, actor = 'coordinator') {
+  const action = command.action;
+  // A reorganization represents no research, so it has no team: unless it names a
+  // batch, it gets a batch of its own, which holds only its graph draft.
+  if (action === 'reorganize-graph' && actor === 'coordinator' && command.investigationId === undefined) {
+    fail(text(command.message), 'Say what the human asked the reorganization to do.');
+    const blocker = graphBlocker(store.state);
+    fail(!blocker, blocker);
+    const investigationId = store.update(next => {
+      const at = new Date().toISOString(), id = randomUUID();
+      next.investigations.push({id, number: Math.max(0, ...next.investigations.map(x => x.number || 0)) + 1, title: text(command.title) ? command.title.trim().slice(0, 300) : 'Reorganize the graph', createdAt: at, status: 'review', scope: ['imports'], annotations: [], assignments: [], proposals: [], events: [{at, message: 'Coordinator opened this batch to reorganize the graph.'}]});
+      return id;
+    });
+    return {investigationId, ...flowCommand(store, {...command, investigationId}, actor)};
+  }
   const i = store.state.investigations.find(i => i.id === command.investigationId);
   fail(i, 'Unknown investigation.');
-  const action = command.action;
   const humanActions = ['request-walkthrough', 'review-walkthrough-edits', 'graph-job-pause', 'graph-job-resume', 'graph-resume-decision', 'graph-accept', 'graph-set-aside'];
   // Either may request a graph update: the human from Review, the coordinator for the human's message.
   fail(action === 'request-graph' || (actor === 'coordinator' ? !humanActions.includes(action) : humanActions.includes(action)), 'This action belongs to the other review role.');

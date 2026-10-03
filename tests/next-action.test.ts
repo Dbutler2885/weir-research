@@ -54,16 +54,21 @@ describe("next action for a batch", () => {
     expect(waitingOn(batch({ status: "paused" }))).toBe("human");
   });
 
-  it("waits on the coordinator for unassigned work, returned results, drafts to check, and walkthroughs", () => {
+  it("waits on the coordinator for drafts to check, walkthroughs, and a batch with no team", () => {
     expect(waitingOn(batch({ status: "queued" }))).toBe("coordinator");
     expect(waitingOn(batch({ reviewFlow: flow([{ status: "returned" }]) }))).toBe("coordinator");
     expect(waitingOn(batch({ reviewFlow: flow([{ status: "queued", engine: "manual" }]) }))).toBe("coordinator");
     expect(waitingOn(batch({ walkthroughRequestedAt: "2026-01-02", proposals: [findings] }))).toBe("coordinator");
-    expect(waitingOn(batch({ proposals: [findings] }))).toBe("coordinator");
-    const returned = batch({ status: "running", assignments: [pass("returned", { lease: { token: "t", worker: "Codex researcher", at: "a", dataset: {} as never } }), pass("running")] });
-    expect(waitingOn(returned, { coordination: { candidates: [{ investigationId: "batch-1", token: "t" }] } })).toBe("coordinator");
-    // A result from a fenced lease is stale and does not count.
-    expect(waitingOn(returned, { coordination: { candidates: [{ investigationId: "batch-1", token: "old" }] } })).toBe("worker");
+    expect(nextAction({ ...initialState(empty as never) } as ResearchState, batch({ proposals: [findings] })).action).toContain("open a new batch with a goal");
+  });
+
+  it("waits on the team while any researcher runs or waits, on the human once it is in Review or paused, and on nobody once it is done", () => {
+    const team = (extra: Partial<Investigation>) => batch({ goal: "Find who built the fictional mill.", ...extra });
+    expect(waitingOn(team({ status: "running", assignments: [pass("running"), pass("finished")] }))).toBe("worker");
+    expect(waitingOn(team({ status: "running", assignments: [pass("waiting"), pass("finished")] }))).toBe("worker");
+    expect(waitingOn(team({ status: "paused", assignments: [pass("paused"), pass("finished")] }))).toBe("human");
+    expect(waitingOn(team({ status: "review", readyAt: "2026-01-02", assignments: [pass("finished")] }))).toBe("human");
+    expect(waitingOn(team({ status: "review", assignments: [pass("stopped")] }))).toBe("nobody");
   });
 
   it("waits on a worker while research or a graph draft is under way", () => {

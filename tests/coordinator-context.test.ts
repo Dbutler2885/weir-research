@@ -23,13 +23,7 @@ function project() {
     run({ type: "send", annotation: { question, references: [] } });
     return state.conversation!.at(-1)!.annotations![0]!.id;
   };
-  const open = (title: string, question: string) =>
-    run({
-      type: "open-batch",
-      brief,
-      title,
-      assignments: [{ title: question, brief: `Answer: ${question}` }],
-    }).investigationId as string;
+  const open = (title: string, goal: string) => run({ type: "open-batch", title, goal }).investigationId as string;
   return { run, send, open, get state() { return state; }, set state(s) { state = s; } };
 }
 
@@ -76,7 +70,7 @@ describe("coordinator startup context", () => {
     for (const m of p.state.conversation!) expect(context.text).not.toContain(m.id);
   });
 
-  it("describes each open batch once, with its number, brief and next action", () => {
+  it("describes each open batch once, with its number, goal, team and next action", () => {
     const p = project();
     const first = p.open("The mill's builder", "Who built the mill?");
     p.open("The miller's family", "Who was the miller's father?");
@@ -84,14 +78,17 @@ describe("coordinator startup context", () => {
     expect(queue.match(new RegExp(first, "g"))).toHaveLength(1);
     expect(queue).toContain("### Batch 1: The mill's builder");
     expect(queue).toContain("### Batch 2: The miller's family");
-    expect(queue).toContain(`Purpose: ${brief.purpose}`);
-    // Each assignment is listed with where it stands.
-    const assignmentId = p.state.investigations[0]!.assignments![0]!.id;
-    expect(queue).toContain(`- Assignment "Who built the mill?" (${assignmentId}): waiting for a free place.`);
-    expect(queue).toContain("Next (waiting on worker): Assigned; waiting for a free researcher.");
-    // A batch with nothing assigned waits for the coordinator.
-    p.run({ type: "open-batch", brief, title: "Later" });
-    expect(layer(buildCoordinatorContext(p.state), "queue")).toContain("Next (waiting on coordinator): Assign researchers");
+    expect(queue).toContain("Goal: Who built the mill?");
+    // Each researcher in the team is listed with where it stands.
+    const seats = p.state.investigations[0]!.assignments!;
+    expect(seats.map((a) => a.title)).toEqual(["Researcher 1", "Researcher 2", "Researcher 3", "Researcher 4"]);
+    expect(queue).toContain(`- Researcher 1 (${seats[0]!.id}): waiting to start.`);
+    expect(queue).toContain("Next (waiting on worker): Its team is researching; findings appear as they are published.");
+    // A batch from before teams keeps its brief.
+    const state = structuredClone(p.state);
+    delete state.investigations[0]!.goal;
+    state.investigations[0]!.brief = { ...brief, updatedAt: "2026-01-01T00:00:00Z" };
+    expect(layer(buildCoordinatorContext(state), "queue")).toContain(`Purpose: ${brief.purpose}`);
   });
 
   it("never shows a closed batch as active, even one closed without its status", () => {
@@ -103,14 +100,6 @@ describe("coordinator startup context", () => {
     expect(queue).toContain("0 open batches");
     expect(queue).toContain(`Batch 1: The mill's builder (${id}), closed 2026-01-05`);
     expect(queue).not.toContain("### Batch 1");
-  });
-
-  it("flags a batch without a brief", () => {
-    const p = project();
-    p.open("The mill's builder", "Who built the mill?");
-    const state = structuredClone(p.state);
-    delete state.investigations[0]!.brief;
-    expect(layer(buildCoordinatorContext(state), "attention")).toContain("has no brief");
   });
 
   it("summarizes findings instead of reproducing them", () => {
@@ -128,10 +117,10 @@ describe("coordinator startup context", () => {
       status: "pending",
     } as never);
     const text = buildCoordinatorContext(state).text;
-    expect(text).toContain("30 findings in 1 proposal");
+    expect(text).toContain("30 findings published");
     expect(text).not.toContain(statement);
     // What the human's screen shows, so the coordinator describes it in the app's words.
-    expect(text).toContain("The human sees: 30 findings to read under Investigations, Findings; nothing in Review until you mark the batch ready.");
+    expect(text).toContain("The human sees: 30 findings to read under Investigations, Findings; nothing in Review until every researcher has finished.");
     state.investigations[0]!.readyAt = "2026-09-30T04:10:00Z";
     expect(buildCoordinatorContext(state).text).toContain("The human sees: 30 findings to read under Investigations, Findings; Create walkthrough in Review.");
     state.investigations[0]!.walkthroughRequestedAt = "2026-09-30T04:12:00Z";
@@ -142,7 +131,7 @@ describe("coordinator startup context", () => {
     const p = project();
     const id = p.open("The mill's builder", "Who built the mill?");
     expect(buildCoordinatorContext(p.state).text).toContain(id);
-    expect((inspectContext(p.state, { kind: "investigation", id }, []) as any).title).toBe("The mill's builder");
+    expect((inspectContext(p.state, { kind: "investigation", id }) as any).goal).toBe("Who built the mill?");
   });
 
   it("includes live workers and the human's saved preferences", () => {

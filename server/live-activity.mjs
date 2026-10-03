@@ -146,20 +146,16 @@ export function fileDescriber(names = {}, titles = {}) {
 }
 
 export const researcherFiles = {
-  "brief.md": { read: "Reading its assignment" },
   "README.md": { read: "Reading what the research library holds" },
   "assignment.md": { read: "Reading an earlier research pass" },
+  "goal.md": { read: "Reading a batch's goal" },
+  "findings.md": { read: "Reading published findings" },
   "checkpoints.md": { read: "Reading saved progress" },
   "board.md": { read: "Reading its batch's board" },
-  "post.md": { read: "Rereading its post", write: "Posting to its batch's board" },
   "sources.csv": { read: "Reading the source library" },
   "documents.csv": { read: "Reading the list of saved documents" },
   "AGENTS.md": { read: "Reading its instructions" },
-  "research-contract.ts": { read: "Reading the findings format" },
-  "findings.ts": { read: "Reading the findings format" },
-  "types.ts": { read: "Reading the findings format" },
   "checkpoint.json": { read: "Reading its saved progress", write: "Saving its progress" },
-  "result.json": { read: "Checking its findings", write: "Writing up its findings" },
 };
 
 export const writerFiles = {
@@ -195,12 +191,6 @@ export function coordinatorAction(data, state) {
     const i = state.investigations.find((i) => i.id === id);
     return i?.number ? `batch ${i.number}` : "a batch";
   };
-  // An assignment by its title, with its batch.
-  const pass = (id) => {
-    for (const i of state.investigations)
-      for (const a of i.assignments || []) if (a.id === id) return `"${a.title.length > 60 ? `${a.title.slice(0, 57)}...` : a.title}" in ${batch(i.id)}`;
-    return "a research pass";
-  };
   const source = (id) => (state.dataset?.sources || []).find((s) => s.id === id)?.title
     || (state.documents || []).find((d) => d.id === id)?.name;
   switch (data.action) {
@@ -209,21 +199,16 @@ export function coordinatorAction(data, state) {
     case "inspect":
       if (data.kind === "investigation") return `Reading ${batch(data.id)}`;
       if (data.kind === "source") return source(data.id) ? `Reading ${source(data.id)}` : "Reading a source";
-      if (data.kind === "candidate") return "Checking the findings a researcher returned";
       if (data.kind === "entity") return "Looking at a record in the graph";
       if (data.kind === "map") return "Reading the research map";
       return "Looking over the investigations";
     case "reply": return "Replying to you";
-    case "open-batch": return "Starting a batch of research";
+    case "open-batch": return "Starting a team on a batch of research";
     case "retitle": return `Renaming ${batch(data.investigationId)}`;
     case "request-approval": return "Asking you for a decision";
-    case "batch-ready": return `Marking ${batch(data.investigationId)} ready for review`;
-    case "assign": return `Assigning a researcher to ${batch(data.investigationId)}`;
-    case "steer": return `Redirecting the researcher on ${pass(data.assignmentId)}`;
-    case "stop-researcher": return `Stopping the researcher on ${pass(data.assignmentId)}`;
-    case "publish": return "Publishing a researcher's findings";
     case "post": return `Posting to ${batch(data.investigationId)}'s board`;
-    case "revise": return `Sending back ${pass(data.assignmentId)} for another pass`;
+    case "stop-team": return `Stopping the team on ${batch(data.investigationId)}`;
+    case "reorganize-graph": return "Starting a reorganization of the graph";
     case "request-resume": return `Asking to resume ${batch(data.investigationId)}`;
     case "ask-helper": return "Handing a small task to a helper";
     case "set-role":

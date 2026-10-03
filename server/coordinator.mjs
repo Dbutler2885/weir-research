@@ -1,7 +1,6 @@
 import { organize } from "./organization.mjs";
-import { flowCommand, autoReview } from "./review-flow.mjs";
+import { flowCommand } from "./review-flow.mjs";
 import { randomUUID } from "node:crypto";
-import { transition } from "../src/domain/research.ts";
 import { coordinatorConversationCommands } from "../src/domain/conversation.ts";
 import {
   projectIndex,
@@ -29,7 +28,7 @@ export class Coordinator {
     // The app's own coordinator, when it runs one; it says whether it is working.
     this.host = null;
     this.problem = null;
-    // The researcher pool, set once both exist, for steering and stopping researchers.
+    // The researcher pool, set once both exist, for posting to a board and stopping a team.
     this.researchers = null;
     // The walkthrough writers, set once both exist, for sending a writer instructions.
     this.writers = null;
@@ -86,20 +85,7 @@ export class Coordinator {
       switching: live && this.hosted() ? this.host.status().switching ?? null : null,
       name: owner ? owner.name : null,
       lastSeenSecondsAgo: owner ? Math.round((this.now() - owner.seen) / 1000) : null,
-      awaitingSynthesis: this.candidates().map((c) => c.investigationId),
     };
-  }
-  // Researcher results not yet judged, whose assignment is still waiting on them;
-  // while the human has a batch paused, its results wait too.
-  candidates() {
-    return (this.store.state.coordination?.candidates || []).filter((c) =>
-      this.store.state.investigations.some(
-        (i) =>
-          i.id === c.investigationId &&
-          i.status !== "paused" &&
-          (i.assignments || []).some((a) => a.status === "returned" && a.lease?.token === c.token),
-      ),
-    );
   }
   attach(name, secret) {
     if (
@@ -120,10 +106,7 @@ export class Coordinator {
     this.session = { name, secret, seen: this.now(), owned: this.now() + this.ownership };
     if (!this.enabled)
       this.store.update((next) => {
-        next.coordination = {
-          enabled: true,
-          candidates: [],
-        };
+        next.coordination = { enabled: true };
       });
     return this.snapshot(secret);
   }
@@ -153,22 +136,38 @@ export class Coordinator {
         const { findings, ...rest } = investigationIndex(i);
         return { ...rest, findingCount: findings.length };
       });
+    const seat = (i, id) => i.assignments?.find((a) => a.id === id)?.title;
     const boardPosts = state.investigations.flatMap((i) =>
       // Its own posts are not news to the coordinator.
       (i.board || []).slice(changed.boardFrom?.get(i.id) ?? 0).filter((p) => p.author !== "coordinator").map((p) => ({
         investigationId: i.id,
-        assignmentId: p.assignmentId,
-        from: i.assignments?.find((a) => a.id === p.assignmentId)?.title,
+        from: seat(i, p.assignmentId),
         text: p.text,
       })),
     );
+    // Findings the researchers published since, each as the human now sees it.
+    const findings = state.investigations.flatMap((i) =>
+      i.proposals.slice(changed.findingsFrom?.get(i.id) ?? 0).filter((p) => p.key).map((p) => ({
+        investigationId: i.id,
+        id: `${p.id}/${p.findings[0].id}`,
+        from: seat(i, p.assignmentId),
+        statement: p.findings[0].statement,
+        qualification: p.findings[0].qualification,
+        ...(p.findings[0].replaces ? { replaces: `${p.findings[0].replaces.proposalId}/${p.findings[0].replaces.findingId}` } : {}),
+      })),
+    );
+    // Researchers who finished since, and batches that reached Review with them.
+    const researchersFinished = state.investigations.flatMap((i) =>
+      (i.assignments || []).filter((a) => a.status === "finished" && changed.seatsBefore?.get(a.id) !== "finished").map((a) => ({ investigationId: i.id, researcher: a.title })),
+    );
+    const batchesReady = state.investigations.filter((i) => i.goal !== undefined && i.readyAt && !changed.readyBefore?.has(i.id)).map((i) => ({ investigationId: i.id, title: i.title }));
     if (
       !messages.length &&
       !boardPosts.length &&
+      !findings.length &&
       !investigations.length &&
       !changed.removedInvestigationIds.length &&
       !changed.decisionsChanged &&
-      !changed.candidatesChanged &&
       !changed.dispatchChanged
     )
       return { revision: state.revision, unchanged: true };
@@ -180,6 +179,9 @@ export class Coordinator {
         messages,
         investigations,
         ...(boardPosts.length ? { boardPosts } : {}),
+        ...(findings.length ? { findings } : {}),
+        ...(researchersFinished.length ? { researchersFinished } : {}),
+        ...(batchesReady.length ? { batchesReady } : {}),
         ...(changed.removedInvestigationIds.length
           ? { removedInvestigationIds: changed.removedInvestigationIds }
           : {}),
@@ -187,9 +189,6 @@ export class Coordinator {
         ...(changed.decisionsChanged ? { decisions: conversation.recentDecisions } : {}),
         // Who does which job, when the human changed it in settings.
         ...(changed.dispatchChanged ? { dispatch: state.dispatch } : {}),
-        ...(changed.candidatesChanged
-          ? { candidates: this.candidates().map((c) => ({ id: c.id, investigationId: c.investigationId, assignmentId: c.assignmentId, title: c.proposal.title })) }
-          : {}),
       },
     };
   }
@@ -206,21 +205,14 @@ export class Coordinator {
       investigationCount: state.investigations.length,
       indexHint:
         "Index shows up to 50 active and 10 recently closed investigations. Inspect investigations with an offset to browse all work.",
-      candidates: this.candidates().map((c) => ({
-        id: c.id,
-        investigationId: c.investigationId,
-        assignmentId: c.assignmentId,
-        title: c.proposal.title,
-        summary: c.proposal.summary.slice(0, 600),
-      })),
       preferredEngine: state.engine || "manual",
       coordinator: this.status(),
       conversation: conversationIndex(state),
       context: buildCoordinatorContext(state, { workers: this.workers(), skills: this.skills }),
     };
   }
-  // Who does an assignment: what the coordinator names wins; otherwise the project's
-  // dispatch rules decide.
+  // Who a batch's researchers run on: what the coordinator names wins; otherwise the
+  // project's dispatch rules decide.
   choose(data) {
     const choice = this.dispatch?.choose("researcher", data.engine ? { agent: data.engine, model: data.model, effort: data.effort } : null)
       ?? (data.engine || this.store.state.engine ? { agent: data.engine || this.store.state.engine } : null);
@@ -247,12 +239,12 @@ export class Coordinator {
       return organize(this.store, data);
     if (coordinatorConversationCommands.has(data.action)) {
       const { action, session, ...command } = data;
-      // Each assignment of a new batch is given to an agent as it is made.
-      if (action === "open-batch" && Array.isArray(command.assignments))
-        command.assignments = command.assignments.map((a) => ({ ...a, choice: this.choose(a || {}) }));
-      const result = this.store.command({ ...command, type: action });
-      if (action === "batch-ready") autoReview(this.store, data.investigationId);
-      return result;
+      // The team of a new batch runs on the agent the dispatch rules give researchers.
+      if (action === "open-batch") {
+        const { engine, model, effort, ...batch } = command;
+        return this.store.command({ ...batch, type: action, choice: this.choose({ engine, model, effort }) });
+      }
+      return this.store.command({ ...command, type: action });
     }
     const id = data.investigationId;
     const i = this.store.state.investigations.find((i) => i.id === id);
@@ -264,7 +256,7 @@ export class Coordinator {
     }
     if (data.action === "snapshot") return this.snapshot(data.session);
     if (data.action === "inspect")
-      return inspectContext(this.store.state, data, this.candidates());
+      return inspectContext(this.store.state, data);
     if (data.action === "search")
       return searchContext(this.store.state, data.query, data.offset);
     if (data.action === "map") {
@@ -275,45 +267,9 @@ export class Coordinator {
       });
       return { saved: true };
     }
-    // An assignment is named by its ID; inspect the batch to list them.
-    if (["steer", "stop-researcher", "revise"].includes(data.action) && typeof data.assignmentId !== "string")
-      throw new Error("Name the assignment with assignmentId; inspecting the batch lists its assignments.");
-    if (data.action === "steer") return this.researchers.steer(data.assignmentId, data.message);
-    if (data.action === "stop-researcher") return this.researchers.halt(data.assignmentId, data.reason);
-    if (data.action === "revise") {
-      const candidate = this.candidates().find((c) => c.assignmentId === data.assignmentId);
-      if (candidate)
-        this.store.command({
-          type: "checkpoint",
-          investigationId: candidate.investigationId,
-          token: candidate.token,
-          summary: "Coordinator requested another pass",
-          findings: String(data.notes || ""),
-          nextSteps: String(data.notes || ""),
-        });
-      const result = this.store.command({ type: "revise-assignment", assignmentId: data.assignmentId, notes: data.notes });
-      // Sent back with another agent, when the coordinator names one.
-      if (data.engine) {
-        const choice = this.choose(data);
-        this.store.update((next) => {
-          for (const i of next.investigations) for (const a of i.assignments || []) if (a.id === data.assignmentId) a.choice = choice;
-        });
-      }
-      return result;
-    }
-    if (data.action === "publish") {
-      const candidate = this.candidates().find((c) => c.id === data.candidateId);
-      // Only a researcher's current result is published; the coordinator reconciles it first.
-      if (!candidate) throw new Error("Publish a current researcher result, named by its candidateId.");
-      return this.store.command({
-        type: "propose",
-        investigationId: candidate.investigationId,
-        token: candidate.token,
-        proposal: data.proposal || candidate.proposal,
-      });
-    }
     if (!i) throw new Error("Unknown investigation.");
     if (data.action === "post") return this.researchers.announce(id, data.text);
+    if (data.action === "stop-team") return this.researchers.stopTeam(id, data.reason);
     if (data.action === "request-resume") {
       if (i.status !== "paused")
         throw new Error("Only paused investigations need resume approval.");
@@ -346,39 +302,9 @@ export class Coordinator {
       });
       return { awaitingApproval: true, requestId };
     }
-    if (data.action === "assign") {
-      if (i.closedAt) throw new Error("This batch is closed. Open a new batch for further work.");
-      return this.store.command({
-        type: "assign",
-        investigationId: id,
-        title: data.title,
-        brief: data.brief,
-        choice: this.choose(data),
-      });
-    }
     throw new Error(
       "Unknown coordinator action. Coordinators cannot accept research changes.",
     );
-  }
-  receive(task, proposal) {
-    // Validate exactly as a proposal, but retain the result for coordinating judgment first.
-    transition(this.store.state, {
-      type: "propose",
-      investigationId: task.batchId,
-      token: task.token,
-      proposal,
-    });
-    this.store.update((next) => {
-      next.coordination.candidates.push({
-        id: randomUUID(),
-        investigationId: task.batchId,
-        assignmentId: task.id,
-        token: task.token,
-        proposal,
-        receivedAt: new Date().toISOString(),
-      });
-    });
-    this.store.command({ type: "assignment-returned", assignmentId: task.id, token: task.token });
   }
 }
 

@@ -8,7 +8,7 @@ import { join, resolve } from "node:path";
 import dataset from "./fixtures/workshop.json";
 import { WorkspaceStore } from "../server/store.mjs";
 import { ResearcherPool } from "../server/researchers.mjs";
-import { assignQueued } from "./fixtures/assign";
+import { writeLibrary } from "../server/research-library.mjs";
 
 const cleanups: (() => void)[] = [];
 afterEach(() => cleanups.splice(0).reverse().forEach((clean) => clean()));
@@ -38,7 +38,8 @@ describe("a project from before the app ran every worker", () => {
     // Converting again changes nothing.
     expect(new WorkspaceStore(directory, dataset).state.revision).toBe(store.state.revision);
 
-    // The human approves resuming; a researcher the app starts carries on.
+    // The human approves resuming. Its assignment is from before teams, so it is kept
+    // as history: nothing starts on it, and its checkpoint stays in the library.
     store.update((next: any) => {
       next.investigations[0].resumeRequest = { id: "r", reason: "Carry on", at: "t", status: "pending" };
     });
@@ -54,13 +55,9 @@ describe("a project from before the app ran every worker", () => {
     });
     const pool = new ResearcherPool(store, directory, resolve("."), { launch: launch as any, findExecutable: (n: string) => `/test/${n}` });
     cleanups.push(() => pool.stop());
-    assignQueued(store, pool, "claude");
-    expect(launches).toEqual(["/test/claude"]);
-    const assignment = store.state.investigations[0].assignments[0];
-    expect(assignment.lease.worker).toBe("Claude Code researcher");
-    // The new researcher is pointed at the saved checkpoint, which the library holds.
-    const folder = join(directory, "agents", id, assignment.id, assignment.lease.token);
-    expect(readFileSync(join(folder, "brief.md"), "utf8")).toContain("pass-1/checkpoints.md");
+    pool.pump();
+    expect(launches).toEqual([]);
+    writeLibrary(store.state, directory);
     expect(readFileSync(join(directory, "library", `batches/investigation-${id}/pass-1/checkpoints.md`), "utf8")).toContain("Found the register");
   });
 });

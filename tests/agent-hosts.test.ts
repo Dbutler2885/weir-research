@@ -1,7 +1,7 @@
 // @vitest-environment node
-import { assignQueued, assignmentOf } from "./fixtures/assign";
+import { openTeam, assignmentOf } from "./fixtures/assign";
 import { afterEach, describe, expect, it } from "vitest";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { AgentSupervisor } from "../server/agents/supervisor.mjs";
@@ -64,16 +64,16 @@ describe("agents under their own host process", () => {
   it("behave like local agents: actions, steering and turn ends reach the app", async () => {
     const p = place();
     const { live, supervisor } = p.app();
-    const agent = start(supervisor, p.folder, steps([read("brief.md", 400), read("findings.ts", 400)]));
+    const agent = start(supervisor, p.folder, steps([read("AGENTS.md", 400), read("board.md", 400)]));
     cleanups.push(() => stopped(agent));
     const actions: string[] = [];
     agent.on("action", (text: string) => actions.push(text));
     await until(() => actions.length === 1);
-    expect(live.list()[0]!.latest!.text).toBe("Reading its assignment");
-    agent.steer(steps([read("types.ts")]));
+    expect(live.list()[0]!.latest!.text).toBe("Reading its instructions");
+    agent.steer(steps([read("goal.md")]));
     const turn = await new Promise<any>((done) => agent.once("turn", done));
     expect(turn).toMatchObject({ outcome: "done" });
-    expect(actions).toEqual(["Reading its assignment", "Reading the findings format"]);
+    expect(actions).toEqual(["Reading its instructions", "Reading a batch's goal"]);
     const exit = new Promise<any>((done) => agent.once("exit", done));
     agent.finish();
     expect(await exit).toMatchObject({ code: 0 });
@@ -95,7 +95,7 @@ describe("agents under their own host process", () => {
   it("stop their agent when the app's heartbeat stops", async () => {
     const p = place();
     const { supervisor } = p.app();
-    const agent = start(supervisor, p.folder, steps([read("brief.md", 20_000)]));
+    const agent = start(supervisor, p.folder, steps([read("AGENTS.md", 20_000)]));
     await new Promise((done) => agent.once("action", done));
     const pid = p.pidOf(agent.record);
     expect(p.alive(pid)).toBe(true);
@@ -109,7 +109,7 @@ describe("agents under their own host process", () => {
   it("keep their agent through the computer sleeping", async () => {
     const p = place();
     const { supervisor } = p.app();
-    const agent = start(supervisor, p.folder, steps([read("brief.md", 20_000)]));
+    const agent = start(supervisor, p.folder, steps([read("AGENTS.md", 20_000)]));
     cleanups.push(() => stopped(agent));
     await new Promise((done) => agent.once("action", done));
     const pid = p.pidOf(agent.record);
@@ -126,7 +126,7 @@ describe("agents under their own host process", () => {
   it("keep running when kept, and are taken back by the app when it opens again", async () => {
     const p = place();
     const first = p.app();
-    const agent = start(first.supervisor, p.folder, steps([read("brief.md", 1500), read("types.ts")]));
+    const agent = start(first.supervisor, p.folder, steps([read("AGENTS.md", 1500), read("goal.md")]));
     await new Promise((done) => agent.once("action", done));
     // The human quits, keeping workers running.
     first.supervisor.keep();
@@ -148,8 +148,8 @@ describe("agents under their own host process", () => {
     back.on("action", (text: string) => missed.push(text));
     const turn = await new Promise<any>((done) => back.once("turn", done));
     expect(turn).toMatchObject({ outcome: "done" });
-    expect(missed).toEqual(["Reading the findings format"]);
-    expect(second.live.list()[0]!.latest!.text).toBe("Reading the findings format");
+    expect(missed).toEqual(["Reading a batch's goal"]);
+    expect(second.live.list()[0]!.latest!.text).toBe("Reading a batch's goal");
     const exit = new Promise((done) => back.once("exit", done));
     back.finish();
     await exit;
@@ -162,7 +162,7 @@ describe("a worker kept running while the app is closed", () => {
   it("waits out a usage limit and carries on at the reset on its own", async () => {
     const p = place();
     const first = p.app();
-    const agent = start(first.supervisor, p.folder, steps([read("brief.md", 300), { quota: 1 }]));
+    const agent = start(first.supervisor, p.folder, steps([read("AGENTS.md", 300), { quota: 1 }]));
     await new Promise((done) => agent.once("action", done));
     first.supervisor.keep();
     // The app closes only once the host has recorded that it keeps running.
@@ -185,21 +185,30 @@ describe("a worker kept running while the app is closed", () => {
 });
 
 describe("a researcher pool opening again", () => {
-  it("takes back a kept researcher instead of pausing its batch, and receives its findings", async () => {
+  it("takes back a kept researcher instead of pausing its seat, and hears it finish", async () => {
     const { WorkspaceStore } = await import("../server/store.mjs");
     const { ResearcherPool } = await import("../server/researchers.mjs");
     const dataset = (await import("./fixtures/workshop.json")).default;
     const p = place();
+    // The stand-in researcher says it has finished once the coordinator posts.
+    const script = join(p.root, "script.json");
+    writeFileSync(script, JSON.stringify({ "nothing more is wanted": [{ say: "All leads are spent.\n\nRESEARCH DONE" }], default: [] }));
+    process.env.FAKE_CLAUDE_STEPS = script;
+    process.env.FAKE_CLAUDE_RECORD = "1";
+    cleanups.push(() => {
+      delete process.env.FAKE_CLAUDE_STEPS;
+      delete process.env.FAKE_CLAUDE_RECORD;
+    });
     const store = new WorkspaceStore(join(p.root, "project"), dataset);
     const executable = resolve("tests/fixtures/fake-claude.mjs");
     const first = p.app();
     const pool = new ResearcherPool(store, join(p.root, "project"), resolve("."), { supervisor: first.supervisor, live: first.live, findExecutable: () => executable });
-    const { investigationId: id } = store.command({ type: "annotate", question: "Q", target: { label: "R" }, dispatch: true, scope: ["imports"] }) as any;
-    assignQueued(store, pool, "claude");
+    const { investigationId: id } = openTeam(store, pool, "claude", { scope: ["imports"] });
     await until(() => first.live.list()[0]);
     // Its session reaches the app from the host, so it could be picked up again.
     await until(() => assignmentOf(store, id).session);
     expect(assignmentOf(store, id).session).toMatchObject({ engine: "claude", id: expect.any(String) });
+    const folder = assignmentOf(store, id).session.directory;
     // The human quits, keeping the researcher running.
     first.supervisor.keep();
     // The app closes only once the host has recorded that it keeps running.
@@ -213,16 +222,18 @@ describe("a researcher pool opening again", () => {
     // The app opens again.
     const second = p.app();
     const reopened = new ResearcherPool(store, join(p.root, "project"), resolve("."), { supervisor: second.supervisor, live: second.live, findExecutable: () => executable });
+    reopened.coordinator = pool.coordinator;
     cleanups.push(() => reopened.stop());
     expect(store.state.investigations[0].status).toBe("running");
     expect(second.live.list()).toMatchObject([{ role: "researcher", investigationId: id }]);
-    // Its first turn ended with no findings; the pool hears that and it waits.
-    await until(() => store.state.investigations[0].events.some((e: any) => e.message.includes("waiting for instructions")));
-    const result = JSON.stringify({ title: "Unresolved", summary: "Kept", ambiguity: "Open", evidence: [], changes: [] });
-    reopened.steer(assignmentOf(store, id).id, steps([{ tool: "Write", input: { file_path: "result.json" }, writes: { "result.json": result } }]));
+    // Its first turn ended without the done phrase; the pool hears that and nudges it.
+    const received = () => (existsSync(join(folder, "received.jsonl")) ? readFileSync(join(folder, "received.jsonl"), "utf8") : "");
+    await until(() => received().includes("You ended your turn without saying whether you have finished"));
+    expect(assignmentOf(store, id).status).toBe("running");
+    // The coordinator's post reaches it, it says the phrase, and its seat finishes.
+    reopened.announce(id, "The human says nothing more is wanted.");
     await until(() => store.state.investigations[0].status === "review");
-    expect(store.state.investigations[0].proposals[0].title).toBe("Unresolved");
-    expect(assignmentOf(store, id)).toMatchObject({ status: "done" });
-    expect(assignmentOf(store, id).session).toBeUndefined();
+    expect(assignmentOf(store, id)).toMatchObject({ status: "finished", session: { id: expect.any(String) } });
+    expect(store.state.investigations[0].readyAt).toBeTruthy();
   });
 });

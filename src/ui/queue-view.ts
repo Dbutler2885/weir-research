@@ -10,7 +10,7 @@ function standing(b: Investigation, state: ResearchState): string {
   if (b.status === "queued") return "Waiting for a researcher.";
   if (b.status === "paused") return "Paused.";
   if (b.readyAt) return "Ready for you to review.";
-  return "Findings returned; the coordinator is checking them.";
+  return "No research under way.";
 }
 
 // The queue: open batches in the order they are worked, with controls to move and hold them.

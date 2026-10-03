@@ -52,15 +52,11 @@ beforeEach(() => {
       references: [{ label: "Fictional register entry", text: "Fictional register entry" }],
     },
   }).state;
+  state.researchSettings = { timeLimitMinutes: null, researchersPerBatch: 1 };
   state = transition(state, {
     type: "open-batch",
-    brief: {
-      purpose: "Identify the fictional workshop's founder.",
-      scope: "The founding only.",
-      direction: "Read the register entry.",
-    },
     title: "The workshop's founder",
-    assignments: [{ title: "Who founded the workshop?", brief: "Read the fictional register entry and name the founder." }],
+    goal: "Identify the fictional workshop's founder: read the register entry and name them.",
   }).state;
   state = transition(state, {
     type: "pause",
@@ -364,7 +360,7 @@ describe("investigation workspace", () => {
     const builder = panel.querySelector(".live-working .live-agent")!;
     expect(builder.querySelector(".live-who")!.textContent).toBe("Claude graph builderBatch 14 min");
     expect(builder.querySelector(".live-now")!.textContent).toBe("Editing the edges table");
-    expect(panel.querySelector(".live-attention")!.textContent).toBe("Batch 1: Paused: Who founded the workshop?Open batch 1Resume");
+    expect(panel.querySelector(".live-attention")!.textContent).toBe("Batch 1: Paused: Researcher 1Open batch 1Resume");
     // A running agent can be paused or switched; a paused one resumed.
     expect([...builder.querySelectorAll("[data-agent-action]")].map((b) => b.textContent)).toEqual(["Pause", "Switch model"]);
     // jsdom has no popover support; the panel only needs to close.
@@ -386,10 +382,10 @@ describe("investigation workspace", () => {
     HTMLDialogElement.prototype.showModal = function () {
       this.open = true;
     };
-    // Its row names the assignment, telling researchers in one batch apart.
+    // Its row names the researcher, telling a batch's team apart.
     const panel = document.getElementById("live-panel")!;
     panel.dispatchEvent(Object.assign(new Event("beforetoggle"), { newState: "open" }));
-    expect(panel.querySelector(".live-working .live-who")!.textContent).toMatch(/^Claude researcherBatch 1 · Who founded the workshop\?\d+ s$/);
+    expect(panel.querySelector(".live-working .live-who")!.textContent).toMatch(/^Claude researcherBatch 1 · Researcher 1\d+ s$/);
     // The batch offers the same controls as the live panel.
     click('[data-view="work"]');
     const pass = document.querySelector(`#pass-${assignmentId} .pass-state`)!;
@@ -526,7 +522,7 @@ describe("investigation workspace", () => {
     mount();
     click('[data-view="work"]');
     click('[data-resume-decision="approve"]');
-    await vi.waitFor(() => expect(state.investigations[0]!.status).toBe("queued"));
+    await vi.waitFor(() => expect(state.investigations[0]!.status).toBe("running"));
   });
   it("saves an optional time limit and restores unlimited research", async () => {
     click('[data-view="settings"]');
@@ -561,9 +557,13 @@ describe("investigation workspace", () => {
     );
     expect(state.investigations[0]!.status).toBe("paused");
   });
-  it("shows project-wide findings by batch and research pass, with the coordinator's direction, reports and activity", () => {
+  it("shows a batch from before teams by research pass, with the coordinator's direction, reports and activity", () => {
     const batch = state.investigations[0]!;
     const pass = batch.assignments![0]!;
+    // As an older version of the app saved it: a brief, and assignments the coordinator wrote.
+    delete batch.goal;
+    batch.brief = { purpose: "Identify the fictional workshop's founder.", scope: "The founding only.", direction: "Read the register entry.", updatedAt: "2026-01-01T00:00:00.000Z" };
+    Object.assign(pass, { title: "Who founded the workshop?", brief: "Read the fictional register entry and name the founder." });
     Object.assign(pass, { status: "done", worker: "Claude Code researcher", startedAt: "2026-01-01T00:00:00.000Z", endedAt: "2026-01-02T00:00:00.000Z" });
     pass.steering.push({ at: "2026-01-01T12:00:00.000Z", message: "Check the tax roll as well." });
     batch.status = "review";
@@ -614,7 +614,7 @@ describe("investigation workspace", () => {
     expect(document.querySelectorAll(".batch-question .finding-list article")).toHaveLength(5);
     // A long brief opens on request.
     const second = () => document.getElementById("pass-second")!;
-    expect(second().querySelector(".pass-state")!.textContent).toBe("Waiting for a researcher.");
+    expect(second().querySelector(".pass-state")!.textContent).toBe("Waiting to start.");
     expect(second().querySelector("blockquote.is-clipped")).not.toBeNull();
     click("[data-whole-brief]");
     expect(second().querySelector("blockquote.is-clipped")).toBeNull();
@@ -623,7 +623,7 @@ describe("investigation workspace", () => {
     expect(document.querySelector(".batch-board summary")!.textContent).toBe("What the researchers told each other · 1 post");
     expect(document.querySelector(".batch-board li")!.textContent).toContain("The tax roll for 1871 is missing.");
     click('[data-investigation-section="activity"]');
-    expect(document.querySelector(".activity-list")!.textContent).toContain("Coordinator opened this batch.");
+    expect(document.querySelector(".activity-list")!.textContent).toContain("Coordinator opened this batch");
     expect(document.querySelector(".activity-list")!.textContent).toContain("Batch 1");
     // The Board tab gathers every batch's board, with who wrote each post.
     state.investigations[0]!.board!.push({ id: "c", at: "2026-01-01T14:00:00.000Z", author: "coordinator", text: "Use the 1871 census instead." });

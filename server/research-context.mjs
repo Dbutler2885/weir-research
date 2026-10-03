@@ -41,7 +41,7 @@ export function projectIndex(state) {
     researchMap: clip(state.coordination?.researchMap, 6000),
     researchMapTruncated: (state.coordination?.researchMap?.length || 0) > 6000,
     retrieval:
-      "Search to locate relevant records; inspect a specific investigation, candidate, entity, source passage, or the complete research map. IDs are durable references, not proof of a finding.",
+      "Search to locate relevant records; inspect a specific investigation, entity, source passage, or the complete research map. IDs are durable references, not proof of a finding.",
   };
 }
 // What a requested walkthrough needs from the coordinator, if anything.
@@ -63,7 +63,9 @@ export function investigationIndex(i) {
     } : i.walkthroughRequestedAt ? {nextAction: walkthroughNext(i)} : null,
     id: i.id,
     title: i.title,
+    ...(i.goal ? { goal: clip(i.goal, 1500) } : {}),
     status: i.status,
+    ready: Boolean(i.readyAt),
     sourceScope: i.scope,
     phase: i.phase || "research",
     graphRequest: i.graphRequest,
@@ -100,7 +102,7 @@ export function investigationIndex(i) {
       : null,
   };
 }
-export function inspectContext(state, request, candidates) {
+export function inspectContext(state, request) {
   if (request.kind === "interface-feedback")
     return { items: state.interfaceFeedback || [] };
   if (request.kind === "map")
@@ -122,17 +124,6 @@ export function inspectContext(state, request, candidates) {
     const i = state.investigations.find((i) => i.id === request.id);
     if (!i) throw new Error("Investigation not found.");
     return withoutLease(i);
-  }
-  if (request.kind === "candidate") {
-    const c = (state.coordination?.candidates || []).find(
-      (c) => c.id === request.id,
-    );
-    if (!c) throw new Error("Candidate not found.");
-    const { token, ...result } = c;
-    return {
-      ...structuredClone(result),
-      current: candidates.some((item) => item.id === c.id),
-    };
   }
   if (request.kind === "entity") {
     if (!tables.includes(request.table))
@@ -196,7 +187,7 @@ export function inspectContext(state, request, candidates) {
     };
   }
   throw new Error(
-    "Inspect supports map, investigation, candidate, entity, or source.",
+    "Inspect supports map, investigation, investigations, entity, or source.",
   );
 }
 export function searchContext(state, query, requestedOffset = 0) {
@@ -225,22 +216,13 @@ export function searchContext(state, query, requestedOffset = 0) {
       { kind: "investigation", id: i.id, label: i.title },
       JSON.stringify({
         title: i.title,
+        goal: i.goal,
         annotations: i.annotations,
         assignments: (i.assignments || []).map((a) => ({ title: a.title, brief: a.brief, checkpoints: a.checkpoints })),
         board: i.board,
         proposals: i.proposals,
         graphRequest: i.graphRequest,
       }),
-    );
-  for (const c of state.coordination?.candidates || [])
-    consider(
-      {
-        kind: "candidate",
-        id: c.id,
-        investigationId: c.investigationId,
-        label: c.proposal.title,
-      },
-      JSON.stringify(c.proposal),
     );
   for (const s of sourceLibrary(state))
     consider({ kind: "source", id: s.id, label: s.title }, JSON.stringify(s));

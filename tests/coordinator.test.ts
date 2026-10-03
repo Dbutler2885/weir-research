@@ -8,6 +8,7 @@ import dataset from "./fixtures/workshop.json";
 import { WorkspaceStore } from "../server/store.mjs";
 import { Coordinator } from "../server/coordinator.mjs";
 import { snapshotView } from "../scripts/coordinator-view.mjs";
+import { FindingPublisher } from "../server/finding-publisher.mjs";
 const cleanup: string[] = [];
 afterEach(() =>
   cleanup.splice(0).forEach((p) => rmSync(p, { recursive: true, force: true })),
@@ -42,13 +43,6 @@ function fixture() {
     },
   };
 }
-const proposal = {
-  title: "Unresolved identity",
-  summary: "No primary evidence yet",
-  ambiguity: "Two people may share this name.",
-  evidence: [],
-  changes: [],
-};
 describe("research coordination", () => {
   it("says nothing changed with the revision alone, and otherwise sends only what changed", () => {
     const f = fixture();
@@ -151,9 +145,6 @@ describe("research coordination", () => {
         reason: "Duplicate request",
       }).requestId,
     ).toBe(requested.requestId);
-    // Work assigned to a paused batch waits with it.
-    f.run({ action: "assign", investigationId: id, title: "Fixture assignment", engine: "claude", brief: "Continue" });
-    expect(f.store.state.investigations[0].assignments.at(-1).status).toBe("paused");
     expect(() => f.run({ action: "resume", investigationId: id })).toThrow(
       "Unknown coordinator action",
     );
@@ -188,21 +179,11 @@ describe("research coordination", () => {
       decision: "approve",
     });
     expect(f.store.state.investigations[0].status).toBe("queued");
-    expect(f.store.state.investigations[0].assignments.at(-1).status).toBe("waiting");
     expect(f.store.state.investigations[0].resumeRequest.status).toBe(
       "approved",
     );
-    expect(() =>
-      f.run({
-        action: "assign",
-        investigationId: id,
-        title: "Fixture assignment",
-        engine: "claude",
-        brief: "Prepare review from saved evidence",
-      }),
-    ).not.toThrow();
   });
-  it("archives misrouted feedback and excludes it from replacement assignments", () => {
+  it("archives misrouted feedback, moving it out of the research", () => {
     const f = fixture();
     const id = f.queue();
     const refs = [{ label: "Toolbar" }];
@@ -229,13 +210,6 @@ describe("research coordination", () => {
       feedbackId,
     };
     expect(() => f.store.command(move)).toThrow("Pause the investigation");
-    f.run({
-      action: "assign",
-      investigationId: id,
-      title: "Fixture assignment",
-      engine: "claude",
-      brief: "Check the source",
-    });
     f.store.command({ type: "pause", investigationId: id });
     expect(() => f.store.command({ ...move, feedbackId: "wrong" })).toThrow(
       "matching interface feedback",
@@ -252,9 +226,6 @@ describe("research coordination", () => {
     expect(reopened.state.interfaceFeedback[0].origin.annotation).toEqual(
       original,
     );
-    // The researcher works from the coordinator's brief, never from the moved annotation.
-    f.store.command({ type: "resume", investigationId: id });
-    expect(f.store.state.investigations[0].assignments.at(-1)).toMatchObject({ status: "waiting", brief: "Check the source" });
   });
   it("requires exclusive live ownership, and a takeover ends the previous session", () => {
     const f = fixture();
@@ -321,95 +292,72 @@ describe("research coordination", () => {
     }) as any;
     expect(investigation.annotations[0].question).toBe("Check identity");
   });
-  it("holds worker findings for synthesis and only the human acceptance closes the review", () => {
+  it("opens a batch with a goal for a team, and no longer assigns, steers, publishes or marks ready", () => {
     const f = fixture();
-    const id = f.queue();
-    const claimed = f.store.command({
-      type: "claim",
-      investigationId: id,
-      worker: "Codex researcher",
-    }) as any;
-    f.coordinator.receive(
-      { batchId: id, id: claimed.assignment.id, token: claimed.assignment.lease.token },
-      proposal,
-    );
-    expect(f.store.state.investigations[0]!.proposals).toHaveLength(0);
-    expect(f.coordinator.snapshot(f.secret).candidates).toHaveLength(1);
-    expect(JSON.stringify(f.store.publicState())).not.toContain(
-      claimed.assignment.lease.token,
-    );
-    const candidate = f.coordinator.candidates()[0]!;
-    const result = f.run({
-      action: "publish",
-      investigationId: id,
-      candidateId: candidate.id,
-      proposal: {
-        ...proposal,
-        summary: "Coordinator compared the conflicting identities.",
-      },
-    }) as any;
-    expect(f.store.state.investigations[0]!.status).toBe("review");
-    expect(f.store.state.dataset).toEqual(dataset);
-    expect(() =>
-      f.run({
-        action: "accept",
-        investigationId: id,
-        proposalId: result.proposalId,
-      }),
-    ).toThrow("cannot accept");
-    f.store.command({
-      type: "accept",
-      investigationId: id,
-      proposalId: result.proposalId,
-    });
-    expect(f.store.state.investigations[0]!.status).toBe("closed");
+    const { investigationId, researchers } = f.run({ action: "open-batch", title: "The mill's buyer", goal: "Find who bought the fictional mill.", engine: "claude" }) as any;
+    expect(researchers).toHaveLength(4);
+    const batch = f.store.state.investigations[0];
+    expect(batch).toMatchObject({ id: investigationId, goal: "Find who bought the fictional mill.", status: "running" });
+    expect(batch.assignments.every((a: any) => a.choice.engine === "claude" && a.status === "waiting")).toBe(true);
+    expect(f.coordinator.status().latest!.text).toBe("Starting a team on a batch of research");
+    const assignmentId = batch.assignments[0].id;
+    for (const data of [
+      { action: "assign", investigationId, title: "A part", brief: "Look." },
+      { action: "steer", assignmentId, message: "Look elsewhere." },
+      { action: "stop-researcher", assignmentId, reason: "No longer wanted." },
+      { action: "revise", assignmentId, notes: "Again." },
+      { action: "publish", candidateId: "c" },
+      { action: "batch-ready", investigationId, text: "Done." },
+      { action: "set-brief", investigationId, brief: { direction: "Elsewhere." } },
+    ])
+      expect(() => f.run(data)).toThrow(/Unknown (coordinator action|investigation)/);
+    expect(() => f.run({ action: "open-batch", engine: "claude", title: "Old", goal: "G", assignments: [{ title: "A part", brief: "Look." }] })).toThrow("A batch opens with a title and a goal");
   });
-  it("preserves candidates and project memory across a server replacement", () => {
+  it("hears of each published finding, each board post, each researcher finishing and a batch reaching Review", () => {
     const f = fixture();
-    const id = f.queue();
-    const claimed = f.store.command({
-      type: "claim",
-      investigationId: id,
-      worker: "Claude Code researcher",
-    }) as any;
-    f.coordinator.receive(
-      { batchId: id, id: claimed.assignment.id, token: claimed.assignment.lease.token },
-      proposal,
-    );
-    f.run({ action: "map", notes: "Compare this identity with the second investigation before publication." });
+    f.store.update((next: any) => {
+      next.researchSettings = { timeLimitMinutes: null, researchersPerBatch: 2 };
+      next.documents.push({ id: "deed", collectionId: "web", name: "Deed.pdf", mime: "application/pdf", size: 1, sha256: "x", importedAt: "t", text: "[Page 1]\nSold to Ann Example in 1896.", pages: 1, revision: 1 });
+    });
+    const { investigationId } = f.run({ action: "open-batch", title: "The mill's buyer", goal: "Find who bought the fictional mill.", engine: "claude" }) as any;
+    const [first, second] = f.store.state.investigations[0].assignments.map((a: any) => a.id);
+    const start = f.coordinator.snapshot(f.secret).revision;
+    const publisher = new FindingPublisher(f.store);
+    const receipt = publisher.publish(first, { statement: "Ann Example bought the mill in 1896.", qualification: "supported", explanation: "The deed says so.", evidence: [{ document: "deed", page: 1, quote: "Sold to Ann Example in 1896.", interpretation: "The sale." }] } as any);
+    f.store.command({ type: "post", assignmentId: second, text: "The directories add nothing.", key: "k" });
+    // The coordinator's own post is not news to it.
+    f.store.command({ type: "coordinator-post", investigationId, text: "The human has the 1895 directory." });
+    const news = (f.coordinator.delta(f.secret, start) as any).changed;
+    expect(news.findings).toEqual([{ investigationId, id: receipt.id, from: "Researcher 1", statement: "Ann Example bought the mill in 1896.", qualification: "supported" }]);
+    expect(news.boardPosts).toEqual([{ investigationId, from: "Researcher 2", text: "The directories add nothing." }]);
+    expect(news.researchersFinished).toBeUndefined();
+    // One finishes, then the other: the batch is ready for review.
+    const finish = (assignmentId: string) => {
+      const token = (f.store.command({ type: "claim", investigationId, assignmentId, worker: "Claude Code researcher" }) as any).assignment.lease.token;
+      f.store.command({ type: "seat-finished", assignmentId, token });
+    };
+    const before = f.store.state.revision;
+    finish(first);
+    const one = (f.coordinator.delta(f.secret, before) as any).changed;
+    expect(one.researchersFinished).toEqual([{ investigationId, researcher: "Researcher 1" }]);
+    expect(one.batchesReady).toBeUndefined();
+    expect(one.findings).toBeUndefined();
+    const then = f.store.state.revision;
+    finish(second);
+    const both = (f.coordinator.delta(f.secret, then) as any).changed;
+    expect(both.researchersFinished).toEqual([{ investigationId, researcher: "Researcher 2" }]);
+    expect(both.batchesReady).toEqual([{ investigationId, title: "The mill's buyer" }]);
+    expect(both.investigations[0]).toMatchObject({ status: "review", ready: true, findingCount: 1 });
+  });
+  it("keeps project memory across a server replacement, and preserves user-paused work on takeover", () => {
+    const f = fixture();
+    const { investigationId } = f.run({ action: "open-batch", title: "The mill's buyer", goal: "Find who bought the fictional mill.", engine: "claude" }) as any;
+    f.run({ action: "map", notes: "Compare this identity with the second batch." });
+    f.store.command({ type: "pause", investigationId });
     const recovered = new Coordinator(new WorkspaceStore(f.directory, dataset));
     const index = recovered.attach("Replacement", randomUUID());
-    expect(index.candidates).toHaveLength(1);
-    expect(recovered.store.state.coordination.researchMap).toContain("second investigation");
-    expect(index.investigations[0]!.status).toBe("running");
-  });
-  it("holds a returned result while the human has the batch paused, and preserves user-paused work on takeover", () => {
-    const f = fixture();
-    const id = f.queue();
-    const claimed = f.store.command({
-      type: "claim",
-      investigationId: id,
-      worker: "Codex researcher",
-    }) as any;
-    f.coordinator.receive(
-      { batchId: id, id: claimed.assignment.id, token: claimed.assignment.lease.token },
-      proposal,
-    );
-    const candidate = f.coordinator.candidates()[0]!;
-    f.store.command({ type: "pause", investigationId: id });
-    expect(() =>
-      f.run({
-        action: "publish",
-        investigationId: id,
-        candidateId: candidate.id,
-      }),
-    ).toThrow("current researcher");
-    f.advance();
-    const replacement = randomUUID();
-    f.coordinator.attach("Replacement", replacement);
-    expect(f.store.state.investigations[0]!.status).toBe("paused");
-    // Resumed, the result is the coordinator's to publish again.
-    f.store.command({ type: "resume", investigationId: id });
-    expect(f.coordinator.command({ action: "publish", session: replacement, candidateId: candidate.id })).toHaveProperty("proposalId");
+    expect(recovered.store.state.coordination.researchMap).toContain("second batch");
+    expect(index.investigations[0]).toMatchObject({ status: "paused", goal: "Find who bought the fictional mill." });
+    expect(JSON.stringify(index)).not.toContain("candidates");
   });
 });

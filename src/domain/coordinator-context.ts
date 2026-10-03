@@ -2,10 +2,10 @@ import type { Investigation, LiveWorker, ResearchState } from "./research.ts";
 import type { Assignment } from "./assignments.ts";
 import { referenceLine } from "./references.ts";
 import type { Message } from "./conversation.ts";
-import { nextAction, currentCandidates } from "./next-action.ts";
+import { nextAction } from "./next-action.ts";
 import { sourceLibrary } from "./findings.ts";
 import { queueOf } from "./queue.ts";
-import { researchersPerBatch } from "./assignments.ts";
+import { isTeam, researchersPerBatch } from "./assignments.ts";
 
 // What a coordinator reads when it starts, ordered by urgency so it can act
 // without reading everything. Built from saved state alone; it never writes.
@@ -77,7 +77,6 @@ function attention(state: ResearchState): ContextLayer {
       blocks.push(`- Your request "${clip(m.decision.title, 160)}" is waiting for the human's decision.`);
   const open = state.investigations.filter(isOpen);
   for (const b of open) {
-    if (!b.brief) blocks.push(`- ${batchName(b)} (${b.id}) has no brief. Write one with set-brief before relying on it.`);
     const next = nextAction(state, b);
     if (next.waitingOn === "coordinator") blocks.push(`- ${batchName(b)}: ${next.action}`);
   }
@@ -91,6 +90,7 @@ function findingsLine(b: Investigation) {
   const findings = proposals.flatMap((p) => p.findings || []);
   if (!proposals.length) return "No findings published yet.";
   const latest = proposals.at(-1)!;
+  if (isTeam(b)) return `${findings.filter((f) => f.status !== "superseded").length} findings published; latest "${clip(latest.title, 120)}" (${latest.id}/f1).`;
   return `${findings.length} findings in ${proposals.length} proposal${proposals.length === 1 ? "" : "s"}; latest "${clip(latest.title, 120)}" (${latest.id}).`;
 }
 
@@ -113,41 +113,42 @@ function humanLine(b: Investigation) {
   if (flow?.walkthroughs.length) parts.push(b.walkthroughRequestedAt ? "a walkthrough in Review, with a revision being written" : "a walkthrough to read in Review");
   else if (b.walkthroughRequestedAt) parts.push("a walkthrough being written, not yet in Review");
   else if (b.readyAt) parts.push("Create walkthrough in Review");
-  else parts.push("nothing in Review until you mark the batch ready");
+  else parts.push("nothing in Review until every researcher has finished");
   if (flow?.graphReviews.some((r) => r.status === "pending")) parts.push("a graph draft to decide in Review");
   return `The human sees: ${parts.join("; ")}.`;
 }
 
 const passState: Record<Assignment["status"], string> = {
-  waiting: "waiting for a free place",
+  waiting: "waiting to start",
   running: "running",
+  finished: "finished, until a post wakes it",
   returned: "returned, awaiting your judgment",
   done: "published",
   paused: "paused",
   stopped: "stopped",
 };
 
-// One assignment: its heading, where it stands, and what an interrupted one needs.
-function assignmentLine(a: Assignment) {
-  const parts = [`- Assignment "${clip(a.title, 110)}" (${a.id}): ${passState[a.status]}`];
+// One seat or assignment: its name, where it stands, and what an interrupted one needs.
+function assignmentLine(b: Investigation, a: Assignment) {
+  const parts = [`- ${isTeam(b) ? clip(a.title, 110) : `Assignment "${clip(a.title, 110)}"`} (${a.id}): ${passState[a.status]}`];
   const checkpoint = a.checkpoints.at(-1);
   if (checkpoint && ["running", "paused", "stopped"].includes(a.status))
     parts.push(`latest checkpoint ${day(checkpoint.at)}: ${clip(checkpoint.summary, 200)}`);
   if (a.status === "paused" && a.session)
-    parts.push(`resuming picks up its ${a.session.engine} conversation, so brief it on what changed rather than the whole pass`);
+    parts.push(`resuming picks up its ${a.session.engine} conversation`);
   return `${parts.join("; ")}.`;
 }
 
 function batchBlock(state: ResearchState, b: Investigation, workers: LiveWorker[]) {
-  const lines = [`### ${batchName(b)}: ${clip(b.title, 160)}`, `ID ${b.id} · status ${b.status}${b.readyAt ? " · marked ready" : ""}${b.held ? " · held by the human: start nothing on it until they release it" : ""}`];
-  if (b.brief)
+  const lines = [`### ${batchName(b)}: ${clip(b.title, 160)}`, `ID ${b.id} · status ${b.status}${b.readyAt ? " · ready for review" : ""}${b.stoppedAt ? " · its team was stopped" : ""}${b.held ? " · held by the human: start nothing on it until they release it" : ""}`];
+  if (isTeam(b)) lines.push(`Goal: ${clip(b.goal, 1200)}`);
+  else if (b.brief)
     lines.push(
       `Purpose: ${clip(b.brief.purpose, 400)}`,
       `Scope: ${clip(b.brief.scope, 400)}`,
       `Direction (${day(b.brief.updatedAt)}): ${clip(b.brief.direction, 500)}`,
     );
-  else lines.push("No brief yet.");
-  for (const a of (b.assignments || []).slice(-12)) lines.push(assignmentLine(a));
+  for (const a of (b.assignments || []).slice(-12)) lines.push(assignmentLine(b, a));
   if ((b.assignments || []).length > 12) lines.push(`…and ${b.assignments!.length - 12} earlier assignments; inspect the batch for them.`);
   lines.push(`Findings: ${findingsLine(b)}`);
   const review = reviewLine(b);
@@ -158,8 +159,6 @@ function batchBlock(state: ResearchState, b: Investigation, workers: LiveWorker[
   if (posts.length) lines.push(`Board: ${posts.length} post${posts.length === 1 ? "" : "s"}; the latest: ${clip(posts.at(-1)!.text, 240)}`);
   for (const w of workers.filter((w) => w.investigationId === b.id))
     lines.push(`Worker: ${w.name}${w.latest ? `, ${clip(w.latest.text, 200)}` : ", starting"}.`);
-  const candidates = currentCandidates(state, b).length;
-  if (candidates) lines.push(`Returned results awaiting your judgment: ${candidates}.`);
   const next = nextAction(state, b);
   lines.push(`Next (waiting on ${next.waitingOn}): ${next.action}`);
   return lines.join("\n");
@@ -199,7 +198,7 @@ function dispatchText(state: ResearchState): string {
     ...Object.entries(d.roles).map(([role, c]) => `- ${role}: ${choice(c!)}`),
     ...d.rules.map((r) => `- rule for ${r.role}, when ${r.when}: ${choice(r.choose)} (${r.reason}; id ${r.id})`),
   ];
-  return `### Who does which job\n\n${lines.join("\n")}\nRoles without an entry use the default. When a rule's condition fits an assignment, name its agent, model and effort in the assign command.`;
+  return `### Who does which job\n\n${lines.join("\n")}\nRoles without an entry use the default. When a rule's condition fits a batch you are opening, name its agent, model and effort in the open-batch command.`;
 }
 
 const unsummarized = (d: ResearchState["dataset"]) => d.nodes.filter((n) => !n.summary?.trim()).length;
@@ -214,8 +213,7 @@ function orientation(state: ResearchState): ContextLayer {
   const settings = [
     `automatic walkthrough: ${state.reviewSettings?.autoWalkthrough ? "on" : "off"}`,
     `automatic graph update: ${state.reviewSettings?.autoGraph ? "on" : "off"}`,
-    `research time limit: ${state.researchSettings?.timeLimitMinutes ? `${state.researchSettings.timeLimitMinutes} minutes` : "none"}`,
-    `researchers per batch: at most ${researchersPerBatch(state)} at once, which the app enforces; more assignments wait their turn`,
+    `team size: ${researchersPerBatch(state)} researcher${researchersPerBatch(state) === 1 ? "" : "s"} on each batch you open`,
   ].join("; ");
   const coordination = (state as { coordination?: { researchMap?: string } }).coordination;
   const blocks = [
@@ -238,7 +236,7 @@ function orientation(state: ResearchState): ContextLayer {
   blocks.push(
     accepted.length
       ? `### Accepted into the graph\n\n${accepted.join("\n")}`
-      : "### Accepted into the graph\n\nNothing yet; published findings stay proposals until the human accepts a graph draft.",
+      : "### Accepted into the graph\n\nNothing yet; published findings stay out of the graph until the human accepts a graph draft.",
   );
   return layer("orientation", "Orientation", blocks, () => "…more orientation is available with inspect map.");
 }
@@ -278,7 +276,7 @@ function more(skills: Skill[]): ContextLayer {
     '- `{"action":"inspect","kind":"map"}` for the full research map.',
     '- `{"action":"inspect","kind":"source","id":"...","offset":0,"limit":6000}` for a source passage.',
     '- `{"action":"inspect","kind":"entity","table":"nodes","id":"..."}` for a graph record.',
-    '- `{"action":"set-brief","investigationId":"...","brief":{"direction":"..."}}` when a batch\'s direction changes.',
+    '- `{"action":"post","investigationId":"...","text":"..."}` to tell a batch\'s whole team something, or to send it back to work.',
     "`node tools/research.mjs search words` finds records, findings and passages.",
   ];
   if (skills.length)

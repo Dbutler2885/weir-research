@@ -88,6 +88,10 @@ export class SessionDesk {
     clearInterval(seat.timer);
     seat.session.stop();
   }
+  // How many of a seat's runs are under way.
+  running(key) {
+    return this.seats.get(key)?.runs.size ?? 0;
+  }
   closeAll() {
     for (const key of [...this.seats.keys()]) this.close(key);
   }

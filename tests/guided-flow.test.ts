@@ -48,12 +48,13 @@ describe('reorganizing the graph',()=>{
     cleanup.push(()=>rmSync(directory,{recursive:true,force:true}));
     const graph: GraphDataset={...emptyGraph,initialFocusId:'works',nodes:[{id:'works',name:'Example Works',type:'facility'}],claims:[{id:'built',subjectId:'works',predicate:'built_in_year',object:{value:'1880'},qualification:'supported',time:null,reasoning:'Absorbs the former works-1880 edge.',evidence:[]}]};
     const store = new WorkspaceStore(directory, graph);
-    // The human asks; the coordinator opens a batch for it.
+    // The human asks; the reorganization gets a batch of its own, with no researchers.
     store.command({type:'send',text:'Please reorganize the graph.',annotation:{question:'Reorganize the graph with summaries.',references:[]}});
-    const {investigationId}: any = store.command({type:'open-batch',title:'Reorganize the graph',brief:{purpose:'Organize the graph as it stands.',scope:'The whole graph.',direction:'No new research.'}});
+    expect(()=>flowCommand(store,{action:'reorganize-graph',message:' '})).toThrow('Say what the human asked');
+    expect(store.state.investigations).toHaveLength(0);
+    const {jobId,investigationId}: any = flowCommand(store,{action:'reorganize-graph',title:'Summaries and a timeline',message:'The human asked for summaries and a timeline of names.'});
+    expect(store.state.investigations[0]).toMatchObject({id:investigationId,number:1,title:'Summaries and a timeline',assignments:[]});
     expect(()=>flowCommand(store,{action:'reorganize-graph',investigationId,message:'x'},'human')).toThrow('other review role');
-    expect(()=>flowCommand(store,{action:'reorganize-graph',investigationId,message:' '})).toThrow('Say what the human asked');
-    const {jobId}: any = flowCommand(store,{action:'reorganize-graph',investigationId,message:'The human asked for summaries and a timeline of names.'});
     const job = () => store.state.investigations.find((i: any)=>i.id===investigationId).reviewFlow.jobs[0];
     expect(job()).toMatchObject({reorganization:true,status:'queued',consumedUpdateSequence:0});
     expect(job().updates[0].message).toMatch(/^Reorganize the graph as it stands; there is no new research to add\..*\n\nThe human asked for summaries/s);

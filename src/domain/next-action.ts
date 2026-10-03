@@ -1,5 +1,6 @@
 import type { Investigation, ResearchState } from "./research.ts";
 import { graphWorkFinished } from "./review-flow.ts";
+import { isTeam } from "./assignments.ts";
 
 export type WaitingOn = "human" | "coordinator" | "worker" | "nobody";
 export interface NextAction {
@@ -8,18 +9,6 @@ export interface NextAction {
 }
 
 const next = (waitingOn: WaitingOn, action: string): NextAction => ({ waitingOn, action });
-
-// Researcher results the coordinator has not yet judged, still valid for this batch.
-export function currentCandidates(state: ResearchState, batch: Investigation) {
-  const candidates = (state as { coordination?: { candidates?: { investigationId: string; token: string }[] } })
-    .coordination?.candidates || [];
-  return candidates.filter(
-    (c) =>
-      c.investigationId === batch.id &&
-      batch.status !== "paused" &&
-      (batch.assignments || []).some((a) => a.status === "returned" && a.lease?.token === c.token),
-  );
-}
 
 // Who a batch is waiting on and what should happen next, read from its saved state alone.
 export function nextAction(state: ResearchState, batch: Investigation): NextAction {
@@ -46,15 +35,11 @@ export function nextAction(state: ResearchState, batch: Investigation): NextActi
       return next("worker", "A graph builder is preparing the draft.");
   }
   if (batch.held) return next("human", "Held by the human; start nothing on it until they release it.");
-  if (currentCandidates(state, batch).length)
-    return next("coordinator", "A researcher returned findings; inspect the candidate, then publish it or ask for another pass with revise.");
   if (batch.status === "paused")
-    return next("human", "Paused. Leave it paused; ask with request-resume only for a new reason.");
+    return next("human", isTeam(batch) ? "Paused. The human resumes its researchers; ask with request-resume only for a new reason." : "Paused. Leave it paused; ask with request-resume only for a new reason.");
   const assignments = batch.assignments || [];
-  if (assignments.some((a) => a.status === "running")) return next("worker", "Researchers are working on it.");
-  if (assignments.some((a) => a.status === "waiting")) return next("worker", "Assigned; waiting for a free researcher.");
-  if (batch.status === "queued" || batch.status === "running")
-    return next("coordinator", "Assign researchers, each with a title and a bounded brief.");
+  if (assignments.some((a) => a.status === "running" || a.status === "waiting"))
+    return next("worker", isTeam(batch) ? "Its team is researching; findings appear as they are published." : "Researchers are working on it.");
   if (batch.walkthroughRequestedAt) {
     const writer = flow?.writer;
     if (writer?.status === "returned")
@@ -72,7 +57,6 @@ export function nextAction(state: ResearchState, batch: Investigation): NextActi
         ? "Ready: the human reads the walkthrough and may ask for a graph update."
         : "Ready: the human may ask for a walkthrough or a graph update.",
     );
-  if (batch.proposals.some((p) => p.kind === "findings"))
-    return next("coordinator", "Findings are published; announce the batch with batch-ready when its research is complete.");
-  return next("coordinator", "Decide the next step for this batch.");
+  if (isTeam(batch)) return next("nobody", "Its team has finished.");
+  return next("coordinator", "This batch has no team; open a new batch with a goal for further research.");
 }
