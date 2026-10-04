@@ -43,7 +43,7 @@ The first live run, on the wording as it stood, passed its mechanics and showed 
 
 - Both researchers published the same findings, and then said on the board that they had removed their duplicates, which nothing lets them do.
   `weir.findings()` now gives a researcher's code the findings that stand in its batch, with their IDs, and the instructions put it just before publishing.
-  The second run published five findings and no duplicates.
+  It lessened the duplicates and did not end them: of three later runs, one on Claude's cheapest model published five findings with none repeated, another published eleven with five repeated, and one on Codex's repeated one.
 - A researcher could not find the ID of a finding to replace, and guessed the report's ID.
   `replaces` now takes the report's ID alone as well, since a team's finding is the only one in its report, and a refusal says where the IDs are listed.
 - `findings.md` said each statement three times and called every finding "kept by the human".
@@ -101,7 +101,7 @@ It runs outside `npm run check`.
 ## Known limitations
 
 - A published finding can be replaced but not withdrawn, and one finding replaces one finding, so two duplicates cannot be merged into one.
-  The instructions now keep duplicates from being published; the app does not refuse them.
+  The app does not refuse a duplicate, and two researchers who read the same page in the same minute still publish the same finding, since each reads the findings before the other has published.
 - The live check judges the mechanics; whether a finding's interpretation is sound is the reader's to judge.
   In the first run both researchers and the coordinator agreed on a weekday's date that was wrong.
 - The live check runs researchers on the cheapest models, where wording matters most; the default models were not run.
