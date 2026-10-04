@@ -17,7 +17,7 @@ function machine({ claude = "signed-in", codex = "signed-out", codexVersion = "0
     if (args.join(" ") === "login status") return { ok: codex === "signed-in", stdout: "" };
     return { ok: false, stdout: "" };
   };
-  return { run, findExecutable: (name: string) => (installed.includes(name) ? `/bin/${name}` : null), browser: () => ({ path: "/b", name: "Brave", isDefault: true, unsupportedDefault: null }) };
+  return { run, findExecutable: (name: string) => (installed.includes(name) ? `/bin/${name}` : null), browser: () => ({ path: "/b", name: "Brave", isDefault: true, unsupportedDefault: null }), typesafe: false };
 }
 
 describe("checking what the app needs", () => {
@@ -26,7 +26,14 @@ describe("checking what the app needs", () => {
     expect(setup.agents.map((a: any) => [a.account, a.installed, a.signedIn])).toEqual([["Claude", true, true], ["ChatGPT", true, false]]);
     expect(setup.agents[0].email).toBe("you@example.com");
     expect(setup.ready).toBe(true);
-    expect(setup.dependencies).toEqual([{ id: "browser", label: "Research browser", required: false, ok: true, name: "Brave", isDefault: true, unsupportedDefault: null }]);
+    expect(setup.dependencies).toEqual([
+      { id: "browser", label: "Research browser", required: false, ok: true, name: "Brave", isDefault: true, unsupportedDefault: null },
+      // Whether the app holds a TypeSafe key, and never the key itself.
+      { id: "typesafe", label: "TypeSafe key", required: false, ok: false },
+    ]);
+    expect(checkSetup({ ...machine(), platform: "darwin", typesafe: true }).dependencies[1]).toEqual({ id: "typesafe", label: "TypeSafe key", required: false, ok: true });
+    // Research does not wait for it.
+    expect(checkSetup({ ...machine(), platform: "darwin", typesafe: false }).ready).toBe(true);
   });
   it("is not ready with nothing connected, or only a Codex older than the app supports", () => {
     expect(checkSetup({ ...machine({ claude: "signed-out" }), platform: "darwin" }).ready).toBe(false);
@@ -72,6 +79,13 @@ describe("the setup page", () => {
     { id: "codex", label: "Codex", account: "ChatGPT", installed: false },
   ];
   const browser = { id: "browser", label: "Research browser", ok: true, name: "Brave", isDefault: true };
+  it("says whether the TypeSafe key is set, and how to set it", () => {
+    const page = (ok: boolean) => setupPage({ setup: { agents: agents(), dependencies: [browser, { id: "typesafe", label: "TypeSafe key", required: false, ok }], ready: true } });
+    expect(page(false)).toContain("Not set. Researchers read and search documents without it.");
+    expect(page(false)).toContain("put a TypeSafe API key in your shell profile as <code>TYPESAFE_API_KEY</code>, then start the app again");
+    expect(page(true)).toContain("Set. Researchers can sweep long documents with Jev");
+    expect(page(true)).toContain("no agent can read it");
+  });
   it("leads on with Continue once an account is connected, and never starts research itself", () => {
     const page = setupPage({ setup: { agents: agents(), dependencies: [browser], ready: true } });
     expect(page).toContain('<a class="button primary" href="/welcome">Continue</a>');

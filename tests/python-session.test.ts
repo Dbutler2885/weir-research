@@ -192,6 +192,11 @@ describe.skipIf(!onMac)("the session desk", () => {
         if (given.finding.evidence[0].page !== 2) throw new Error("Evidence 1 was not found in doc-1 (Harbor ledger.pdf). The quote is not on page 1; it is on page 2. Cite the page it is on.");
         return { id: "report-1/f1", statement: given.finding.statement, evidence: [{ document: "doc-1", pages: [2, 2], check: "checked" }] };
       },
+      jev: async (given: any, context: any) => {
+        asked.push({ ...given, seat: context.key });
+        if (given.document !== "doc-1") throw new Error(`No saved document has the ID ${JSON.stringify(given.document)}.`);
+        return { document: "doc-1", passages: [{ label: "doc-1, page 2 line 1 to page 2 line 1", document: "doc-1", pages: [{ page: 2, text: "The ledger names Ada Example." }], matched: ["q1"], probability: 0.9 }], chunks: 2, flagged: 1, characters: 60, passed: 29, whole: false };
+      },
       reader: async (given: any, context: any) => {
         asked.push({ ...given, seat: context.key });
         if (given.passages === undefined) return `Reply to: ${given.prompt}`;
@@ -258,6 +263,23 @@ describe.skipIf(!onMac)("the session desk", () => {
     expect(await tool(folder, code, "lease-1")).toMatchObject({ code: 0, stdout: "['ledger']\n['a', 'b', '1', '2']\n" });
     expect(asked[1]).toMatchObject({ question: "Who is named?", seat: "seat-1", passages: [{ label: "ledger", document: "doc-1", pages: [{ page: 1 }, { page: 2, text: "The ledger names Ada Example." }] }, { label: "gazette", text: "Fine weather." }] });
     expect(asked[3].passages).toEqual([{ label: "1", text: "First." }, { label: "2", text: "Second." }]);
+  });
+
+  it("lets running code sweep a document with Jev and hand the passages to readers", async () => {
+    const { folder, asked } = desk();
+    const code = [
+      "sweep = weir.jev('doc-1', ['Does this text name a person?'], threshold=0.5)",
+      "answers = weir.reader('Who is named?', sweep['passages'])",
+      "print(sweep['flagged'], [a['label'] for a in answers])",
+      "try:",
+      "    weir.jev('doc-9', ['Anything?'])",
+      "except weir.AppError as error:",
+      "    print(error)",
+    ].join("\n");
+    expect(await tool(folder, code, "lease-1")).toMatchObject({ code: 0, stdout: "1 ['doc-1, page 2 line 1 to page 2 line 1']\nNo saved document has the ID \"doc-9\".\n" });
+    expect(asked[0]).toEqual({ document: "doc-1", questions: ["Does this text name a person?"], threshold: 0.5, seat: "seat-1" });
+    expect(asked[1].passages[0]).toMatchObject({ document: "doc-1", pages: [{ page: 2, text: "The ledger names Ada Example." }], matched: ["q1"] });
+    expect(asked[2]).toMatchObject({ document: "doc-9", threshold: 0.3 });
   });
 
   it("lets running code post to the board, hear when the same post was already made, and counts as under way while it runs", async () => {

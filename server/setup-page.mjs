@@ -66,6 +66,15 @@ function browserRow(d) {
   return `<li class="row"><div class="row-text"><h3>Research browser</h3><p class="status${d.ok ? ' is-ok' : ''}">${status}</p><p class="detail">${detail}</p></div><div class="row-action"></div></li>`;
 }
 
+// The TypeSafe key, which lets researchers sweep long documents with Jev.
+function typesafeRow(d) {
+  const status = d.ok ? 'Set. Researchers can sweep long documents with Jev to find the parts that matter.' : 'Not set. Researchers read and search documents without it.';
+  const detail = d.ok
+    ? 'The app keeps the key to itself; no agent can read it.'
+    : 'Jev finds the relevant parts of a long document cheaply. To use it, put a TypeSafe API key in your shell profile as <code>TYPESAFE_API_KEY</code>, then start the app again. Keys are at console.typesafe.ai/keys.';
+  return `<li class="row"><div class="row-text"><h3>TypeSafe key <span class="via">for Jev</span></h3><p class="status${d.ok ? ' is-ok' : ''}">${status}</p><p class="detail">${detail}</p></div><div class="row-action"></div></li>`;
+}
+
 function sandboxRow(d, installing) {
   if (d.ok)
     return `<li class="row"><div class="row-text"><h3>Sandbox tools</h3><p class="status is-ok">Installed.</p></div><div class="row-action"></div></li>`;
@@ -169,7 +178,7 @@ export function setupPage({setup, signingIn = null, installing = null, installPr
   const sandboxMissing = Boolean(sandbox && !sandbox.ok);
   const connected = setup.agents.filter((a) => a.installed && a.signedIn && !a.outdated);
   const rows = setup.agents.map((a) => accountRow(a, {signingIn, installing, sandboxMissing})).join('');
-  const others = setup.dependencies.map((d) => (d.id === 'sandbox' ? sandboxRow(d, installing) : browserRow(d))).join('');
+  const others = setup.dependencies.map((d) => (d.id === 'sandbox' ? sandboxRow(d, installing) : d.id === 'typesafe' ? typesafeRow(d) : browserRow(d))).join('');
   const ready = setup.ready
     ? `<p class="ready-note">${connected.length > 1 ? 'Both accounts can take on any job.' : `${esc(connected[0]?.account)} can take on every job.`} You can choose which does what, and with which model, later in Research settings.</p><a class="button primary" href="${esc(next.href)}">${esc(next.label)}</a>`
     : `<p class="ready-note">${sandboxMissing && setup.agents.some((a) => a.id === 'claude' && a.signedIn) ? 'Install the sandbox tools to continue.' : 'Connect an account to continue.'}</p><span class="button primary is-disabled" aria-disabled="true">${esc(next.label)}</span>`;

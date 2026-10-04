@@ -2,6 +2,7 @@
 
 library: the project's research library, read into variables.
 save(url): saves a web page or PDF into the library, for the whole team.
+jev(document, questions): sweeps a long document for the passages likely to matter.
 reader(question, passages): asks cheap readers about passages, and returns their answers.
 post(text): posts to the batch's board, for the whole team.
 publish(...): publishes a finding with its evidence, for the human and the team.
@@ -34,6 +35,30 @@ def save(url, fresh=False):
     the download fails or the page has no readable text.
     """
     return _app.call("save", url=url, fresh=bool(fresh))
+
+
+def jev(document, questions, threshold=0.3):
+    """Sweeps a saved document with yes-or-no questions, and returns the passages
+    likely to matter, ready for weir.reader.
+
+    Jev is a fast, cheap model that gives each small chunk of the document a
+    probability of yes for each question; it finds where to look, and readers then
+    read. questions is a list of yes-or-no questions, or a dict of name to question,
+    up to 20; ask them plainly and narrowly, such as "Does this text mention the sale
+    of a mill?". A chunk is flagged when any question's probability reaches the
+    threshold. Flagged chunks are widened by a chunk each side and joined into
+    passages of up to about 100,000 characters; when most of the document is
+    flagged, the whole of it comes back as passages.
+
+    Returns {"document", "passages", "chunks", "flagged", "characters", "passed",
+    "whole"}. Each passage is {"label", "document", "pages": [{"page", "text"}],
+    "from": {"page", "line"}, "to": {"page", "line"}, "probability", "matched",
+    "characters"}, where matched names the questions that flagged it, and can be
+    passed to weir.reader as it is. Answers are kept, so sweeping the same document
+    with the same question again costs nothing. Raises weir.AppError, saying why,
+    when the document has no text or the app has no TypeSafe key.
+    """
+    return _app.call("jev", document=document, questions=questions, threshold=threshold)
 
 
 def reader(question, passages=None):
@@ -104,4 +129,4 @@ def publish(statement, qualification, explanation, evidence, replaces=None):
     return _app.call("publish", finding=finding)
 
 
-__all__ = ["AppError", "library", "output", "post", "publish", "reader", "save"]
+__all__ = ["AppError", "jev", "library", "output", "post", "publish", "reader", "save"]

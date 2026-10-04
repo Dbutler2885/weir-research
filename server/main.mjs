@@ -21,6 +21,8 @@ import { organize } from "./organization.mjs";
 import { Coordinator } from "./coordinator.mjs";
 import { ResearcherPool, executableOnPath } from "./researchers.mjs";
 import { Readers } from "./readers.mjs";
+import { JevClient, JevSweeps } from "./jev.mjs";
+import { typesafeKey } from "./typesafe-key.mjs";
 import { ResearchLibrary } from "./research-library.mjs";
 import { GraphBuilders } from "./graph-builders.mjs";
 import { WalkthroughWriters } from "./walkthrough-writers.mjs";
@@ -45,6 +47,9 @@ import { SessionDesk } from "./python-session/desk.mjs";
 import { SourceSaver } from "./source-saver.mjs";
 import { FindingPublisher } from "./finding-publisher.mjs";
 
+// The human's TypeSafe key stays with the app: it is taken out of the environment here,
+// before anything is started, so no agent, shell or Python session inherits it.
+const jevKey = typesafeKey();
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const directory = resolve(
   process.env.RESEARCH_STATE_DIR || join(root, ".research"),
@@ -122,6 +127,8 @@ process.on("exit", () => library.stop());
 // Readers answer single prompts for researchers' code, on a cheap model with no tools.
 const readers = new Readers(store, directory, { supervisor, findExecutable: executableOnPath });
 process.on("exit", () => readers.stop());
+// Jev sweeps long documents for the passages worth a reader's time.
+const sweeps = new JevSweeps(store, directory, { client: new JevClient({ key: jevKey }), readers });
 const researchers = new ResearcherPool(store, directory, root, {
   coordinator,
   live,
@@ -133,7 +140,7 @@ const researchers = new ResearcherPool(store, directory, root, {
     library: join(directory, "library"),
     // What a researcher's running code may ask of the app.
     // A seat's key is its assignment's ID.
-    calls: { save: (given) => sources.save(given), publish: (given, seat) => findings.publish(seat.key, given.finding), post: (given, seat) => researchers.post(seat.key, given.text), reader: (given, seat) => readers.ask(given, { seat: seat.key }) },
+    calls: { save: (given) => sources.save(given), publish: (given, seat) => findings.publish(seat.key, given.finding), post: (given, seat) => researchers.post(seat.key, given.text), reader: (given, seat) => readers.ask(given, { seat: seat.key }), jev: (given) => sweeps.sweep(given) },
     closed: (key) => readers.cancel(key),
   }),
 });

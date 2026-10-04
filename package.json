@@ -30,7 +30,8 @@
     "convert:batches": "node --no-warnings scripts/convert-to-batches.mjs",
     "test:live-session": "node --no-warnings scripts/live-python-session.mjs",
     "test:live-team": "node --no-warnings scripts/live-team.mjs",
-    "test:live-readers": "node --no-warnings scripts/live-readers.mjs"
+    "test:live-readers": "node --no-warnings scripts/live-readers.mjs",
+    "test:live-jev": "node --no-warnings scripts/live-jev.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.1",

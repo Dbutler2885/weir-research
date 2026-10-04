@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { executableOnPath } from './researchers.mjs';
 import { findBrowser } from './research-browser.mjs';
 import { TESTED_CODEX } from './agents/codex.mjs';
+import { typesafeKey } from './typesafe-key.mjs';
 
 const output = (command, args, env) => {
   const result = spawnSync(command, args, {encoding: 'utf8', timeout: 20_000, env: env || process.env});
@@ -30,7 +31,7 @@ function linuxInstaller(read = (file) => readFileSync(file, 'utf8')) {
 // What the app needs, and where each part stands: the agent CLIs, whether each is
 // signed in by its own status command, and the tools the research browser and
 // sandboxes use. It reads no credentials; the CLIs report on themselves.
-export function checkSetup({findExecutable = executableOnPath, homes = null, run = output, platform = process.platform, browser = findBrowser, installer = linuxInstaller} = {}) {
+export function checkSetup({findExecutable = executableOnPath, homes = null, run = output, platform = process.platform, browser = findBrowser, installer = linuxInstaller, typesafe = Boolean(typesafeKey())} = {}) {
   const claudePath = findExecutable('claude');
   const codexPath = findExecutable('codex');
   const claude = {id: 'claude', label: 'Claude Code', account: 'Claude', installed: Boolean(claudePath), package: '@anthropic-ai/claude-code'};
@@ -62,6 +63,9 @@ export function checkSetup({findExecutable = executableOnPath, homes = null, run
     const missing = ['bubblewrap', 'socat'].filter((p) => !findExecutable(p === 'bubblewrap' ? 'bwrap' : p));
     dependencies.push({id: 'sandbox', label: 'Sandbox tools', required: true, ok: !missing.length, packages: missing, command: `${installer()} ${missing.join(' ')}`, canInstall: Boolean(findExecutable('pkexec'))});
   }
+  // Jev sweeps long documents with the human's TypeSafe key, which the app holds; only
+  // whether there is one is reported.
+  dependencies.push({id: 'typesafe', label: 'TypeSafe key', required: false, ok: typesafe});
   const agents = [claude, codex];
   // Claude Code cannot sandbox its agents on Linux without its packages.
   const sandboxed = dependencies.filter((d) => d.required).every((d) => d.ok);

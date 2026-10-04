@@ -11,7 +11,7 @@ Parent PRD: [Researcher team](../prd.md)
 | 03 | [Publishing findings](03-publishing-findings.md) | AFK | Done | 02 |
 | 04 | [The team and the done phrase](04-team-and-done-phrase.md) | AFK | Done | 03 |
 | 05 | [Readers and the cache](05-readers-and-cache.md) | AFK | Done | 01 |
-| 06 | [Passages and Jev](06-passages-and-jev.md) | AFK | To do | 05 |
+| 06 | [Passages and Jev](06-passages-and-jev.md) | AFK | Done | 05 |
 | 07 | [Helpers and job tickets](07-helpers-and-job-tickets.md) | AFK | To do | 04, 05 |
 | 08 | [Instructions](08-instructions.md) | AFK | To do | 07 |
 | 09 | [Interface](09-interface.md) | HITL | To do | 04, 06 |

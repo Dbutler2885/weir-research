@@ -251,6 +251,9 @@ export interface ResearchState {
   conversation?: Message[];
   collections: SourceCollection[];
   documents: ResearchDocument[];
+  // What Jev's sweeps let through and missed, in total: characters swept and passed to
+  // readers, chunks sampled from what it passed over, and those a reader found relevant.
+  jevFigures?: { sweeps: number; characters: number; passed: number; sampled: number; misses: number; inputTokens: number };
   // For each address saved from the web, the capture that shows it as last seen.
   latestCaptures?: Record<string, string>;
   library?: SourceRecord[];
