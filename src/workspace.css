@@ -1554,3 +1554,18 @@ dialog .muted {
   opacity: 0.45;
   cursor: default;
 }
+
+/* What is at work for a seat: its helpers and readers, under its researcher. */
+.live-under {
+  margin: 6px 0 0;
+  padding: 0 0 0 12px;
+  list-style: none;
+  border-left: 2px solid var(--line);
+  color: var(--ink-soft);
+  font-size: 12.5px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.live-under li + li {
+  margin-top: 3px;
+}

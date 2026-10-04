@@ -77,7 +77,7 @@ beforeEach(() => {
         return { ok: true, json: async () => ({ developerMode: state.developerMode, annotationIntroSeen: state.annotationIntroSeen }) };
       }
       if (path === "/api/research-settings") {
-        state.researchSettings = JSON.parse(options.body);
+        state.researchSettings = { timeLimitMinutes: null, ...state.researchSettings, ...JSON.parse(options.body) };
         return { ok: true, json: async () => state.researchSettings };
       }
       if (path === "/api/review-flow") {
@@ -385,10 +385,10 @@ describe("investigation workspace", () => {
     // Its row names the researcher, telling a batch's team apart.
     const panel = document.getElementById("live-panel")!;
     panel.dispatchEvent(Object.assign(new Event("beforetoggle"), { newState: "open" }));
-    expect(panel.querySelector(".live-working .live-who")!.textContent).toMatch(/^Claude researcherBatch 1 · Researcher 1\d+ s$/);
+    expect(panel.querySelector(".live-working .live-who")!.textContent).toMatch(/^Researcher 1Batch 1 · Claude researcher\d+ s$/);
     // The batch offers the same controls as the live panel.
     click('[data-view="work"]');
-    const pass = document.querySelector(`#pass-${assignmentId} .pass-state`)!;
+    const pass = document.querySelector(`#pass-${assignmentId}`)!;
     expect([...pass.querySelectorAll("[data-agent-action]")].map((b) => b.textContent)).toEqual(["Pause", "Switch model"]);
     pass.querySelector<HTMLButtonElement>('[data-agent-action="pause"]')!.click();
     await vi.waitFor(() => expect(agentRequests).toEqual([{ action: "pause", ref: { kind: "researcher", assignmentId } }]));
@@ -524,38 +524,98 @@ describe("investigation workspace", () => {
     click('[data-resume-decision="approve"]');
     await vi.waitFor(() => expect(state.investigations[0]!.status).toBe("running"));
   });
-  it("saves an optional time limit and restores unlimited research", async () => {
+  it("saves the team's size and the helper and reader limits, and has no time limit to set", async () => {
     click('[data-view="settings"]');
-    expect(
-      document.querySelector<HTMLSelectElement>("#research-time-limit-mode")!
-        .value,
-    ).toBe("none");
-    expect(
-      document.querySelector<HTMLInputElement>("#research-time-limit")!
-        .disabled,
-    ).toBe(true);
-    select("#research-time-limit-mode", "limited");
-    const input = document.querySelector<HTMLInputElement>(
-      "#research-time-limit",
-    )!;
-    expect(input.disabled).toBe(false);
-    input.value = "25";
-    click("#time-limit-form button");
-    await vi.waitFor(() =>
-      expect(state.researchSettings?.timeLimitMinutes).toBe(25),
+    expect(document.querySelector("#time-limit-form")).toBeNull();
+    expect(document.querySelector(".settings-page")!.textContent).not.toMatch(/time limit/i);
+    const field = (id: string) => document.querySelector<HTMLInputElement>(`#${id}`)!;
+    expect([field("researchers-per-batch").value, field("helper-limit").value, field("reader-limit").value]).toEqual(["1", "8", "20"]);
+    field("researchers-per-batch").value = "4";
+    field("reader-limit").value = "12";
+    click("#team-form button");
+    await vi.waitFor(() => expect(state.researchSettings).toEqual({ timeLimitMinutes: null, researchersPerBatch: 4, readerLimit: 12 }));
+    await vi.waitFor(() => expect(document.body.textContent).toContain("New batches get a team of 4; up to 8 helpers and 12 readers work at once."));
+  });
+  it("shows what Jev's sweeps let through and what they missed", () => {
+    click('[data-view="settings"]');
+    const jev = () => [...document.querySelectorAll(".settings-page section")].find((s) => s.querySelector("h2")?.textContent === "Jev sweeps")!.textContent!;
+    expect(jev()).toContain("No sweeps yet.");
+    state.jevFigures = { sweeps: 3, characters: 400_000, passed: 60_000, sampled: 9, misses: 1, inputTokens: 120_000 };
+    mount();
+    click('[data-view="settings"]');
+    expect(jev()).toContain("3 sweeps of 400,000 characters; 60,000 went on to readers, 15% of what was swept.");
+    expect(jev()).toContain("Of 9 passages it passed over that a reader then checked, 1 held something relevant.");
+  });
+  it("shows a team's batch as its goal, its seats and one list of findings, newest first, each with its researcher and what the app checked", () => {
+    state.researchSettings = { timeLimitMinutes: null, researchersPerBatch: 2 };
+    state = transition(state, { type: "open-batch", title: "The mill's owners", goal: "Find who owned the fictional Example mill." }).state;
+    const batch = state.investigations.at(-1)!;
+    const [one, two] = batch.assignments!;
+    const finding = (id: string, seat: string, at: string, statement: string, check: "checked" | "transcribed", replaces?: string) => ({
+      id, kind: "findings" as const, revision: 1, title: statement, summary: "", ambiguity: "", changes: [], addressedAnnotationIds: [], assignmentId: seat, key: id, createdAt: at, status: "accepted" as const,
+      evidence: [{ id: "e1", sourceId: "doc-1", documentId: "doc-1", quote: `Quote for ${id}.`, context: "", locator: "page 2", interpretation: `Reading of ${id}.`, stance: "supports" as const, check, pages: [2, 2] as [number, number] }],
+      findings: [{ id: "f1", statement, qualification: "supported" as const, explanation: `Why ${id}.`, evidenceIds: ["e1"], status: (id === "old" ? "superseded" : "kept") as "kept", ...(replaces ? { replaces: { proposalId: replaces, findingId: "f1" } } : {}) }],
+    });
+    batch.proposals.push(
+      finding("old", one!.id, "2026-03-01T09:00:00Z", "Ada Example owned the mill in 1880.", "checked"),
+      finding("first", one!.id, "2026-03-01T10:00:00Z", "Ada Example owned the mill in 1882.", "checked", "old"),
+      finding("second", two!.id, "2026-03-01T11:00:00Z", "A plaque says the mill was rebuilt in 1911.", "transcribed"),
     );
-    await vi.waitFor(() =>
-      expect(
-        document.querySelector<HTMLSelectElement>("#research-time-limit-mode")!
-          .value,
-      ).toBe("limited"),
-    );
-    select("#research-time-limit-mode", "none");
-    click("#time-limit-form button");
-    await vi.waitFor(() =>
-      expect(state.researchSettings?.timeLimitMinutes).toBeNull(),
-    );
-    expect(state.investigations[0]!.status).toBe("paused");
+    (state.dataset.sources ||= []).push({ id: "doc-1", title: "Fictional deed register" } as any);
+    Object.assign(one!, { status: "running", startedAt: "2026-03-01T08:00:00Z", worker: "Claude Code researcher" });
+    state.work = { [one!.id]: { idle: true, helpersWaiting: 0, readers: 0, runs: 0 } };
+    mount();
+    click('[data-view="work"]');
+    const card = document.querySelector(`#batch-${batch.id}`)!;
+    expect(card.querySelector(".asked")!.textContent).toBe("The goal the team was givenFind who owned the fictional Example mill.");
+    expect([...card.querySelectorAll(".team-seats li")].map((li) => li.textContent!.replace(/Pause.*$/, ""))).toEqual(["Researcher 1 · idle · Claude Code researcher", "Researcher 2 · waiting to start"]);
+    // One list, newest first, without the finding that was replaced.
+    expect([...card.querySelectorAll(".team-findings h4")].map((h) => h.textContent)).toEqual(["A plaque says the mill was rebuilt in 1911.", "Ada Example owned the mill in 1882."]);
+    const metas = [...card.querySelectorAll(".team-findings .finding-meta")].map((m) => m.textContent!);
+    expect(metas[0]).toMatch(/^supported · Researcher 2 · Mar 1, /);
+    expect(metas[1]).toMatch(/^supported · Researcher 1 · Mar 1, .* · corrects an earlier finding$/);
+    // What the app checked is said apart from the researcher's reading, and the source opens.
+    const passages = [...card.querySelectorAll(".team-findings .guided-passage")];
+    expect(passages[0]!.querySelector("summary")!.textContent).toBe("Fictional deed register · page 2 · transcribed");
+    expect(passages[0]!.textContent).toContain("which the app cannot check against the image");
+    expect(passages[1]!.querySelector("summary")!.textContent).toBe("Fictional deed register · page 2 · quote checked");
+    expect(passages[1]!.textContent).toContain("The app found these words in the saved text at the page cited. Whether they support the finding is the researcher's reading.");
+    expect(passages[1]!.querySelector("[data-open-source]")!.textContent).toBe("Read the saved text");
+    expect(passages[1]!.querySelector("a")!.getAttribute("href")).toBe("/api/documents/doc-1");
+    expect(card.querySelector("h3")!.textContent).toBe("Findings · 2");
+  });
+  it("shows each seat in the live panel with its helpers and readers, an idle seat, and a finished one a post would wake", () => {
+    state.researchSettings = { timeLimitMinutes: null, researchersPerBatch: 3 };
+    state = transition(state, { type: "open-batch", title: "The mill's owners", goal: "Find who owned the fictional Example mill." }).state;
+    const batch = state.investigations.at(-1)!;
+    const [one, two, three] = batch.assignments!;
+    Object.assign(one!, { status: "running", startedAt: new Date().toISOString() });
+    Object.assign(two!, { status: "running", startedAt: new Date().toISOString() });
+    Object.assign(three!, { status: "finished" });
+    batch.status = "running";
+    const at = new Date().toISOString();
+    state.live = [
+      { role: "researcher", name: "Claude researcher", investigationId: batch.id, assignmentId: one!.id, task: "Researcher 1", startedAt: at, latest: { at, text: "Running code in its session" } },
+      { role: "helper", name: "Codex helper", investigationId: batch.id, assignmentId: one!.id, task: "Search the fictional county archive for Ada Example", startedAt: at, latest: { at, text: "Searching the web" } },
+      { role: "researcher", name: "Codex researcher", investigationId: batch.id, assignmentId: two!.id, task: "Researcher 2", startedAt: at, latest: { at, text: "Reading the board" } },
+    ];
+    state.work = { [one!.id]: { idle: false, helpersWaiting: 2, readers: 1, runs: 0 }, [two!.id]: { idle: true, helpersWaiting: 0, readers: 0, runs: 0 } };
+    mount();
+    const panel = document.getElementById("live-panel")!;
+    panel.dispatchEvent(Object.assign(new Event("beforetoggle"), { newState: "open" }));
+    const seats = [...panel.querySelectorAll(".live-working .live-agent")].filter((li) => li.textContent!.includes("Batch 2"));
+    expect(seats.map((li) => li.querySelector("strong")!.textContent)).toEqual(["Researcher 1", "Researcher 2"]);
+    expect(seats[0]!.querySelector(".live-now")!.textContent).toBe("Running code in its session");
+    expect([...seats[0]!.querySelectorAll(".live-under li")].map((li) => li.textContent)).toEqual([
+      "Helper: Search the fictional county archive for Ada Example. Searching the web",
+      "2 helpers waiting for a free place",
+      "1 batch of readers reading",
+    ]);
+    expect(seats[1]!.querySelector(".live-now")!.textContent).toBe("Idle: it ended its turn without saying it has finished");
+    expect(seats[1]!.querySelector(".live-under")).toBeNull();
+    // A helper is shown under its seat, not as a helper of the coordinator's.
+    expect(panel.textContent).not.toContain("Helping the coordinator");
+    expect(panel.querySelector(".live-waiting")!.textContent).toContain("Batch 2: Researcher 3 has finished; a post on the board wakes it.");
   });
   it("shows a batch from before teams by research pass, with the coordinator's direction, reports and activity", () => {
     const batch = state.investigations[0]!;

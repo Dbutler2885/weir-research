@@ -5,6 +5,7 @@ import { resetTime } from "../domain/reset-time";
 import { writerStatus } from "./review-view";
 import { controlledAgents, sameAgentRef, type AgentRef, type ControlledAgent } from "../domain/agent-control";
 import { agentButtons } from "./agent-controls";
+import { isTeam } from "../domain/assignments";
 
 // One worker, or one piece of work waiting for one, as the Now list shows it.
 export interface LiveRow {
@@ -21,6 +22,8 @@ export interface LiveRow {
   since?: string;
   // The agent the row is about, for its Pause, Resume and Switch model.
   agent?: ControlledAgent;
+  // What is at work for a seat: its helpers, and its readers.
+  under?: string[];
 }
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
@@ -106,16 +109,21 @@ export function liveRows(state: ResearchState): LiveRow[] {
       who: "Coordinator",
       stage: `Not connected. ${plural(waiting, "message is", "messages are")} waiting for it.`,
     });
-  for (const helper of live.filter((w) => w.role === "helper"))
+  // A researcher's helpers are shown under its seat.
+  for (const helper of live.filter((w) => w.role === "helper" && !w.assignmentId))
     rows.push({ group: "working", who: helper.name, stage: `Helping the coordinator: ${helper.task}`, ...steps(helper), since: helper.startedAt });
   for (const i of state.investigations.filter((i) => i.number && !i.closedAt)) {
     const batch = { id: i.id, number: i.number! };
+    const team = isTeam(i);
     for (const a of i.assignments || []) {
-      if (a.status === "running") rows.push({ ...researcherRow(a, live, batch), agent: agent({ kind: "researcher", assignmentId: a.id }) });
+      if (a.status === "running") rows.push({ ...(team ? seatRow(state, a, live, batch) : researcherRow(a, live, batch)), agent: agent({ kind: "researcher", assignmentId: a.id }) });
       else if (a.status === "waiting")
         rows.push({ group: "waiting", who: "Researcher", batch, stage: i.held ? `Held in the queue: ${a.title}` : `Starting: ${a.title}` });
       else if (a.status === "paused")
         rows.push({ group: "attention", who: "Researcher", batch, stage: `Paused: ${a.title}`, agent: agent({ kind: "researcher", assignmentId: a.id }) });
+      // A finished seat still belongs to a team at work: a post wakes it.
+      else if (team && a.status === "finished" && !i.readyAt)
+        rows.push({ group: "waiting", who: "Researcher", batch, stage: `${a.title} has finished; a post on the board wakes it.` });
     }
     if (i.status === "paused" && !(i.assignments || []).some((a) => a.status === "paused"))
       rows.push({ group: "attention", who: "Researcher", batch, stage: `Research paused. ${firstSentence(i.events.at(-1)?.message || "")}`.trim() });
@@ -171,6 +179,31 @@ function researcherRow(a: Assignment, live: LiveWorker[], batch: LiveRow["batch"
     stage: `Researching ${a.title}`,
     ...(worker ? steps(worker) : {}),
     since: worker?.startedAt || a.startedAt,
+  };
+}
+
+// A seat in a team: its researcher, what it is doing, and the helpers and readers at work for it.
+function seatRow(state: ResearchState, a: Assignment, live: LiveWorker[], batch: LiveRow["batch"]): LiveRow {
+  const worker = live.find((w) => w.role === "researcher" && w.assignmentId === a.id);
+  const work = state.work?.[a.id];
+  const helpers = live.filter((w) => w.role === "helper" && w.assignmentId === a.id);
+  const under = [
+    ...helpers.map((h) => `Helper: ${h.task}${h.latest ? `. ${h.latest.text}` : ""}`),
+    work?.helpersWaiting ? `${plural(work.helpersWaiting, "helper", "helpers")} waiting for a free place` : "",
+    work?.readers ? `${plural(work.readers, "batch of readers", "batches of readers")} reading` : "",
+    work?.runs ? `${plural(work.runs, "Python run", "Python runs")} still going` : "",
+  ].filter(Boolean);
+  // Between turns it is waiting on what it sent out, or idle with nothing under way.
+  const idle = work?.idle ? (under.length ? "Waiting for its helpers and readers" : "Idle: it ended its turn without saying it has finished") : "";
+  return {
+    group: "working",
+    who: a.title,
+    batch,
+    task: worker?.name,
+    stage: idle || `Researching`,
+    ...(worker && !idle ? steps(worker) : {}),
+    since: worker?.startedAt || a.startedAt,
+    under,
   };
 }
 
@@ -230,7 +263,7 @@ const GROUPS: [LiveRow["group"], string][] = [["working", "Working now"], ["atte
 export function livePanel(state: ResearchState, now = Date.now()): string {
   const rows = liveRows(state);
   const working = (r: LiveRow) =>
-    `<li class="live-agent"${r.batch ? ` data-live-open="${html(r.batch.id)}"` : ""}><div class="live-who"><strong>${html(r.who)}</strong>${r.batch ? `<span class="live-task"${r.task ? ` title="${html(r.task)}"` : ""}>Batch ${r.batch.number}${r.task ? ` · ${html(r.task)}` : ""}</span>` : ""}${r.since ? `<time datetime="${html(r.since)}" data-elapsed>${html(running(r.since, now))}</time>` : ""}</div><p class="live-now${r.latest ? "" : " is-quiet"}${r.who === "Coordinator" && state.coordinator?.listening ? " is-listening" : ""}">${html(r.latest || r.stage)}</p>${r.trail?.length ? `<ul class="live-trail">${r.trail.map((t) => `<li>${html(t)}</li>`).join("")}</ul>` : ""}${switching(r)}${agentButtons(r.agent)}</li>`;
+    `<li class="live-agent"${r.batch ? ` data-live-open="${html(r.batch.id)}"` : ""}><div class="live-who"><strong>${html(r.who)}</strong>${r.batch ? `<span class="live-task"${r.task ? ` title="${html(r.task)}"` : ""}>Batch ${r.batch.number}${r.task ? ` · ${html(r.task)}` : ""}</span>` : ""}${r.since ? `<time datetime="${html(r.since)}" data-elapsed>${html(running(r.since, now))}</time>` : ""}</div><p class="live-now${r.latest ? "" : " is-quiet"}${r.who === "Coordinator" && state.coordinator?.listening ? " is-listening" : ""}">${html(r.latest || r.stage)}</p>${r.trail?.length ? `<ul class="live-trail">${r.trail.map((t) => `<li>${html(t)}</li>`).join("")}</ul>` : ""}${r.under?.length ? `<ul class="live-under">${r.under.map((t) => `<li>${html(t)}</li>`).join("")}</ul>` : ""}${switching(r)}${agentButtons(r.agent)}</li>`;
   const line = (r: LiveRow) =>
     `<li><span>${html(r.batch ? `Batch ${r.batch.number}: ${r.stage}` : r.stage)}</span>${r.batch ? `<button type="button" class="text-action" data-live-open="${html(r.batch.id)}">Open batch ${r.batch.number}</button>` : ""}${agentButtons(r.agent)}</li>`;
   // A coordinator asked to switch while it works switches once its turn is over.

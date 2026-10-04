@@ -427,6 +427,7 @@ const server = createServer(async (req, res) => {
         ...store.publicState(),
         coordinator: coordinator.status(),
         live: live.list(),
+        work: researchers.work(),
         catalog,
         usage: supervisor.usage,
         researchBrowser: { available: researchBrowser.available, name: researchBrowser.browser.name },
@@ -440,6 +441,7 @@ const server = createServer(async (req, res) => {
         datasetRevision: store.state.datasetRevision,
         coordinator: coordinator.status(),
         live: live.list(),
+        work: researchers.work(),
         usage: supervisor.usage,
         // Installing Docling changes nothing in the project, so its progress comes with every poll.
         pdfReading: pdfReading(appDirectory),

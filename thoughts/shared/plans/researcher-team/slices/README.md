@@ -14,7 +14,7 @@ Parent PRD: [Researcher team](../prd.md)
 | 06 | [Passages and Jev](06-passages-and-jev.md) | AFK | Done | 05 |
 | 07 | [Helpers and job tickets](07-helpers-and-job-tickets.md) | AFK | Done | 04, 05 |
 | 08 | [Instructions](08-instructions.md) | AFK | Done | 07 |
-| 09 | [Interface](09-interface.md) | HITL | To do | 04, 06 |
+| 09 | [Interface](09-interface.md) | HITL | Done | 04, 06 |
 | 10 | [Existing projects and the evaluation](10-existing-projects-and-evaluation.md) | HITL | To do | 08, 09 |
 
 ## Slice details

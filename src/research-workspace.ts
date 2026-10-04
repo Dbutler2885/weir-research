@@ -12,6 +12,7 @@ import {
   coordinatorStatus,
 } from "./ui/investigation-view";
 import { evidenceCard } from "./ui/finding-review";
+import { researchersPerBatch } from "./domain/assignments";
 import { sourceLibrary } from "./domain/findings";
 import { claimSourceIds } from "./domain/model";
 import { GuidedReview } from "./ui/guided-review";
@@ -927,47 +928,6 @@ export function mountResearchWorkspace(
     }
     if (view === "settings")
       surface.innerHTML = settingsView(state, currentInvestigation());
-    surface
-      .querySelector("#research-time-limit-mode")
-      ?.addEventListener("change", () => {
-        const limited =
-          surface.querySelector<HTMLSelectElement>("#research-time-limit-mode")!
-            .value === "limited";
-        surface.querySelector<HTMLElement>(".time-limit-value")!.hidden =
-          !limited;
-        surface.querySelector<HTMLInputElement>(
-          "#research-time-limit",
-        )!.disabled = !limited;
-      });
-    surface
-      .querySelector("#time-limit-form")
-      ?.addEventListener("submit", async (event) => {
-        event.preventDefault();
-        const limited =
-          surface.querySelector<HTMLSelectElement>("#research-time-limit-mode")!
-            .value === "limited";
-        const minutes = limited
-          ? surface.querySelector<HTMLInputElement>("#research-time-limit")!
-              .valueAsNumber
-          : null;
-        if (limited && (!Number.isSafeInteger(minutes) || minutes! < 1)) {
-          message("Enter a positive whole number of minutes.");
-          return;
-        }
-        try {
-          await request("/api/research-settings", {
-            timeLimitMinutes: minutes,
-          });
-          await refresh();
-          message(
-            minutes === null
-              ? "Time limit removed for new research passes."
-              : `New research passes will have a ${minutes}-minute limit.`,
-          );
-        } catch (error) {
-          message((error as Error).message);
-        }
-      });
     surface.querySelector("[data-open-research-browser]")?.addEventListener("click", async () => {
       try {
         await request("/api/research-browser", {});
@@ -1006,13 +966,17 @@ export function mountResearchWorkspace(
         message((error as Error).message);
       }
     });
-    surface.querySelector<HTMLFormElement>("#researchers-per-batch-form")?.addEventListener("submit", async (event) => {
+    surface.querySelector<HTMLFormElement>("#team-form")?.addEventListener("submit", async (event) => {
       event.preventDefault();
-      const researchersPerBatch = surface.querySelector<HTMLInputElement>("#researchers-per-batch")!.valueAsNumber;
+      const value = (id: string) => surface.querySelector<HTMLInputElement>(`#${id}`)!.valueAsNumber;
       try {
-        await request("/api/research-settings", { researchersPerBatch });
+        // Each is its own setting; only those that changed are sent.
+        const now = state.researchSettings;
+        const next = { researchersPerBatch: value("researchers-per-batch"), helperLimit: value("helper-limit"), readerLimit: value("reader-limit") };
+        const before = { researchersPerBatch: researchersPerBatch(state), helperLimit: now?.helperLimit ?? 8, readerLimit: now?.readerLimit ?? 20 };
+        for (const key of Object.keys(next) as (keyof typeof next)[]) if (next[key] !== before[key]) await request("/api/research-settings", { [key]: next[key] });
         await refresh();
-        message(`At most ${researchersPerBatch} ${researchersPerBatch === 1 ? "researcher works" : "researchers work"} one batch at once.`);
+        message(`New batches get a team of ${next.researchersPerBatch}; up to ${next.helperLimit} helper${next.helperLimit === 1 ? "" : "s"} and ${next.readerLimit} reader${next.readerLimit === 1 ? "" : "s"} work at once.`);
       } catch (error) {
         message((error as Error).message);
       }
@@ -1396,6 +1360,7 @@ export function mountResearchWorkspace(
       const revision = await request("/api/revision");
       // Live activity changes between revisions; take it from every poll.
       state.live = revision.live;
+      state.work = revision.work;
       state.usage = revision.usage;
       // High accuracy installs outside the project, so its progress shows in place.
       if (JSON.stringify(revision.pdfReading) !== JSON.stringify(state.pdfReading)) {

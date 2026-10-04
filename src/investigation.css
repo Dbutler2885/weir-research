@@ -383,7 +383,17 @@
   flex-wrap: wrap;
   align-items: center;
 }
-.time-limit-value input {
+#team-form label {
+  display: block;
+  margin-top: 14px;
+}
+#team-form label:first-child {
+  margin-top: 0;
+}
+#team-form .setting-control {
+  margin-top: 6px;
+}
+#team-form input {
   width: 85px;
   padding: 10px;
   border: 1px solid var(--line);
@@ -392,7 +402,10 @@
   color: var(--ink);
   font: inherit;
 }
-#time-limit-form .page-context {
+#team-form button {
+  margin-top: 16px;
+}
+#team-form .page-context {
   margin: 12px 0 0;
 }
 .resume-approval {

@@ -173,7 +173,7 @@ export interface Investigation {
   proposals: Proposal[];
   // What happened to the batch, in order. A researcher finishing and the batch
   // becoming ready for Review are marked, so the coordinator hears of each.
-  events: { at: string; message: string; kind?: "finished" | "ready"; researcher?: string }[];
+  events: { at: string; message: string; kind?: "finished" | "ready" | "published"; researcher?: string }[];
 }
 export interface SourceCollection {
   id: string;
@@ -292,6 +292,8 @@ export interface ResearchState {
     };
   }[];
   engine?: "manual" | "codex" | "claude";
+  // What each seat at work has under way, by its ID, as the app last reported it.
+  work?: Record<string, { idle: boolean; helpersWaiting: number; readers: number; runs: number }>;
   researchSettings?: { timeLimitMinutes: number | null; researchersPerBatch?: number; readerLimit?: number; helperLimit?: number; compactAt?: number };
   reviewSettings?: { autoWalkthrough: boolean; autoGraph: boolean };
   organization?: {

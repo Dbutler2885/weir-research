@@ -57,12 +57,12 @@ function contents(all: Investigation[]): string {
     .map(
       (b) =>
         `<li><a class="toc-batch" href="#batch-${html(b.id)}" data-toc="batch-${html(b.id)}"><span class="toc-number">${b.number}</span>${html(b.title)}</a>${
-          b.assignments?.length
+          b.assignments?.length && !isTeam(b)
             ? `<ol>${[...b.assignments]
                 .reverse()
                 .map(
                   (a) =>
-                    `<li><a href="#pass-${html(a.id)}" data-toc="pass-${html(a.id)}">${html(a.title)}${a.status === "running" || a.status === "waiting" || a.status === "paused" ? ` <span class="toc-state">· ${a.status}</span>` : ""}</a></li>`,
+                    isTeam(b) ? "" : `<li><a href="#pass-${html(a.id)}" data-toc="pass-${html(a.id)}">${html(a.title)}${a.status === "running" || a.status === "waiting" || a.status === "paused" ? ` <span class="toc-state">· ${a.status}</span>` : ""}</a></li>`,
                 )
                 .join("")}</ol>`
             : ""
@@ -105,9 +105,9 @@ function batchCard(
       ? '<button type="button" class="text-action" data-command="resume">Resume</button>'
       : "",
   ].filter(Boolean);
-  // The newest research pass first, as batches are.
-  const passes = [...assignments].reverse().map((a) => pass(state, b, a, expanded)).join("");
-  const other = b.proposals.filter((p) => !p.assignmentId || !assignments.some((a) => a.id === p.assignmentId));
+  // A team's batch is its goal, its seats and one list of findings; an older one is its research passes, newest first.
+  const passes = isTeam(b) ? teamBody(state, b, expanded) : [...assignments].reverse().map((a) => pass(state, b, a, expanded)).join("");
+  const other = isTeam(b) ? [] : b.proposals.filter((p) => !p.assignmentId || !assignments.some((a) => a.id === p.assignmentId));
   return `<article class="batch-card" id="batch-${html(b.id)}" data-investigation-id="${html(b.id)}" ${target({ label: b.title, investigationId: b.id })}><div class="batch-label">Batch ${b.number} · ${label}</div><h2>${html(b.title)}</h2><p class="batch-meta">${meta.join(" · ")}</p>${batchAgents(state, b)}${requests(state, b)}${passes}${
     other.length
       ? `<section class="batch-question"><h3>Other reports in this batch</h3>${other.map((p, n) => report(state, p, n === 0, expanded)).join("")}</section>`
@@ -220,6 +220,41 @@ function pass(state: ResearchState, b: Investigation, a: Assignment, expanded: R
   }</section>`;
 }
 
+// How many of a team's findings show before the rest are asked for.
+const TEAM_FINDINGS_SHOWN = 12;
+
+// A team's batch: the goal every researcher was given, the seats, and the findings as
+// one list, newest first, each with the researcher who published it.
+function teamBody(state: ResearchState, b: Investigation, expanded: ReadonlySet<string>): string {
+  const goal = b.goal || "";
+  const whole = expanded.has(`brief:${b.id}`) || goal.length <= BRIEF_SHOWN;
+  const seat = (id?: string) => b.assignments?.find((a) => a.id === id);
+  const seats = (b.assignments || [])
+    .map((a) => {
+      const work = state.work?.[a.id];
+      const said = a.status === "running" ? (work?.idle ? "idle" : "working") : a.status === "waiting" ? (a.startedAt ? "starting again" : "waiting to start") : passStates[a.status];
+      return `<li id="pass-${html(a.id)}"><strong>${html(a.title)}</strong> · ${html(said)}${a.worker && a.status !== "waiting" ? ` · ${html(a.worker)}` : ""}${agentButtons(findAgent(state, { kind: "researcher", assignmentId: a.id }))}</li>`;
+    })
+    .join("");
+  const all = b.proposals
+    .filter((p) => p.kind === "findings" || !p.kind)
+    .flatMap((p) => (p.findings || []).filter((f) => f.status !== "superseded").map((f) => ({ p, f })))
+    .reverse();
+  const shown = expanded.has(`team:${b.id}`) ? all : all.slice(0, TEAM_FINDINGS_SHOWN);
+  const working = (b.assignments || []).some((a) => a.status === "running" || a.status === "waiting");
+  const list = shown.length
+    ? `<div class="finding-list team-findings">${shown
+        .map(
+          ({ p, f }) =>
+            `<article ${target({ label: f.statement, proposalId: p.id, findingId: f.id })}><div class="finding-meta">${html(f.qualification)} · ${html(seat(p.assignmentId)?.title || "A researcher")} · ${html(when(p.createdAt))}${f.replaces ? " · corrects an earlier finding" : ""}</div><h4>${html(f.statement)}</h4><p class="preserve-lines">${html(f.explanation)}</p>${f.evidenceIds.map((id) => passage(state, p, id)).join("")}</article>`,
+        )
+        .join("")}</div>`
+    : `<p class="report-pending">${working ? "The team is working. Findings appear here as they are published." : "The team published no findings."}</p>`;
+  return `<section class="batch-question"><div class="asked"><p class="asked-label">The goal the team was given</p><blockquote class="${whole ? "" : "is-clipped"}" ${target({ label: goal, investigationId: b.id })}>${html(goal)}</blockquote>${whole ? "" : `<button type="button" class="text-action" data-whole-brief="${html(b.id)}">Show the whole goal</button>`}</div><ul class="team-seats">${seats}</ul><h3>Findings${all.length ? ` · ${all.length}` : ""}</h3>${list}${
+    all.length > shown.length ? `<button type="button" class="text-action" data-more-findings="team:${html(b.id)}">Show ${all.length - shown.length} earlier finding${all.length - shown.length === 1 ? "" : "s"}</button>` : ""
+  }</section>`;
+}
+
 // What the batch's researchers told each other, for the human to look into.
 function board(b: Investigation): string {
   const posts = b.board || [];
@@ -271,7 +306,16 @@ function passage(state: ResearchState, p: Proposal, id: string): string {
   const e = p.evidence.find((e) => e.id === id);
   if (!e) return "";
   const source = sourceLibrary(state).find((s) => s.id === e.sourceId);
-  return `<details class="guided-passage"><summary>${html(source?.title || e.sourceId)} · ${html(e.locator)}</summary><blockquote>${html(e.quote)}</blockquote><button type="button" class="text-action" data-open-source="${html(e.sourceId)}">Inspect source</button></details>`;
+  // What the app did with the quote, apart from whether it supports the finding, which is the researcher's claim.
+  const mark = e.check === "checked" ? "quote checked" : e.check === "transcribed" ? "transcribed" : "";
+  const said =
+    e.check === "checked"
+      ? '<p class="passage-check">The app found these words in the saved text at the page cited. Whether they support the finding is the researcher\'s reading.</p>'
+      : e.check === "transcribed"
+        ? '<p class="passage-check">From a researcher\'s transcription of an image, which the app cannot check against the image. Open the original to read it yourself.</p>'
+        : "";
+  const original = e.documentId ? ` <a class="text-action" href="/api/documents/${html(e.documentId)}" target="_blank" rel="noopener">Open the original</a>` : "";
+  return `<details class="guided-passage"><summary>${html(source?.title || e.sourceId)} · ${html(e.locator)}${mark ? ` · ${mark}` : ""}</summary><blockquote>${html(e.quote)}</blockquote>${e.interpretation ? `<p class="passage-reading">${html(e.interpretation)}</p>` : ""}${said}<button type="button" class="text-action" data-open-source="${html(e.sourceId)}">Read the saved text</button>${original}</details>`;
 }
 
 function activity(state: ResearchState, all: Investigation[]): string {

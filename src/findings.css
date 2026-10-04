@@ -412,3 +412,30 @@
   color: var(--ink);
   font-weight: 600;
 }
+
+/* A team's batch: its seats in a line each, then one list of findings. */
+.team-seats {
+  margin: 0 0 22px;
+  padding: 0;
+  list-style: none;
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+.team-seats li {
+  padding: 3px 0;
+}
+.team-seats strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+.passage-reading {
+  margin: 0 0 10px;
+}
+.passage-check {
+  margin: 0 0 10px;
+  font-size: 13.5px;
+  color: var(--ink-soft);
+}
+.guided-passage a.text-action {
+  margin-left: 14px;
+}

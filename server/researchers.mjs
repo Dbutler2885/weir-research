@@ -397,6 +397,21 @@ export class ResearcherPool {
       /* The seat's folder is gone; its batch was removed. */
     }
   }
+  // What each seat at work has under way, for the live panel: whether its researcher is
+  // between turns, the helpers waiting for a free place, and the readers reading for it.
+  work() {
+    const out = {};
+    for (const task of this.active.values()) {
+      const jobs = this.jobs?.outstanding(task.id) ?? [];
+      out[task.id] = {
+        idle: Boolean(task.agent && !task.agent.busy && !task.resuming),
+        helpersWaiting: jobs.filter((job) => job.kind === "helper" && job.status === "queued").length,
+        readers: jobs.filter((job) => job.kind === "reader").length,
+        runs: this.sessions?.running?.(task.id) ?? 0,
+      };
+    }
+    return out;
+  }
   pump() {
     if (this.stopped) return;
     for (const task of this.active.values()) {
