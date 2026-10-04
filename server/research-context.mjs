@@ -109,6 +109,11 @@ export function inspectContext(state, request) {
     return {
       researchMap: state.coordination?.researchMap || "",
     };
+  if (request.kind === "message") {
+    const message = (state.conversation || []).find((m) => m.id === request.id);
+    if (!message) throw new Error("Message not found.");
+    return message;
+  }
   if (request.kind === "investigations") {
     const items = state.investigations.filter(
       (i) => !request.status || i.status === request.status,
@@ -187,7 +192,7 @@ export function inspectContext(state, request) {
     };
   }
   throw new Error(
-    "Inspect supports map, investigation, investigations, entity, or source.",
+    "Inspect supports map, investigation, investigations, entity, source, or message.",
   );
 }
 export function searchContext(state, query, requestedOffset = 0) {
@@ -223,6 +228,12 @@ export function searchContext(state, query, requestedOffset = 0) {
         proposals: i.proposals,
         graphRequest: i.graphRequest,
       }),
+    );
+  // What the human and the coordinator said, so an instruction given long ago can be found.
+  for (const m of state.conversation || [])
+    consider(
+      { kind: "message", id: m.id, label: `${m.author === "human" ? "The human" : "The coordinator"}, ${m.at.slice(0, 16).replace("T", " ")}` },
+      [m.text, ...(m.annotations || []).map((a) => a.question), m.decision ? `${m.decision.title} ${m.decision.body}` : ""].filter(Boolean).join("\n"),
     );
   for (const s of sourceLibrary(state))
     consider({ kind: "source", id: s.id, label: s.title }, JSON.stringify(s));

@@ -39,7 +39,7 @@ node tools/research.mjs search Alex employment
 node tools/research.mjs '{"action":"map","notes":"Purpose, threads, uncertainties and stable references"}'
 ```
 
-Search returns short excerpts and stable references across entities, batches with their findings, and preserved text documents.
+Search returns short excerpts and stable references across entities, batches with their findings, preserved text documents, and the conversation's messages.
 Inspect the referenced records with commands:
 
 ```json
@@ -48,7 +48,8 @@ Inspect the referenced records with commands:
 
 Entity inspection returns that record, references to directly related records, and related investigations.
 Use the returned IDs rather than guessing record names.
-Other inspection kinds are `investigation`, `source`, `interface-feedback`, `map`, and the paginated `investigations` index.
+Other inspection kinds are `investigation`, `source`, `message`, `interface-feedback`, `map`, and the paginated `investigations` index.
+Message inspection, `{"action":"inspect","kind":"message","id":"..."}`, returns one message of the conversation whole, with its annotations.
 Source inspection accepts `offset` and `limit` (default 6,000 characters, maximum 20,000), returns the preserved fingerprint and a next offset, and distinguishes citation metadata from locally available originals.
 Search results for source text include a character offset to locate the matching passage.
 Investigation inspection includes the batch's goal, its researchers with their checkpoints, its board, and its published findings with their evidence, without any worker's private lease or dataset snapshot.

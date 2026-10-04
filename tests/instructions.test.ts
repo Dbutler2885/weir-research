@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
-import { ResearcherPool } from "../server/researchers.mjs";
+import { ResearcherPool, BROWSER_INSTRUCTIONS } from "../server/researchers.mjs";
 import { Jobs } from "../server/jobs.mjs";
 import { READER_INSTRUCTIONS } from "../src/domain/reader.ts";
 import { buildCoordinatorContext } from "../src/domain/coordinator-context.ts";
@@ -15,14 +15,19 @@ const seats = [1, 2].map((n) => ({ id: `seat-${n}`, title: `Researcher ${n}`, st
 const batch = { id: "batch-a", number: 1, title: "The fictional mill", goal: "Find who bought the fictional Example mill, and when.", scope: ["web"], assignments: seats, proposals: [], events: [], annotations: [], board: [], status: "running" };
 const pool = { library: "/project/library" };
 const researcher = (web: boolean) => (ResearcherPool.prototype as any).instructions.call(pool, batch, { title: "Researcher 1" }, web) as string;
-const opening = (ResearcherPool.prototype as any).opening.call(pool, batch, seats[0], { title: "Researcher 1" }, []) as string;
+const opening = (task: object, waiting: object[] = []) => (ResearcherPool.prototype as any).opening.call(pool, batch, { ...seats[0], unreachable: [{ url: "https://example.org/archive", instruction: "Sign in to the fictional archive." }] }, { title: "Researcher 1", ...task }, waiting) as string;
+const waiting = [{ file: "001-post.json", kind: "post", from: "Researcher 2", text: "The fictional register is at the county office.", at: "2026-01-01T00:00:00Z" }];
 const helper = (web: boolean) => (Jobs.prototype as any).instructions.call(pool, { seat: "seat-1" }, batch, web, web) as string;
 const file = (path: string) => readFileSync(path, "utf8");
 const state = { ...initialState(emptyGraph()), investigations: [batch] } as any;
 const texts: Record<string, string> = {
-  "the researcher's instructions, with the web": researcher(true),
+  // As a researcher with the research browser is started: its instructions, then the browser's.
+  "the researcher's instructions, with the web and the browser": `${researcher(true)}${BROWSER_INSTRUCTIONS}`,
   "the researcher's instructions, from the library": researcher(false),
-  "the researcher's first message": opening,
+  "the researcher's first message": opening({}),
+  "the researcher's first message, in a seat held before": opening({}, waiting),
+  "the researcher's message when its conversation is picked up": opening({ resuming: "session-1" }),
+  "the researcher's message when it is picked up with posts waiting": opening({ resuming: "session-1" }, waiting),
   "the helper's instructions, with the web": helper(true),
   "the helper's instructions, from the library": helper(false),
   "the reader's instructions": READER_INSTRUCTIONS,
@@ -32,13 +37,47 @@ const texts: Record<string, string> = {
   "the coordinator's startup context": buildCoordinatorContext(state, { skills: projectSkills(".") as any }).text,
 };
 
+// What a limit on the research, a bounded pass or the old route's files would read like.
+const count = "(\\d+|one|two|three|four|five|ten|twenty|a single|a few)";
+const LIMITS = new RegExp(
+  [
+    "bounded", "retrieval limit", "time limit", "deadline", "budget", "out of scope", "result\\.json", "brief\\.md", "post\\.md",
+    `\\b${count} distinct`,
+    `\\b(at most|no more than|up to|a maximum of|limited to|only) ${count} (\\w+ )?(sources?|retrievals?|searches|pages|documents|minutes|hours|turns)`,
+    `\\b(stop|finish|end|wrap up|return) (after|within|once you have read|when you have read) ${count}`,
+    `\\bwithin ${count} (minutes|hours)`,
+    "\\b(one|a single) pass\\b",
+    "\\buntil time runs out",
+  ].join("|"),
+  "i",
+);
+
 describe("the instructions the research agents work from", () => {
+  it("would be caught setting a limit, however it was put", () => {
+    for (const limit of [
+      "Stop after 10 sources.",
+      "Spend no more than 30 minutes researching.",
+      "Make one pass through the archive, then finish.",
+      "Read at most twenty distinct sources.",
+      "This is a bounded investigation.",
+      "Finish within 2 hours.",
+      "You have a budget of retrievals.",
+      "Write result.json when you are done.",
+      "Anything else is out of scope.",
+      "Return after a single pass over the register.",
+    ])
+      expect(limit).toMatch(LIMITS);
+    for (const fine of ["There is no limit on how many sources you read or how long you work: go on for as long as leads remain.", "Code running longer than a few minutes carries on.", "up to about 100,000 characters each"]) expect(fine).not.toMatch(LIMITS);
+  });
+
   it.each(Object.keys(texts))("%s set no limit on retrievals or time and frame no bounded pass", (name) => {
-    expect(texts[name]).not.toMatch(/bounded|retrieval limit|time limit|deadline|\d+ distinct|at most \d+ (sources|retrievals|searches)|within \d+ minutes|out of scope|result\.json|brief\.md|post\.md/i);
+    expect(texts[name]).toBeTruthy();
+    expect(texts[name]).not.toMatch(LIMITS);
   });
 
   it("give the researcher the goal, the board, the library, the session and its package, and the done phrase", () => {
     const text = researcher(true);
+    expect(opening({ resuming: "session-1" }, waiting)).toContain("The fictional register is at the county office.");
     for (const part of ["## The goal", "## The board", "## The research library", "## Your Python session", "## Findings", "RESEARCH DONE"]) expect(text).toContain(part);
     for (const call of ["weir.post", "weir.save", "weir.save_page", "weir.save_image", "weir.jev", "weir.reader", "weir.helper", "weir.publish", "weir.reconcile", "weir.library"]) expect(text).toContain(call);
     // Source text and sub-call answers stay in the session.
@@ -50,7 +89,7 @@ describe("the instructions the research agents work from", () => {
   it("describe a helper's errand: do it, save every source read, and answer with exact quotes and document IDs", () => {
     const text = helper(true);
     expect(text).toContain("sent on one errand");
-    expect(text).toContain("Save every source you rely on with weir.save");
+    expect(text).toContain("Save every source you read, with weir.save, weir.save_page or weir.save_image");
     expect(text).toContain('"quotes": [{"document": "<saved document\'s ID>", "page": <page number>, "quote": "<exact words from the saved text>"}]');
     expect(text).not.toMatch(/weir\.post|weir\.publish|weir\.helper/);
   });

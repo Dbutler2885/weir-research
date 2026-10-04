@@ -20,7 +20,7 @@ export const DONE_PHRASE = "RESEARCH DONE";
 // It is the turn's last line, alone; emphasis a model wraps it in is not counted.
 const saidDone = (text) => String(text || "").trimEnd().split("\n").at(-1)?.replace(/^[\s*_`]+|[\s*_`]+$/g, "") === DONE_PHRASE;
 
-const BROWSER_INSTRUCTIONS = `
+export const BROWSER_INSTRUCTIONS = `
 The research browser is available through your browser tools, for pages that need a real browser or a sign-in the human made there.
 Open your own tab with new_page, with background set to true, use its page ID in every call, and close it when you are done. Your teammates use the same browser, each in its own tabs.
 When a page needs a sign-in, ask the human for access in checkpoint.json as described above; the human signs in, and you carry on.
@@ -528,7 +528,7 @@ The coordinator posts there too, to pass on what the human says.
 
 Everything the project has produced so far is in the research library at ${library}, which you read and search with your shell and your Python session. Its README.md describes it. It holds every batch's goal and board, every published finding with its evidence, including your teammates' as they publish them, every researcher's checkpoints, the walkthroughs, the graph as tables, the source library in sources.csv, and the saved documents in documents/, by ID.
 The library is kept current while you work. Search it to build on what the team and earlier batches have learned.
-Each saved document's text is beside it as documents/<id>.r<n>.txt, where n is the text's revision, with "[Page n]" before each page of a PDF; documents.csv names the current one. Quote from that text exactly, and give the page. Look at a PDF's pages themselves when the text reads oddly, as a table or a damaged scan can.
+Each saved document's text is the file documents.csv names under "text": documents/<id>.r<n>.txt for a PDF or a saved page, where n is the text's revision, with "[Page n]" before each page of a PDF, and the document itself for one imported as plain text. Quote from that text exactly, and give the page. Look at a PDF's pages themselves when the text reads oddly, as a table or a damaged scan can.
 Your Python session reads the same library, and is the way to work with a document of any length.
 ${SESSION_INSTRUCTIONS}
 ## Research

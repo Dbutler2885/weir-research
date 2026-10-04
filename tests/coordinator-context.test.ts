@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 import { initialState, referenceText, transition, type ResearchCommand, type ResearchState } from "../src/domain/research";
 import { buildCoordinatorContext, layerBudgets } from "../src/domain/coordinator-context";
-import { inspectContext } from "../server/research-context.mjs";
+import { inspectContext, searchContext } from "../server/research-context.mjs";
 import { emptyGraph } from "../src/domain/graph-schema";
 const empty = emptyGraph();
 
@@ -132,6 +132,25 @@ describe("coordinator startup context", () => {
     const id = p.open("The mill's builder", "Who built the mill?");
     expect(buildCoordinatorContext(p.state).text).toContain(id);
     expect((inspectContext(p.state, { kind: "investigation", id }) as any).goal).toBe("Who built the mill?");
+  });
+
+  it("finds a message of the conversation by search, and reads it whole", () => {
+    const p = project();
+    const state = structuredClone(p.state) as any;
+    const long = `Never cite the fictional Example Almanac. ${"It was compiled from hearsay. ".repeat(60)}`;
+    state.conversation = [
+      { id: "m-1", at: "2026-09-01T09:00:00Z", author: "human", text: long },
+      ...Array.from({ length: 12 }, (_, n) => ({ id: `m-${n + 2}`, at: `2026-09-02T09:${String(n).padStart(2, "0")}:00Z`, author: n % 2 ? "human" : "coordinator", text: `A later message, number ${n + 1}.` })),
+    ];
+    // The startup context holds only the latest messages, and says how to reach the rest.
+    const text = buildCoordinatorContext(state).text;
+    expect(text).not.toContain("Example Almanac");
+    expect(text).toContain("earlier messages; search finds them, and inspect with kind message reads one whole.");
+    const hits = searchContext(state, "Example Almanac").hits;
+    expect(hits).toMatchObject([{ kind: "message", id: "m-1", label: "The human, 2026-09-01 09:00" }]);
+    expect(hits[0].excerpt).toContain("Never cite the fictional Example Almanac.");
+    expect(inspectContext(state, { kind: "message", id: "m-1" })).toMatchObject({ author: "human", text: long });
+    expect(() => inspectContext(state, { kind: "message", id: "m-99" })).toThrow("Message not found.");
   });
 
   it("includes live workers and the human's saved preferences", () => {

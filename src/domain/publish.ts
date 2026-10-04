@@ -127,8 +127,12 @@ export function publishFinding(
   let replaces: FindingRef | undefined;
   if (input.replaces !== undefined && input.replaces !== null) {
     refuse(typeof input.replaces === "string" && input.replaces.trim(), 'Name the finding to replace by its ID, as weir.findings() lists it, such as "<report>/f1".');
+    const [proposalId, named] = input.replaces.trim().split("/") as [string, string?];
     // A team's finding is the only one in its report, so the report's ID alone names it.
-    const [proposalId, replacedId = "f1"] = input.replaces.trim().split("/") as [string, string?];
+    // An older report can hold several, and its ID alone names none of them.
+    const report = batch.proposals.find((p) => p.id === proposalId);
+    refuse(named || !report || report.findings?.length === 1, `Report ${proposalId} holds ${report?.findings?.length ?? 0} findings, so name the one to replace, such as "${proposalId}/${report?.findings?.[0]?.id ?? "f1"}". weir.findings() lists them with their IDs.`);
+    const replacedId = named || report?.findings?.[0]?.id || "f1";
     input = { ...input, replaces: `${proposalId}/${replacedId}` };
     replaces = { proposalId, findingId: replacedId };
     const old = getFinding(batch, replaces);

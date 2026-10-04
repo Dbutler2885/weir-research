@@ -30,7 +30,7 @@ node tools/research.mjs '{"action":"inspect","kind":"investigation","id":"..."}'
 For a long command, write the JSON to a file in this folder and pass the file name instead.
 The tool prints the app's answer; an error explains what to change.
 
-Inspection uses `{"action":"inspect","kind":"investigation","id":"..."}` or `kind` of `entity`, `source`, `map`, or `investigations`.
+Inspection uses `{"action":"inspect","kind":"investigation","id":"..."}` or `kind` of `entity`, `source`, `message`, `map`, or `investigations`.
 Entity inspection also needs `table`; source inspection supports `offset` and `limit` for reading just the relevant passage.
 Save a short research map with `{"action":"map","notes":"..."}`.
 
@@ -106,7 +106,7 @@ Search for the requested node and use its actual type.
 If the reference is ambiguous, ask which node is meant before removing anything.
 If it is unambiguous, send `{"action":"organization-preview","keepIds":["node-to-keep"],"reason":"..."}`, check the listed removals against the request, then send `{"action":"organization-apply","previewId":"returned-id"}`.
 To undo before a later graph change, send `{"action":"organization-undo","undoId":"returned-undo-id"}`.
-A preview can include `"seed":{"name":"Example Town","kind":"place"}` when the human asks for a new starting point; omit `keepIds` to keep existing nodes.
+A preview can include `"seed":{"name":"Example Town","type":"place"}` when the human asks for a new starting point; omit `keepIds` to keep existing nodes.
 
 ## Writing
 

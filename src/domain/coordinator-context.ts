@@ -264,7 +264,7 @@ function conversation(state: ResearchState): ContextLayer {
   while (start > 0 && used + blocks[start - 1]!.length + 1 <= budget) used += blocks[--start]!.length + 1;
   const kept = blocks.slice(start);
   const earlier = (state.conversation || []).length - kept.length;
-  if (earlier > 0) kept.unshift(`(${earlier} earlier messages; search to find them.)`);
+  if (earlier > 0) kept.unshift(`(${earlier} earlier messages; search finds them, and inspect with kind message reads one whole.)`);
   return layer("conversation", "Recent conversation", kept, () => "");
 }
 
@@ -274,6 +274,7 @@ function more(skills: Skill[]): ContextLayer {
     '- `{"action":"inspect","kind":"investigation","id":"..."}` for a batch\'s findings, checkpoints and history.',
     '- `{"action":"inspect","kind":"investigations","status":"closed"}` to list batches.',
     '- `{"action":"inspect","kind":"map"}` for the full research map.',
+    '- `{"action":"inspect","kind":"message","id":"..."}` for one message of the conversation, whole.',
     '- `{"action":"inspect","kind":"source","id":"...","offset":0,"limit":6000}` for a source passage.',
     '- `{"action":"inspect","kind":"entity","table":"nodes","id":"..."}` for a graph record.',
     '- `{"action":"post","investigationId":"...","text":"..."}` to tell a batch\'s whole team something, or to send it back to work.',

@@ -117,6 +117,25 @@ describe("publishing a finding", () => {
     expect(() => publisher.findings("no-such-seat")).toThrow("This session's seat is in no batch.");
   });
 
+  it("takes a report's ID for the finding to replace only where the report holds one finding", () => {
+    const { publisher, store, batch, one, sale, investigationId } = fixture();
+    // A report in the older form, with two findings.
+    store.update((next: any) => {
+      next.investigations.find((i: any) => i.id === investigationId).proposals.push({
+        id: "older", kind: "findings", revision: 1, title: "An older report", summary: "Two findings.", ambiguity: "", evidence: [], changes: [], addressedAnnotationIds: [], createdAt: "2026-01-01T00:00:00Z", status: "accepted",
+        findings: [
+          { id: "f1", statement: "The mill stood on Weir Lane.", qualification: "supported", explanation: "", evidenceIds: [], status: "kept" },
+          { id: "f2", statement: "Ada Example sold the mill in 1907.", qualification: "supported", explanation: "", evidenceIds: [], status: "kept" },
+        ],
+      });
+    });
+    expect(() => publisher.publish(one, { ...sale(), replaces: "older" })).toThrow('Report older holds 2 findings, so name the one to replace, such as "older/f1". weir.findings() lists them with their IDs.');
+    const older = () => batch().proposals.find((p: any) => p.id === "older").findings.map((f: any) => f.status);
+    expect(older()).toEqual(["kept", "kept"]);
+    expect(publisher.publish(one, { ...sale(), replaces: "older/f2" }).replaced).toBe("older/f2");
+    expect(older()).toEqual(["kept", "superseded"]);
+  });
+
   it("refuses a quote at the wrong page, or not in the text, saying why, and publishes nothing", () => {
     const { publisher, batch, one, sale } = fixture();
     expect(() => publisher.publish(one, sale(1))).toThrow("Evidence 1 was not found in ledger (Harbor ledger.pdf). The quote is not on page 1; it is on page 2. Cite the page it is on.");

@@ -10,7 +10,7 @@
 // --keep leaves each project's folder in place, to read what the agents did.
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import assert from "node:assert/strict";
 import { executableOnPath } from "../server/researchers.mjs";
@@ -90,6 +90,10 @@ function serveSite() {
 }
 
 const pause = (ms) => new Promise((done) => setTimeout(done, ms));
+// A seat named, as "Researcher 2", "researcher two" or "the second researcher".
+const SEAT = /\bresearchers? ?#?(\d|one|two|three|four|a\b|b\b)|\b(first|second|third|fourth|other) researcher\b/i;
+for (const dividing of ["Researcher 1: investigate the deeds; Researcher 2: investigate the gazette.", "researcher two, take the letters", "The second researcher should read the ledger."]) assert.match(dividing, SEAT);
+for (const whole of ["The human also wants the year the mill opened.", "Two findings give the 1901 sale; please settle on the board which stands.", "Researchers, the archive has a fifth page."]) assert.doesNotMatch(whole, SEAT);
 
 for (const provider of only.length ? only : ["claude", "codex"]) {
   if (!executableOnPath(provider)) {
@@ -97,6 +101,7 @@ for (const provider of only.length ? only : ["claude", "codex"]) {
     continue;
   }
   const archive = await serveSite();
+  mkdirSync(appHome, { recursive: true });
   const project = mkdtempSync(join(appHome, "live-research-"));
   // The project's settings as the human would have set them: a team of two, and who does which job.
   const seeded = new WorkspaceStore(project, emptyGraph());
@@ -121,14 +126,8 @@ for (const provider of only.length ? only : ["claude", "codex"]) {
     }
     const { url } = JSON.parse(readFileSync(connection, "utf8"));
     const read = async () => (state = await (await fetch(`${url}/api/state`)).json());
-    const sent = await fetch(`${url}/api/commands`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        type: "send",
-        text: `I'd like to know the history of the Example Mill in Harbour Town: who owned it over the years, how it changed hands, and what became of it. Harbour Town is made up, for a test of this app, so the real web has nothing on it; everything there is to know is on the town's archive site at ${archive.base}/ and the pages it lists. Please get the research going.`,
-      }),
-    });
+    const request = `I'd like to know the history of the Example Mill in Harbour Town: who owned it over the years, how it changed hands, and what became of it. Harbour Town is made up, for a test of this app, so the real web has nothing on it; everything there is to know is on the town's archive site at ${archive.base}/ and the pages it lists. Please get the research going.`;
+    const sent = await fetch(`${url}/api/commands`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: "send", text: request }) });
     assert.equal(sent.status, 200, "the human's message was accepted");
     const started = Date.now();
     const until = async (what, minutes, met) => {
@@ -157,10 +156,14 @@ for (const provider of only.length ? only : ["claude", "codex"]) {
     assert.equal(state.investigations.length, 1, "one goal is one batch");
     assert.match(batch().goal, /Example Mill/, "the goal says what the human wants to know");
     assert.ok(batch().goal.includes(archive.base), "the goal says where the human said to look");
-    assert.doesNotMatch(batch().goal, /researcher (1|2|one|two|a|b)\b/i, "the goal does not divide the work between researchers");
+    // A goal that restates the request is about its length; one that adds a method, a
+    // division or a list of what to produce runs well past it.
+    assert.doesNotMatch(batch().goal, SEAT, "the goal gives no researcher a part");
+    assert.ok(batch().goal.length <= request.length * 1.5, `the goal keeps to what the human said (${batch().goal.length} characters for a request of ${request.length})`);
     assert.equal(batch().assignments.length, 2, "the team is the size the human set");
-    const dividing = board.filter((p) => !p.assignmentId && /researcher (1|2|one|two)\b[^.]{0,40}\b(take|takes|handle|cover|own|owns)\b/i.test(p.text));
-    assert.equal(dividing.length, 0, "the coordinator's posts leave who does what to the team");
+    // The coordinator speaks to the whole team: a post of its own that names a seat is steering one researcher.
+    const dividing = board.filter((p) => !p.assignmentId && SEAT.test(p.text));
+    assert.equal(dividing.length, 0, `the coordinator's posts leave who does what to the team (${dividing.map((p) => p.text).join(" / ")})`);
     assert.ok(state.conversation.some((m) => m.author !== "human" && m.text), "the coordinator answered the human");
     // The researchers: sources saved, the board used, findings published and checked.
     assert.ok(saved.length >= 3, "the researchers saved the archive's pages into the library");

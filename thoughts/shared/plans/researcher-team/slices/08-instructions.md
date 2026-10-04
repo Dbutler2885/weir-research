@@ -77,6 +77,20 @@ The first live run, on the wording as it stood, passed its mechanics and showed 
   It now fails that one start with a plain reason, and the researcher starts without a browser.
 - The README and the guide said the coordinator briefs each researcher on a part; they now describe goals and teams.
 
+## Review fixes
+
+A review by Codex found eight defects, all fixed.
+
+- A report's ID alone names the finding to replace only where the report holds one finding; for an older report with several, the refusal asks for the finding's own ID.
+- The instructions said every document's text is in a file named for its revision, which is not so for one imported as plain text; they now point to the file `documents.csv` names.
+- A helper is told to save every source it reads, as the PRD says, where it had been told to save those it relied on.
+- The coordinator's instructions gave a starting point's type under the wrong name, `kind` for `type`.
+- The startup context told the coordinator to search for earlier messages, and search did not cover the conversation.
+  Search now finds messages, and inspecting one returns it whole.
+- The live check creates its research home when there is none.
+- The test for limits now recognizes a limit however it is put, proves that against ten example sentences, and reads the browser's instructions and every form of a researcher's first message as well.
+- The live check fails when a post of the coordinator's names a seat at all, or when the goal runs past one and a half times the length of the human's request, which is what an added method or a list of what to produce would do.
+
 ## Checks
 
 `npm run test:live-research` runs the whole app on a fictional project: a real coordinator and a real team of two, on Claude Code and then on Codex, against a small archive site the script serves.
