@@ -22,9 +22,9 @@ const duration = (ms) => (ms >= 60_000 && ms % 60_000 === 0 ? plural(ms / 60_000
 
 export class SessionDesk {
   // calls: what running code may ask of the app, by name; each is given the call's
-  // arguments and the seat's key, and resolves with the result.
+  // arguments, the seat's key and its agent's folder, and resolves with the result.
   // closed(key) is told when a seat's session ends, so work under way for it can be dropped.
-  /** @param {{home: string, library?: string | null, wait?: number, outputLimit?: number, poll?: number, calls?: Record<string, (args: any, context: {key: string}) => any>, closed?: (key: string) => void, session?: (options: any) => any}} options */
+  /** @param {{home: string, library?: string | null, wait?: number, outputLimit?: number, poll?: number, calls?: Record<string, (args: any, context: {key: string, folder: string}) => any>, closed?: (key: string) => void, session?: (options: any) => any}} options */
   constructor({ home, library = null, wait = DEFAULT_WAIT, outputLimit, poll = 1000, calls = {}, closed = () => {}, session = (options) => new PythonSession(options) }) {
     this.calls = calls;
     this.closed = closed;
@@ -192,7 +192,7 @@ export class SessionDesk {
       else if (seat.can && !seat.can.has(call.name)) reply({ error: seat.refusal(call.name) });
       else
         Promise.resolve()
-          .then(() => this.calls[call.name](call.arguments || {}, { key: seat.key }))
+          .then(() => this.calls[call.name](call.arguments || {}, { key: seat.key, folder: seat.folder }))
           .then(
             (result) => reply({ result: result ?? null }),
             (error) => reply({ error: error.message }),

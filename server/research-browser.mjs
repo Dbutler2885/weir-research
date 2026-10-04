@@ -89,9 +89,49 @@ export class ResearchBrowser {
   mcpServer(url) {
     return this.engine.mcpServer(url);
   }
+  // The page open in the browser at an address, as it shows there, sign-ins included:
+  // {url, title, text, html}, or null when no tab is at that address.
+  async capture(page) {
+    if (!this.engine) throw new Error('No browser researchers can drive, such as Chrome, Brave or Firefox, is installed.');
+    const url = await this.engine.running();
+    if (!url) return null;
+    return this.engine.capture(url, page);
+  }
   async stop() {
     await this.engine?.stop();
   }
+}
+
+// Whether a tab is at the address asked for: the part after # names a place in the page.
+export const sameAddress = (a, b) => {
+  const plain = (value) => String(value).replace(/#.*$/, '').replace(/\/$/, '');
+  return plain(a) === plain(b);
+};
+// Run in the page: what it shows to someone reading it, and the page itself.
+export const CAPTURE = '({url: location.href, title: document.title, text: document.body ? document.body.innerText : "", html: document.documentElement.outerHTML})';
+
+// One command to a tab over the DevTools protocol.
+function devtools(socketUrl, method, params) {
+  return new Promise((resolve, reject) => {
+    const socket = new WebSocket(socketUrl);
+    const timer = setTimeout(() => {
+      socket.close();
+      reject(new Error('The research browser did not answer in time.'));
+    }, 20_000);
+    socket.addEventListener('open', () => socket.send(JSON.stringify({id: 1, method, params})));
+    socket.addEventListener('message', (event) => {
+      const message = JSON.parse(event.data);
+      if (message.id !== 1) return;
+      clearTimeout(timer);
+      socket.close();
+      if (message.error) reject(new Error(message.error.message));
+      else resolve(message.result);
+    });
+    socket.addEventListener('error', () => {
+      clearTimeout(timer);
+      reject(new Error('The research browser could not be reached.'));
+    });
+  });
 }
 
 // Chrome, Brave and the other Chromium browsers: each worker's Chrome DevTools MCP
@@ -142,6 +182,13 @@ class ChromiumEngine {
   async show(url, page) {
     const tab = await fetch(`${url}/json/new?${page ? encodeURI(page) : 'about:blank'}`, {method: 'PUT'}).then((r) => r.json()).catch(() => null);
     if (tab?.id) await fetch(`${url}/json/activate/${tab.id}`).catch(() => {});
+  }
+  async capture(url, page) {
+    const tabs = await fetch(`${url}/json/list`, {signal: AbortSignal.timeout(5000)}).then((r) => r.json());
+    const tab = tabs.find((t) => t.type === 'page' && sameAddress(t.url, page));
+    if (!tab) return null;
+    const result = await devtools(tab.webSocketDebuggerUrl, 'Runtime.evaluate', {expression: CAPTURE, returnByValue: true});
+    return result.result?.value ?? null;
   }
   mcpServer(url) {
     return {
@@ -220,6 +267,12 @@ class FirefoxEngine {
   async show(_url, page) {
     const relay = this.relay();
     await fetch(`${relay.url}/show`, {method: 'POST', headers: {authorization: `Bearer ${relay.token}`, 'content-type': 'application/json'}, body: JSON.stringify({page})}).catch(() => {});
+  }
+  async capture(_url, page) {
+    const relay = this.relay();
+    const response = await fetch(`${relay.url}/capture`, {method: 'POST', headers: {authorization: `Bearer ${relay.token}`, 'content-type': 'application/json'}, body: JSON.stringify({page}), signal: AbortSignal.timeout(20_000)});
+    if (!response.ok) throw new Error('The research browser could not be reached.');
+    return (await response.json()).capture;
   }
   mcpServer() {
     return {command: process.execPath, args: [join(this.root, 'server', 'firefox-mcp.mjs')], env: {RESEARCH_BROWSER_RELAY: this.relayFile}};

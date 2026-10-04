@@ -144,6 +144,8 @@ const researchers = new ResearcherPool(store, directory, root, {
     // A helper's session is allowed only some of these; a researcher's, all of them.
     calls: {
       save: (given, seat) => sources.save(given).then((receipt) => (jobs.saved(seat.key, receipt), receipt)),
+      save_page: (given, seat) => sources.savePage(given).then((receipt) => (jobs.saved(seat.key, receipt), receipt)),
+      save_image: (given, seat) => sources.saveImage(given, { folder: seat.folder }).then((receipt) => (jobs.saved(seat.key, receipt), receipt)),
       publish: (given, seat) => findings.publish(seat.key, given.finding),
       post: (given, seat) => researchers.post(seat.key, given.text),
       reader: (given, seat) => jobs.reader(given, seat.key),
@@ -216,7 +218,7 @@ pdfs.pump();
 // Findings the researchers publish themselves, each quote checked against the saved text.
 const findings = new FindingPublisher(store, { directory, published: () => library.write() });
 // Sources from the web, saved as documents for the whole team.
-const sources = new SourceSaver(store, { directory, readPdf: (file) => pdfs.readFile(file), written: () => library.write() });
+const sources = new SourceSaver(store, { directory, readPdf: (file) => pdfs.readFile(file), written: () => library.write(), browser: researchBrowser.available ? researchBrowser : null });
 const workerCommands = new Set(["claim", "checkpoint", "propose"]);
 const userCommands = new Set([
   "finding-decision",

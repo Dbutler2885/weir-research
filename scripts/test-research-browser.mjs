@@ -111,6 +111,12 @@ for (const kind of browsers) {
     assert.match(seen, /Session: archive-session=signed-in/, "a sign-in made by one worker reaches the other");
     const own = await one.call("evaluate_script", { pageId: mine, function: "() => location.pathname" });
     assert.match(own, /\/sign-in/, "each worker stays in its own tab");
+    // The app saves a page as it shows in the browser, sign-in included.
+    const shown = await browser.capture(`${site}/check#top`);
+    assert.equal(shown.url, `${site}/check`);
+    assert.match(shown.text, /Session: archive-session=signed-in/, "the page is captured as the signed-in browser shows it");
+    assert.match(shown.html, /<p>Session: archive-session=signed-in<\/p>/);
+    assert.equal(await browser.capture(`${site}/not-open`), null, "an address no tab is at gives nothing");
     if (kind.engine === "chromium") {
       const pages = await one.call("list_pages", {});
       assert.match(pages, /sign-in/);

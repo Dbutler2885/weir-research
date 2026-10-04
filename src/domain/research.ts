@@ -209,6 +209,8 @@ export interface ResearchDocument {
   corrections?: TextCorrection[];
   // An image saved with the transcription of the agent that read it.
   transcribed?: boolean;
+  // A page saved from the research browser, as it showed there.
+  via?: "browser";
   // Where reading a PDF into text stands, and which reader did it.
   reading?: {
     state: "waiting" | "reading" | "done" | "failed";

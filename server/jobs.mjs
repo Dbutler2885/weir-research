@@ -21,7 +21,7 @@ export const DEFAULT_HELPER_LIMIT = 8;
 export const helperLimit = (state) => state.researchSettings?.helperLimit ?? DEFAULT_HELPER_LIMIT;
 const MAX_ERRAND = 20_000;
 // What a helper's session may ask of the app: it saves, reads, sweeps and calls readers.
-export const HELPER_CALLS = new Set(["save", "reader", "jev"]);
+export const HELPER_CALLS = new Set(["save", "save_page", "save_image", "reader", "jev"]);
 const ENDED = new Set(["answered", "failed", "cancelled"]);
 
 const helperKey = (job) => `helper:${job.seat}:${job.id}`;
@@ -166,7 +166,7 @@ pages = weir.library.read("<document id>")
 print(len(pages))
 EOF
 
-Only what the code prints comes back to you. The weir package is already imported: weir.library.documents(), weir.library.read(id), weir.library.text(id) and weir.library.search(pattern) read the library; weir.save(url) saves a web page or PDF into the library and returns its receipt with the document's ID; weir.jev(document_id, questions) finds the parts of a long document likely to matter; weir.reader(question, passages) asks cheap readers about passages. help(weir) says more.
+Only what the code prints comes back to you. The weir package is already imported: weir.library.documents(), weir.library.read(id), weir.library.text(id) and weir.library.search(pattern) read the library; weir.save(url) saves a web page or PDF into the library and returns its receipt with the document's ID; weir.save_page(url) saves the page open in the research browser at that address, as it shows there; weir.save_image(source, transcription) saves a scan or photograph, from its address or a file in this folder, with your transcription of it; weir.jev(document_id, questions) finds the parts of a long document likely to matter; weir.reader(question, passages) asks cheap readers about passages. help(weir) says more.
 ${browser ? "The research browser, through your browser tools, for pages that need a real browser or a sign-in the human made there. Open your own tab with new_page, with background set to true, use its page ID in every call, and close it when you are done.\n" : ""}
 ## Sources
 

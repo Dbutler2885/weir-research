@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it } from "vitest";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -22,6 +22,9 @@ afterEach(() =>
 );
 
 const page = (body: string, title = "Fictional Harbor Gazette") => `<!doctype html><html><head><title>${title}</title><style>p { color: red }</style></head><body>${body}<script>track()</script></body></html>`;
+
+// The start of a PNG, standing in for a scanned page of a fictional register.
+const SCAN = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from("fictional scan")]);
 
 // A fictional site on this computer, and a project that saves from it.
 async function fixture() {
@@ -48,6 +51,7 @@ async function fixture() {
     if (req.url === "/app") return send("text/html", page('<div id="root"></div>'));
     if (req.url === "/latin") return send("text/html; charset=iso-8859-1", Buffer.from(page("<p>Fictional café ledger of the Example family, 1882.</p>"), "latin1"));
     if (req.url === "/picture") return send("image/png", Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    if (req.url === "/scan.png") return send("image/png", SCAN);
     if (req.url === "/moved") {
       res.writeHead(302, { Location: "/gazette" });
       return res.end();
@@ -56,7 +60,10 @@ async function fixture() {
   });
   await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
   const base = `http://127.0.0.1:${(server.address() as any).port}`;
-  const saver = new SourceSaver(store, { directory, readPdf: (file: string) => reading.readFile(file), written: () => library.write() });
+  // What the research browser shows at each address, as the test sets it.
+  const tabs = new Map<string, { title: string; text: string; html: string }>();
+  const browser = { capture: async (url: string) => (tabs.has(url) ? { url, ...tabs.get(url)! } : null) };
+  const saver = new SourceSaver(store, { directory, readPdf: (file: string) => reading.readFile(file), written: () => library.write(), browser });
   cleanup.push(() => {
     server.close();
     server.closeAllConnections();
@@ -67,7 +74,7 @@ async function fixture() {
   const save = (path: string, fresh = false) => saver.save({ url: `${base}${path}`, fresh });
   const doc = (id: string) => store.state.documents.find((d: any) => d.id === id) as any;
   const inLibrary = (path: string) => readFileSync(join(directory, "library", path), "utf8");
-  return { directory, store, site, base, saver, save, doc, inLibrary };
+  return { directory, store, site, base, saver, save, doc, inLibrary, tabs };
 }
 
 describe("a page's readable text", () => {
@@ -191,5 +198,80 @@ describe("saving sources", () => {
     expect(store.state.documents).toHaveLength(0);
     expect(readdirSync(join(directory, "documents"))).toHaveLength(0);
     expect(existsSync(join(directory, "library", "documents", "documents.csv"))).toBe(true);
+  });
+});
+
+describe("saving the page open in the research browser", () => {
+  it("saves the page as it shows there, sign-ins included, with its address and the time", async () => {
+    const f = await fixture();
+    const url = `${f.base}/members/register`;
+    f.tabs.set(url, { title: "Fictional parish register", text: "Signed in as a member.\nAda Example, baptised 1851.  \nBen Example, baptised 1853.", html: "<html><body><p>Signed in as a member.</p></body></html>" });
+    const receipt = await f.saver.savePage({ url: `${url}#entry-4` });
+    expect(receipt).toMatchObject({ title: "Fictional parish register", url, pages: 1, existing: false });
+    const doc = f.doc(receipt.id);
+    expect(doc).toMatchObject({ mime: "text/html", name: "Fictional parish register.html", via: "browser", url, text: "Signed in as a member.\nAda Example, baptised 1851.\nBen Example, baptised 1853." });
+    expect(doc.capturedAt).toMatch(/^\d{4}-/);
+    // The page itself is kept, and nothing was downloaded: a plain download would not see it.
+    expect(readFileSync(join(f.directory, "documents", receipt.id), "utf8")).toBe("<html><body><p>Signed in as a member.</p></body></html>");
+    expect(f.site.requests).toEqual([]);
+    expect(sourceLibrary(f.store.state).find((source: any) => source.id === receipt.id)).toMatchObject({ title: "Fictional parish register", url });
+    expect(f.inLibrary(`documents/${receipt.id}.r1.txt`)).toContain("Ada Example, baptised 1851.");
+  });
+  it("is always a fresh capture: the same text gives the earlier capture, and changed text a new one", async () => {
+    const f = await fixture();
+    const url = `${f.base}/members/register`;
+    f.tabs.set(url, { title: "Register", text: "Ada Example, baptised 1851, at the harbor chapel.", html: "<p>one</p>" });
+    const first = await f.saver.savePage({ url });
+    f.tabs.set(url, { title: "Register", text: "Ada Example, baptised 1851, at the harbor chapel.", html: "<p>one, drawn again</p>" });
+    expect(await f.saver.savePage({ url })).toMatchObject({ id: first.id, existing: true });
+    f.tabs.set(url, { title: "Register", text: "Ada Example, baptised 1851, at the harbor chapel. Corrected 1902.", html: "<p>two</p>" });
+    const second = await f.saver.savePage({ url });
+    expect(second).toMatchObject({ existing: false });
+    expect(second.id).not.toBe(first.id);
+    // A plain save of the address now gives what the browser last showed.
+    expect(await f.saver.save({ url })).toMatchObject({ id: second.id, existing: true });
+  });
+  it("says what to do when no tab is at the address, or the page shows nothing to read", async () => {
+    const f = await fixture();
+    await expect(f.saver.savePage({ url: `${f.base}/nowhere` })).rejects.toThrow(`No tab in the research browser is open at ${f.base}/nowhere. Open the page there with your browser tools, then save it while it is open.`);
+    f.tabs.set(`${f.base}/scan`, { title: "Scan", text: "  ", html: "<img>" });
+    await expect(f.saver.savePage({ url: `${f.base}/scan` })).rejects.toThrow("shows no readable text, so it was not saved. If it is a scan, save its image with your transcription.");
+    expect(f.store.state.documents.filter((d: any) => d.collectionId === "web")).toEqual([]);
+  });
+});
+
+describe("saving an image with a transcription", () => {
+  const transcription = "Register of the fictional harbor chapel, 1851.\r\nAda Example, daughter of Cora Example, baptised 4 May.";
+  it("keeps the image as it is, with the agent's transcription as its text, marked as transcribed", async () => {
+    const f = await fixture();
+    const receipt = await f.saver.saveImage({ source: `${f.base}/scan.png`, transcription, title: "Chapel register, 1851" });
+    expect(receipt).toMatchObject({ title: "Chapel register, 1851", url: `${f.base}/scan.png`, pages: 1, existing: false, transcribed: true });
+    const doc = f.doc(receipt.id);
+    expect(doc).toMatchObject({ mime: "image/png", name: "Chapel register, 1851.png", transcribed: true, text: "Register of the fictional harbor chapel, 1851.\nAda Example, daughter of Cora Example, baptised 4 May." });
+    expect(readFileSync(join(f.directory, "documents", receipt.id)).equals(SCAN)).toBe(true);
+    expect(f.inLibrary(`documents/${receipt.id}.r1.txt`)).toContain("Ada Example, daughter of Cora Example");
+    expect(sourceLibrary(f.store.state).find((source: any) => source.id === receipt.id)!.note).toContain("with the transcription of the agent that read it");
+    // The same image and words again are the capture already there; other words are another reading.
+    expect(await f.saver.saveImage({ source: `${f.base}/scan.png`, transcription })).toMatchObject({ id: receipt.id, existing: true });
+    const reread = await f.saver.saveImage({ source: `${f.base}/scan.png`, transcription: `${transcription} Witness: Dan Example.` });
+    expect(reread.id).not.toBe(receipt.id);
+  });
+  it("takes an image file from the agent's own folder, and nowhere else", async () => {
+    const f = await fixture();
+    const folder = join(f.directory, "agents", "helper");
+    mkdirSync(folder, { recursive: true });
+    writeFileSync(join(folder, "page-4.png"), SCAN);
+    writeFileSync(join(f.directory, "outside.png"), SCAN);
+    const receipt = await f.saver.saveImage({ source: "page-4.png", transcription }, { folder });
+    expect(receipt).toMatchObject({ title: "page-4", existing: false, transcribed: true });
+    expect(receipt.url).toBeUndefined();
+    await expect(f.saver.saveImage({ source: "../../outside.png", transcription }, { folder })).rejects.toThrow("An image file must be in your own folder.");
+    await expect(f.saver.saveImage({ source: "missing.png", transcription }, { folder })).rejects.toThrow('There is no file "missing.png" in your folder.');
+  });
+  it("is refused without a transcription, and for a file that is not an image", async () => {
+    const f = await fixture();
+    await expect(f.saver.saveImage({ source: `${f.base}/scan.png`, transcription: " " })).rejects.toThrow("Give your transcription of the image");
+    await expect(f.saver.saveImage({ source: `${f.base}/gazette`, transcription })).rejects.toThrow("This is not an image the app can save");
+    expect(f.store.state.documents.filter((d: any) => d.collectionId === "web")).toEqual([]);
   });
 });

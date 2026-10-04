@@ -125,7 +125,7 @@ describe("a helper sent on an errand", () => {
     expect(session).toMatchObject({ open: true, folder: started.folder });
     expect(session.authorize(job.ticket)).toBe(true);
     expect(session.authorize(f.seat().lease.token)).toBe(false);
-    expect([...session.can].sort()).toEqual(["jev", "reader", "save"]);
+    expect([...session.can].sort()).toEqual(["jev", "reader", "save", "save_image", "save_page"]);
     expect(session.refusal("post")).toContain("The board and publishing are its researcher's");
     // What the researcher's session reads of it.
     expect(f.shown("h1")).toMatchObject({ id: "h1", status: "running", saved: [] });

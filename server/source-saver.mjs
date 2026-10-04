@@ -3,8 +3,8 @@
 // whole team shares one copy and every quote can be checked against it. A capture has
 // its own ID and never changes; a later capture of the same address is another document.
 import { createHash, randomUUID } from "node:crypto";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { basename, join, resolve, sep } from "node:path";
 import { declaredCharset, readableText } from "./html-text.mjs";
 import { pageText } from "./pdf/reading.mjs";
 
@@ -30,6 +30,16 @@ function address(given) {
   return url;
 }
 
+// The kinds of image that can be saved, told by how their bytes begin.
+const IMAGES = [
+  { mime: "image/png", extension: ".png", is: (b) => b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) },
+  { mime: "image/jpeg", extension: ".jpg", is: (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff },
+  { mime: "image/gif", extension: ".gif", is: (b) => ["GIF87a", "GIF89a"].includes(b.subarray(0, 6).toString("latin1")) },
+  { mime: "image/webp", extension: ".webp", is: (b) => b.subarray(0, 4).toString("latin1") === "RIFF" && b.subarray(8, 12).toString("latin1") === "WEBP" },
+  { mime: "image/tiff", extension: ".tif", is: (b) => ["II*\u0000", "MM\u0000*"].includes(b.subarray(0, 4).toString("latin1")) },
+];
+const MAX_TRANSCRIPTION = 500_000;
+
 function decode(bytes, type) {
   for (const charset of [type.match(/charset\s*=\s*["']?([\w-]+)/i)?.[1], declaredCharset(bytes), "utf-8"]) {
     if (!charset) continue;
@@ -45,8 +55,10 @@ function decode(bytes, type) {
 export class SourceSaver {
   // readPdf(file) resolves with a PDF's pages and the reader that read them.
   // written() runs after a save, to bring the library's files up to date at once.
-  /** @param {any} store @param {{directory: string, readPdf: (file: string) => Promise<{pages: {number: number, text: string, method?: string}[], engine: string}>, written?: () => void, maxBytes?: number, timeout?: number, download?: typeof fetch}} options */
-  constructor(store, { directory, readPdf, written = () => {}, maxBytes = 50_000_000, timeout = 60_000, download = fetch }) {
+  // browser.capture(url) gives the page open in the research browser at an address.
+  /** @param {any} store @param {{directory: string, readPdf: (file: string) => Promise<{pages: {number: number, text: string, method?: string}[], engine: string}>, written?: () => void, maxBytes?: number, timeout?: number, download?: typeof fetch, browser?: {capture: (url: string) => Promise<{url: string, title: string, text: string, html: string} | null>} | null}} options */
+  constructor(store, { directory, readPdf, written = () => {}, maxBytes = 50_000_000, timeout = 60_000, download = fetch, browser = null }) {
+    this.browser = browser;
     this.store = store;
     this.directory = directory;
     this.readPdf = readPdf;
@@ -97,7 +109,86 @@ export class SourceSaver {
 
   receipt(doc, existing) {
     const title = this.store.state.dataset.sources?.find((source) => source.id === doc.id)?.title || doc.name;
-    return { id: doc.id, title, url: doc.url, pages: doc.pages ?? 1, characters: (doc.text || "").length, existing };
+    return { id: doc.id, title, ...(doc.url ? { url: doc.url } : {}), pages: doc.pages ?? 1, characters: (doc.text || "").length, existing, ...(doc.transcribed ? { transcribed: true } : {}) };
+  }
+
+  // Keeps an original and registers it as a document and a source.
+  register({ id = randomUUID(), bytes, title, fields, url, source, latest = Boolean(url) }) {
+    const hash = sha256(bytes);
+    mkdirSync(join(this.directory, "documents"), { recursive: true });
+    writeFileSync(join(this.directory, "documents", id), bytes, { mode: 0o600 });
+    const at = new Date().toISOString();
+    const saved = { id, collectionId: COLLECTION, ...fields, size: bytes.length, sha256: hash, importedAt: at, ...(url ? { url } : {}), capturedAt: at, revision: 1 };
+    this.store.update((next) => {
+      next.documents.push(saved);
+      if (latest) (next.latestCaptures ||= {})[url] = id;
+      (next.dataset.sources ||= []).push({ id, title, ...(url ? { repository: new URL(url).hostname, url } : {}), date: at.slice(0, 10), access: "full-text", accessedAt: at, ...source, note: `${source.note} SHA-256: ${hash}` });
+    });
+    this.written();
+    return this.receipt(saved, false);
+  }
+
+  // Saves the page open in the research browser at an address, as it shows there,
+  // sign-ins included. It is always a fresh capture; one that shows the same text as
+  // an earlier capture of the address gives that earlier one.
+  async savePage({ url: given }) {
+    const url = address(given).href;
+    if (!this.browser) throw new Error("This project has no research browser to save a page from. Save the address with weir.save instead.");
+    const before = this.saving.get(url) || Promise.resolve();
+    const result = before.then(async () => {
+      const shown = await this.browser.capture(url);
+      if (!shown) throw new Error(`No tab in the research browser is open at ${url}. Open the page there with your browser tools, then save it while it is open.`);
+      const text = String(shown.text || "").replace(/\r\n?/g, "\n").replace(/[ \t]+\n/g, "\n").trim();
+      if (text.replace(/\s/g, "").length < READABLE_MINIMUM) throw new Error("The page open in the research browser shows no readable text, so it was not saved. If it is a scan, save its image with your transcription.");
+      const unchanged = this.captures(url).findLast((d) => d.text === text);
+      if (unchanged) return this.seen(url, unchanged);
+      const title = String(shown.title || "").trim() || decodeURIComponent(new URL(url).pathname.split("/").filter(Boolean).at(-1) || "") || new URL(url).hostname;
+      return this.register({ bytes: Buffer.from(String(shown.html || ""), "utf8"), title, url, fields: { name: fileName(title, ".html"), mime: "text/html", text, pages: 1, via: "browser" }, source: { note: "Saved by the app from the research browser, as the page showed there." } });
+    });
+    const settled = result.catch(() => {}).then(() => {
+      if (this.saving.get(url) === settled) this.saving.delete(url);
+    });
+    this.saving.set(url, settled);
+    return result;
+  }
+
+  // Saves an image with the transcription of the agent that read it, for a record that
+  // has no text of its own. The image is an address, which the app downloads, or a file
+  // in the agent's own folder. Quotes from it are marked as transcribed, since the app
+  // cannot check them against the image.
+  /** @param {{source: string, transcription: string, title?: string}} given @param {{folder?: string | null}} [where] */
+  async saveImage({ source, transcription, title: named }, { folder = null } = {}) {
+    if (typeof transcription !== "string" || transcription.replace(/\s/g, "").length < READABLE_MINIMUM) throw new Error("Give your transcription of the image: the words it shows, as you read them.");
+    if (transcription.length > MAX_TRANSCRIPTION) throw new Error(`A transcription holds up to ${MAX_TRANSCRIPTION.toLocaleString("en-US")} characters; save a longer record as several images.`);
+    if (typeof source !== "string" || !source.trim()) throw new Error("Give the image: its web address, or a file in your folder.");
+    let bytes;
+    let url;
+    if (/^https?:\/\//i.test(source.trim())) {
+      url = address(source).href;
+      ({ bytes } = await this.fetch(url));
+    } else {
+      if (!folder) throw new Error("Give the image's web address, starting with https://.");
+      const root = realpathSync(folder);
+      let file;
+      try {
+        file = realpathSync(resolve(root, source.trim()));
+      } catch {
+        throw new Error(`There is no file ${JSON.stringify(source)} in your folder.`);
+      }
+      if (file !== root && !file.startsWith(root + sep)) throw new Error("An image file must be in your own folder. Save it there, or give its web address.");
+      if (statSync(file).size > this.maxBytes) throw new Error(`${basename(file)} is larger than ${Math.floor(this.maxBytes / 1_000_000)} MB, so it was not saved.`);
+      bytes = readFileSync(file);
+    }
+    const kind = IMAGES.find((image) => image.is(bytes));
+    if (!kind) throw new Error("This is not an image the app can save: PNG, JPEG, GIF, WebP and TIFF images can be saved. A page or a PDF is saved with weir.save.");
+    const text = transcription.replace(/\r\n?/g, "\n").trim();
+    const hash = sha256(bytes);
+    // The same image with the same transcription is the capture already there.
+    const same = this.store.state.documents.find((d) => d.transcribed && d.sha256 === hash && d.text === text);
+    if (same) return this.receipt(same, true);
+    const last = url ? decodeURIComponent(new URL(url).pathname.split("/").filter(Boolean).at(-1) || "") : basename(source.trim());
+    const title = (typeof named === "string" && named.trim()) || last.replace(/\.[^.]+$/, "") || "Saved image";
+    return this.register({ bytes, title, url, latest: false, fields: { name: fileName(title, kind.extension), mime: kind.mime, text, pages: 1, transcribed: true }, source: { note: "An image saved by the app, with the transcription of the agent that read it." } });
   }
 
   async capture(url, fresh) {

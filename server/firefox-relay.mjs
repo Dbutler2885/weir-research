@@ -130,6 +130,12 @@ async function main() {
         await page.bringToFront().catch(() => {});
         return reply(200, {ok: true});
       }
+      // The app saves the page open at an address, as it shows in the browser.
+      if (req.url === '/capture') {
+        const same = (a, b) => String(a).replace(/#.*$/, '').replace(/\/$/, '') === String(b).replace(/#.*$/, '').replace(/\/$/, '');
+        const page = (await browser.pages()).find((p) => same(p.url(), request.page));
+        return reply(200, {capture: page ? await page.evaluate(() => ({url: location.href, title: document.title, text: document.body ? document.body.innerText : '', html: document.documentElement.outerHTML})) : null});
+      }
       reply(404, {error: 'Not found.'});
     } catch (error) {
       // A tool that fails tells the worker why, as a tool result.

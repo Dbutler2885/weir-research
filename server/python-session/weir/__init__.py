@@ -2,6 +2,8 @@
 
 library: the project's research library, read into variables.
 save(url): saves a web page or PDF into the library, for the whole team.
+save_page(url): saves the page open in the research browser, as it shows there.
+save_image(source, transcription): saves an image with your transcription of it.
 jev(document, questions): sweeps a long document for the passages likely to matter.
 reader(question, passages): asks cheap readers about passages, and returns their answers.
 helper(errand): sends a helper on an errand and returns its handle at once.
@@ -38,6 +40,33 @@ def save(url, fresh=False):
     the download fails or the page has no readable text.
     """
     return _app.call("save", url=url, fresh=bool(fresh))
+
+
+def save_page(url):
+    """Saves the page open in the research browser at this address, as it shows there,
+    sign-ins included, and returns its receipt, as weir.save does.
+
+    Open the page in your own tab with your browser tools first, and save it while it
+    is open. It is for pages that a plain download cannot see: behind a sign-in, or
+    drawn by the page's scripts. Raises weir.AppError, saying why, when no tab is open
+    at the address or the page shows no readable text.
+    """
+    return _app.call("save_page", url=url)
+
+
+def save_image(source, transcription, title=None):
+    """Saves an image of a record with your transcription of it, and returns its
+    receipt, with "transcribed" true.
+
+    source is the image's web address, or a file in your folder, such as a screenshot.
+    transcription is the words the image shows, as you read them, exactly; it becomes
+    the document's text, so it can be searched and quoted. A quote from it is marked
+    as transcribed in a finding, since the app cannot check it against the image.
+    """
+    arguments = {"source": source, "transcription": transcription}
+    if title is not None:
+        arguments["title"] = title
+    return _app.call("save_image", **arguments)
 
 
 def jev(document, questions, threshold=0.3):
@@ -197,4 +226,4 @@ def publish(statement, qualification, explanation, evidence, replaces=None):
     return _app.call("publish", finding=finding)
 
 
-__all__ = ["AppError", "Helper", "helper", "helpers", "jev", "library", "output", "post", "publish", "reader", "save"]
+__all__ = ["AppError", "Helper", "helper", "helpers", "jev", "library", "output", "post", "publish", "reader", "save", "save_image", "save_page"]
