@@ -192,6 +192,11 @@ describe.skipIf(!onMac)("the session desk", () => {
         if (given.finding.evidence[0].page !== 2) throw new Error("Evidence 1 was not found in doc-1 (Harbor ledger.pdf). The quote is not on page 1; it is on page 2. Cite the page it is on.");
         return { id: "report-1/f1", statement: given.finding.statement, evidence: [{ document: "doc-1", pages: [2, 2], check: "checked" }] };
       },
+      reader: async (given: any, context: any) => {
+        asked.push({ ...given, seat: context.key });
+        if (given.passages === undefined) return `Reply to: ${given.prompt}`;
+        return given.passages.map((p: any) => ({ label: p.label, relevant: p.label !== "gazette", answer: `About ${p.label}.`, quotes: [], cached: false }));
+      },
       post: async (given: any, context: any) => {
         if (asked.some((a) => a.text === given.text)) throw new Error("You already posted exactly this, so it was not posted again.");
         asked.push({ ...given, seat: context.key });
@@ -238,6 +243,21 @@ describe.skipIf(!onMac)("the session desk", () => {
       finding: { statement: "Ada Example is named in the ledger.", qualification: "supported", explanation: "The ledger names her.", evidence: [{ document: "doc-1", page: 2, quote: "The ledger names Ada Example.", interpretation: "She is named." }], replaces: "report-0/f1" },
     });
     expect((await tool(folder, code(1), "lease-1")).stdout).toBe("Evidence 1 was not found in doc-1 (Harbor ledger.pdf). The quote is not on page 1; it is on page 2. Cite the page it is on.\n");
+  });
+
+  it("lets running code ask readers, with one prompt or a question and passages, and get the answers into variables", async () => {
+    const { folder, asked } = desk();
+    expect(await tool(folder, "print(weir.reader('Is this fictional?'))", "lease-1")).toMatchObject({ code: 0, stdout: "Reply to: Is this fictional?\n" });
+    const code = [
+      "pages = weir.library.read('doc-1')",
+      "answers = weir.reader('Who is named?', [{'label': 'ledger', 'document': 'doc-1', 'pages': pages}, {'label': 'gazette', 'text': 'Fine weather.'}])",
+      "print([a['label'] for a in answers if a['relevant']])",
+      "more = weir.reader('Who is named?', {'a': 'One.', 'b': 'Two.'}) + weir.reader('Who is named?', ['First.', 'Second.'])",
+      "print([a['label'] for a in more])",
+    ].join("\n");
+    expect(await tool(folder, code, "lease-1")).toMatchObject({ code: 0, stdout: "['ledger']\n['a', 'b', '1', '2']\n" });
+    expect(asked[1]).toMatchObject({ question: "Who is named?", seat: "seat-1", passages: [{ label: "ledger", document: "doc-1", pages: [{ page: 1 }, { page: 2, text: "The ledger names Ada Example." }] }, { label: "gazette", text: "Fine weather." }] });
+    expect(asked[3].passages).toEqual([{ label: "1", text: "First." }, { label: "2", text: "Second." }]);
   });
 
   it("lets running code post to the board, hear when the same post was already made, and counts as under way while it runs", async () => {

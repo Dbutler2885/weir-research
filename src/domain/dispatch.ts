@@ -8,6 +8,7 @@ export const ROLES = [
   { id: "graph-builder", label: "Graph builder" },
   { id: "walkthrough-writer", label: "Walkthrough writer" },
   { id: "helper", label: "Helper", note: "Small tasks the coordinator hands off" },
+  { id: "reader", label: "Reader", note: "One prompt and one answer, with no tools, for a researcher's code" },
 ] as const;
 export type Role = (typeof ROLES)[number]["id"];
 export type AgentId = "claude" | "codex";
@@ -114,10 +115,33 @@ function validateRule(rule: unknown, catalog: Catalog, where: string): DispatchR
 }
 
 // The choice for a role: what was named for this assignment, else the role's own
-// entry, else the default.
-export function choose(doc: Dispatch, role: Role, named?: Partial<Choice> | null): Choice {
+// entry, else the default. A reader with no entry of its own, where the catalog is
+// given, is the cheap choice rather than the default.
+export function choose(doc: Dispatch, role: Role, named?: Partial<Choice> | null, catalog?: Catalog | null): Choice {
   if (named?.agent) return { agent: named.agent, model: named.model ?? null, effort: named.effort ?? null };
+  if (role === "reader" && !doc.roles.reader && catalog) return cheapChoice(catalog, doc.default);
   return doc.roles[role] ?? doc.default;
+}
+
+// The models that read cheaply, by the family names their makers give them.
+const CHEAP = [/luna/i, /haiku/i, /mini/i, /nano/i];
+const cheapest = (agent: Catalog["agents"][number] | undefined) => {
+  const current = (agent?.models || []).filter((m) => !m.older);
+  for (const family of CHEAP) {
+    const model = current.find((m) => family.test(m.id) || family.test(m.label));
+    if (model) return model;
+  }
+  return null;
+};
+// Heavy reading costs little without the human setting anything: Codex's Luna at high
+// effort, or where Codex is not installed, the default agent at its cheapest model.
+export function cheapChoice(catalog: Catalog, fallback: Choice): Choice {
+  const codex = catalog.agents.find((a) => a.id === "codex" && a.installed);
+  const luna = codex?.models.find((m) => !m.older && (/luna/i.test(m.id) || /luna/i.test(m.label)));
+  const agent = luna ? codex : catalog.agents.find((a) => a.id === fallback.agent);
+  const model = luna ?? cheapest(agent);
+  if (!agent || !model) return fallback;
+  return { agent: agent.id, model: model.id, effort: model.efforts.includes("high") ? "high" : null };
 }
 
 // A change from settings or the coordinator: set a role or the default, add a

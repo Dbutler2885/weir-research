@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { streamActions } from "../live-activity.mjs";
-import { claudeIsolationArgs } from "./isolation.mjs";
+import { claudeIsolationArgs, claudeReaderArgs } from "./isolation.mjs";
 
 // Claude Code's rate-limit report: whether the limit is reached, when it resets,
 // and how much of each window is used.
@@ -24,7 +24,21 @@ export const claudeAdapter = {
   // retrieval when webFetch is false.
   // compactAt is the context size, in tokens, at which Claude Code compacts on its own.
   // resume picks up an earlier conversation by its session ID.
-  args({ folder, instructions = "", model = "", effort = "", web = false, webFetch = true, browser = null, compactAt = 0, resume = "", readOnly = [] }) {
+  // tools: false starts it with no tools, and its instructions as its whole system prompt.
+  args({ folder, instructions = "", model = "", effort = "", web = false, webFetch = true, browser = null, compactAt = 0, resume = "", readOnly = [], tools = true }) {
+    if (!tools)
+      return [
+        "--print",
+        "--input-format",
+        "stream-json",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        ...(model ? ["--model", model] : []),
+        ...(effort ? ["--effort", effort] : []),
+        ...claudeReaderArgs(),
+        ...(instructions ? ["--system-prompt", instructions] : []),
+      ];
     return [
       "--print",
       "--input-format",

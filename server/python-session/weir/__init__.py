@@ -2,6 +2,7 @@
 
 library: the project's research library, read into variables.
 save(url): saves a web page or PDF into the library, for the whole team.
+reader(question, passages): asks cheap readers about passages, and returns their answers.
 post(text): posts to the batch's board, for the whole team.
 publish(...): publishes a finding with its evidence, for the human and the team.
 output(id): the whole output of a run whose printed output was cut short.
@@ -33,6 +34,38 @@ def save(url, fresh=False):
     the download fails or the page has no readable text.
     """
     return _app.call("save", url=url, fresh=bool(fresh))
+
+
+def reader(question, passages=None):
+    """Asks a reader: a cheap model that sees only what you send it, and answers once.
+
+    reader(prompt) sends one prompt of up to about 100,000 characters and returns the
+    reply as text.
+
+    reader(question, passages) asks the question of each passage and returns a list of
+    answers in the passages' order. A passage is {"label": ..., "text": ...}, or
+    {"label": ..., "pages": [{"page": n, "text": ...}]} as weir.library.read gives
+    pages; a dict of label to text, or a list of strings, works too. Each passage is
+    up to about 100,000 characters. Each answer is
+    {"label", "relevant", "answer", "quotes": [{"page", "quote", "found"}], "cached"}:
+    relevant is False when the passage does not answer the question. found says
+    whether the quoted words are in the passage, and page is the page the app found
+    them on, whatever the reader cited. Anything else you put
+    in a passage, such as "document", comes back in its answer. A passage whose
+    reader failed has "problem" in place of the answer.
+
+    Send as many passages as you like in one call: the app packs them whole into as
+    few prompts as hold them and runs the readers side by side. Answers are kept, so
+    asking the same question of the same passage again returns at once and costs
+    nothing. Raises weir.AppError, saying why, when no reader could run.
+    """
+    if passages is None:
+        return _app.call("reader", prompt=question)
+    if isinstance(passages, dict):
+        passages = [{"label": label, "text": text} for label, text in passages.items()]
+    else:
+        passages = [{"label": str(n), "text": p} if isinstance(p, str) else p for n, p in enumerate(passages, 1)]
+    return _app.call("reader", question=question, passages=passages)
 
 
 def post(text):
@@ -71,4 +104,4 @@ def publish(statement, qualification, explanation, evidence, replaces=None):
     return _app.call("publish", finding=finding)
 
 
-__all__ = ["AppError", "library", "output", "post", "publish", "save"]
+__all__ = ["AppError", "library", "output", "post", "publish", "reader", "save"]

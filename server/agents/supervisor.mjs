@@ -136,10 +136,12 @@ export class AgentSupervisor {
   // Options: instructions, model, effort and web are passed to the
   // adapter. The raw stream is kept in the log file, by default beside the agent's
   // folder, where the agent does not read its own output back.
-  start({ key, provider, executable, folder, env = process.env, prompt, live, describe, log = `${folder}.log`, meta = {}, ...options }) {
+  // local: the agent runs beneath the app itself and ends with it, as a reader does,
+  // whose one answer is asked for again rather than waited for across a restart.
+  start({ key, provider, executable, folder, env = process.env, prompt, live, describe, log = `${folder}.log`, meta = {}, local = false, ...options }) {
     const adapter = this.adapters[provider];
     if (!adapter) throw new Error(`No adapter for ${provider}.`);
-    if (this.hosts) return this.watchAgent(this.startHosted({ key, provider, executable, folder, env, prompt, describe, log, meta, options }), { key, provider, live });
+    if (this.hosts && !local) return this.watchAgent(this.startHosted({ key, provider, executable, folder, env, prompt, describe, log, meta, options }), { key, provider, live });
     const child = this.launch(executable, adapter.args({ folder, ...options }), {
       cwd: folder,
       env: adapter.env ? adapter.env({ ...env }, { homes: this.homes }) : { ...env },

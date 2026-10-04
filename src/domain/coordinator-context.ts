@@ -198,7 +198,7 @@ function dispatchText(state: ResearchState): string {
     ...Object.entries(d.roles).map(([role, c]) => `- ${role}: ${choice(c!)}`),
     ...d.rules.map((r) => `- rule for ${r.role}, when ${r.when}: ${choice(r.choose)} (${r.reason}; id ${r.id})`),
   ];
-  return `### Who does which job\n\n${lines.join("\n")}\nRoles without an entry use the default. When a rule's condition fits a batch you are opening, name its agent, model and effort in the open-batch command.`;
+  return `### Who does which job\n\n${lines.join("\n")}\nRoles without an entry use the default; a reader without one uses a cheap model, Codex's Luna where it is installed. When a rule's condition fits a batch you are opening, name its agent, model and effort in the open-batch command.`;
 }
 
 const unsummarized = (d: ResearchState["dataset"]) => d.nodes.filter((n) => !n.summary?.trim()).length;

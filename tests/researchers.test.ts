@@ -144,6 +144,10 @@ describe("a team of researchers", () => {
     expect(() => f.pool.configure({ researchersPerBatch: 0 })).toThrow("from 1 to 20");
     f.pool.configure({ researchersPerBatch: 2 });
     expect(f.store.state.researchSettings).toEqual({ timeLimitMinutes: null, researchersPerBatch: 2 });
+    // How many readers run at once is a setting beside it.
+    expect(() => f.pool.configure({ readerLimit: 0 })).toThrow("The reader limit must be a whole number from 1 to 100.");
+    expect(f.pool.configure({ readerLimit: 5 })).toEqual({ timeLimitMinutes: null, researchersPerBatch: 2, readerLimit: 5 });
+    f.store.update((next: any) => delete next.researchSettings.readerLimit);
     const coordinator = openTeam(f.store, f.pool, "codex", { size: 2 }).coordinator;
     expect(f.launches).toHaveLength(2);
     expect(f.launches[0]!.executable).toBe("/test/codex");

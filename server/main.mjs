@@ -19,7 +19,8 @@ import { randomBytes, createHash } from "node:crypto";
 import { WorkspaceStore } from "./store.mjs";
 import { organize } from "./organization.mjs";
 import { Coordinator } from "./coordinator.mjs";
-import { ResearcherPool } from "./researchers.mjs";
+import { ResearcherPool, executableOnPath } from "./researchers.mjs";
+import { Readers } from "./readers.mjs";
 import { ResearchLibrary } from "./research-library.mjs";
 import { GraphBuilders } from "./graph-builders.mjs";
 import { WalkthroughWriters } from "./walkthrough-writers.mjs";
@@ -77,7 +78,7 @@ let closing = false;
 function close() {
   if (closing) return;
   closing = true;
-  for (const stop of [() => coordinatorHost.stop(), () => helpers.stop(), () => researchers.stop(), () => graphBuilders.stop(), () => writers.stop(), () => pdfs.stop()])
+  for (const stop of [() => coordinatorHost.stop(), () => helpers.stop(), () => readers.stop(), () => researchers.stop(), () => graphBuilders.stop(), () => writers.stop(), () => pdfs.stop()])
     try {
       stop();
     } catch {
@@ -118,6 +119,9 @@ const setupScreen = setupRoutes({ home: appDirectory, homes: agentHomes(appDirec
 // Everything the project has produced, as files every researcher can read.
 const library = new ResearchLibrary(store, directory);
 process.on("exit", () => library.stop());
+// Readers answer single prompts for researchers' code, on a cheap model with no tools.
+const readers = new Readers(store, directory, { supervisor, findExecutable: executableOnPath });
+process.on("exit", () => readers.stop());
 const researchers = new ResearcherPool(store, directory, root, {
   coordinator,
   live,
@@ -129,7 +133,8 @@ const researchers = new ResearcherPool(store, directory, root, {
     library: join(directory, "library"),
     // What a researcher's running code may ask of the app.
     // A seat's key is its assignment's ID.
-    calls: { save: (given) => sources.save(given), publish: (given, seat) => findings.publish(seat.key, given.finding), post: (given, seat) => researchers.post(seat.key, given.text) },
+    calls: { save: (given) => sources.save(given), publish: (given, seat) => findings.publish(seat.key, given.finding), post: (given, seat) => researchers.post(seat.key, given.text), reader: (given, seat) => readers.ask(given, { seat: seat.key }) },
+    closed: (key) => readers.cancel(key),
   }),
 });
 coordinator.researchers = researchers;
@@ -141,6 +146,7 @@ const catalog = await agentCatalog({ findExecutable: researchers.findExecutable 
 const dispatch = new DispatchRules(store, catalog);
 dispatch.ensure();
 coordinator.dispatch = dispatch;
+readers.dispatch = dispatch;
 process.on("exit", () => writers.stop());
 process.on("exit", () => graphBuilders.stop());
 process.on("exit", () => researchers.stop());
@@ -466,7 +472,10 @@ const server = createServer(async (req, res) => {
       return json(res, 200, next);
     }
     if (req.method === "POST" && url.pathname === "/api/research-settings") {
-      return json(res, 200, researchers.configure(await body(req)));
+      const settings = researchers.configure(await body(req));
+      // A raised reader limit lets waiting readers start.
+      readers.pump();
+      return json(res, 200, settings);
     }
     // Closing the project: workers are kept running or stopped, as the human chose.
     // Closed from the browser, the launcher takes over with the welcome page.

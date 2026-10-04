@@ -1,16 +1,16 @@
-import { ROLES, describeChoice, type Catalog, type Choice, type Dispatch } from "../domain/dispatch";
+import { ROLES, cheapChoice, describeChoice, type Catalog, type Choice, type Dispatch } from "../domain/dispatch";
 import { html } from "./finding-review";
 
 const option = (value: string, label: string, selected: boolean, disabled = false) =>
   `<option value="${html(value)}" ${selected ? "selected" : ""} ${disabled ? "disabled" : ""}>${html(label)}</option>`;
 
 // Agent, model and effort menus for one choice. A role row can also follow the default.
-export function menus(catalog: Catalog, choice: Choice | undefined, name: string, followsDefault: boolean): string {
+export function menus(catalog: Catalog, choice: Choice | undefined, name: string, followsDefault: boolean, defaultLabel = "Default"): string {
   const agent = catalog.agents.find((a) => a.id === choice?.agent);
   const model = agent?.models.find((m) => m.id === choice?.model);
   const efforts = model ? model.efforts : agent?.efforts || [];
   const agents = [
-    ...(followsDefault ? [option("", "Default", !choice)] : []),
+    ...(followsDefault ? [option("", defaultLabel, !choice)] : []),
     ...catalog.agents.map((a) => option(a.id, a.installed ? a.label : `${a.label} (not installed)`, a.id === choice?.agent, !a.installed)),
   ].join("");
   const off = !choice ? "disabled" : "";
@@ -25,7 +25,7 @@ export function dispatchSettings(dispatch: Dispatch | undefined, catalog: Catalo
     return `<section><h2>Who does which job</h2><p class="page-context">Install Claude Code or Codex to choose which agent does each job.</p></section>`;
   const roleRows = ROLES.map((role) => {
     const choice = dispatch.roles[role.id];
-    return `<div class="dispatch-row" data-dispatch-role="${role.id}"><div class="dispatch-job"><span>${html(role.label)}</span>${"note" in role ? `<small>${html(role.note)}</small>` : ""}</div><div class="dispatch-menus">${menus(catalog, choice, role.label, true)}</div></div>`;
+    return `<div class="dispatch-row" data-dispatch-role="${role.id}"><div class="dispatch-job"><span>${html(role.label)}</span>${"note" in role ? `<small>${html(role.note)}</small>` : ""}</div><div class="dispatch-menus">${menus(catalog, choice, role.label, true, role.id === "reader" ? `Default (${describeChoice(cheapChoice(catalog, dispatch.default), catalog)})` : undefined)}</div></div>`;
   }).join("");
   const rules = dispatch.rules.length
     ? `<ul class="dispatch-rules">${dispatch.rules

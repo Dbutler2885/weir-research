@@ -51,6 +51,31 @@ export function claudeIsolationArgs(folder, options = {}) {
   ];
 }
 
+// A reader has no tools at all: it is sent one prompt and answers from that alone.
+// Claude Code is given none of its built-in tools and no MCP servers, and keeps no
+// record of the conversation.
+export function claudeReaderArgs() {
+  return ["--setting-sources", "project", "--strict-mcp-config", "--mcp-config", JSON.stringify({ mcpServers: {} }), "--tools", "", "--no-session-persistence"];
+}
+
+// Codex's tools are features it can be started without. What it cannot be started
+// without is left with nothing to act on: a profile that reads only minimal system
+// files and its own empty folder, writes nowhere, and has no network.
+const CODEX_TOOL_FEATURES = ["shell_tool", "unified_exec", "apps", "plugins", "view_image", "image_generation", "browser_use", "browser_use_external", "computer_use", "sleep_tool", "tool_suggest", "skill_search", "goals", "memories", "multi_agent", "multi_agent_v2"];
+export function codexReaderArgs(folder) {
+  return [
+    "-c",
+    `permissions.agent.filesystem={":minimal"="read", ${JSON.stringify(realpathSync(folder))}="read"}`,
+    "-c",
+    "permissions.agent.network={enabled=false}",
+    "-c",
+    'default_permissions="agent"',
+    "-c",
+    "project_root_markers=[]",
+    ...CODEX_TOOL_FEATURES.flatMap((feature) => ["-c", `features.${feature}=false`]),
+  ];
+}
+
 // Codex: a permission profile that reads only minimal system files and writes
 // only the agent's folder, with network access. Its homes are the app's own,
 // so it never loads the human's instructions, skills, hooks or MCP servers.

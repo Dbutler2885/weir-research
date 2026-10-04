@@ -20,9 +20,11 @@ const duration = (ms) => (ms >= 60_000 && ms % 60_000 === 0 ? plural(ms / 60_000
 export class SessionDesk {
   // calls: what running code may ask of the app, by name; each is given the call's
   // arguments and the seat's key, and resolves with the result.
-  /** @param {{home: string, library?: string | null, wait?: number, outputLimit?: number, poll?: number, calls?: Record<string, (args: any, context: {key: string}) => any>, session?: (options: any) => any}} options */
-  constructor({ home, library = null, wait = DEFAULT_WAIT, outputLimit, poll = 1000, calls = {}, session = (options) => new PythonSession(options) }) {
+  // closed(key) is told when a seat's session ends, so work under way for it can be dropped.
+  /** @param {{home: string, library?: string | null, wait?: number, outputLimit?: number, poll?: number, calls?: Record<string, (args: any, context: {key: string}) => any>, closed?: (key: string) => void, session?: (options: any) => any}} options */
+  constructor({ home, library = null, wait = DEFAULT_WAIT, outputLimit, poll = 1000, calls = {}, closed = () => {}, session = (options) => new PythonSession(options) }) {
     this.calls = calls;
+    this.closed = closed;
     this.home = home;
     this.library = library;
     this.wait = wait;
@@ -92,6 +94,7 @@ export class SessionDesk {
     seat.callWatcher?.close();
     clearInterval(seat.timer);
     seat.session.stop();
+    this.closed(key);
   }
   // Resolves once a seat's session has started and its notices are delivered; null
   // when it already has.

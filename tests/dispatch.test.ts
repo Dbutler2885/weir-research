@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import dataset from "./fixtures/workshop.json";
-import { changeDispatch, choose, defaultDispatch, validateDispatch, type Catalog } from "../src/domain/dispatch";
+import { changeDispatch, cheapChoice, choose, defaultDispatch, validateDispatch, type Catalog } from "../src/domain/dispatch";
 import { agentCatalog } from "../server/agents/catalog.mjs";
 import { DispatchRules } from "../server/dispatch.mjs";
 import { WorkspaceStore } from "../server/store.mjs";
@@ -98,6 +98,25 @@ describe("dispatch rules", () => {
     expect(choose(doc, "researcher", { agent: "claude", model: "haiku" })).toEqual({ agent: "claude", model: "haiku", effort: null });
     const back = changeDispatch(doc, { action: "set-role", role: "researcher" }, catalog(), "human", id, now);
     expect(back.roles).toEqual({});
+  });
+  it("give readers Codex's Luna at high effort, or without Codex the default agent's cheapest model, unless the human chose", () => {
+    const luna = { id: "gpt-6-luna", label: "GPT-6-Luna", efforts: ["low", "high", "max"] };
+    const withLuna: Catalog = { agents: catalog().agents.map((a) => (a.id === "codex" ? { ...a, models: [...a.models, luna, { id: "gpt-5.6-luna", label: "GPT-5.6-Luna", efforts: ["low"] }] } : a)) };
+    const doc = defaultDispatch("claude");
+    expect(choose(doc, "reader", null, withLuna)).toEqual({ agent: "codex", model: "gpt-6-luna", effort: "high" });
+    // Codex is not installed: Claude Code's cheapest, at the effort it offers.
+    expect(choose(doc, "reader", null, catalog(["claude"]))).toEqual({ agent: "claude", model: "haiku", effort: null });
+    // Codex is the default and lists no cheap model: readers use the default as it is.
+    expect(cheapChoice(catalog(), { agent: "codex", model: "gpt-6-sol", effort: "low" })).toEqual({ agent: "codex", model: "gpt-6-sol", effort: "low" });
+    // The other roles still follow the default, and a reader the human set follows that.
+    expect(choose(doc, "researcher", null, withLuna)).toEqual({ agent: "claude" });
+    const set = changeDispatch(doc, { action: "set-role", role: "reader", agent: "claude", model: "opus", effort: "low" }, withLuna, "human", id, now);
+    expect(choose(set, "reader", null, withLuna)).toEqual({ agent: "claude", model: "opus", effort: "low" });
+    const directory = mkdtempSync(join(tmpdir(), "dispatch-"));
+    cleanups.push(() => rmSync(directory, { recursive: true, force: true }));
+    const store = new WorkspaceStore(directory, structuredClone(dataset));
+    store.update((next: any) => (next.dispatch = doc));
+    expect(new DispatchRules(store, withLuna).choose("reader")).toEqual({ agent: "codex", model: "gpt-6-luna", effort: "high" });
   });
   it("add and remove rules with a condition, a choice and a reason", () => {
     const doc = changeDispatch(defaultDispatch("claude"), { action: "add-rule", role: "helper", when: "a quick lookup", agent: "claude", model: "haiku", reason: "Cheap" }, catalog(), "coordinator", id, now);

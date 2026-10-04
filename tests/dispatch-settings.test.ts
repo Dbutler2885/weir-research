@@ -25,6 +25,7 @@ describe("who does which job, in settings", () => {
       "Graph builder",
       "Walkthrough writer",
       "Helper",
+      "Reader",
     ]);
     expect(values(page.querySelector('[data-dispatch-role="default"]')!)).toEqual(["claude", "", ""]);
     const helper = page.querySelector('[data-dispatch-role="helper"]')!;
@@ -33,6 +34,10 @@ describe("who does which job, in settings", () => {
     expect((helper.querySelector('[data-field="model"]') as HTMLSelectElement).disabled).toBe(true);
     expect(helper.textContent).toContain("Small tasks the coordinator hands off");
     expect(page.textContent).toContain("ask the coordinator in the conversation");
+    // A reader's default is a cheap model rather than the project's default, and says so.
+    const reader = page.querySelector('[data-dispatch-role="reader"]')!;
+    expect(values(reader)).toEqual(["", "", ""]);
+    expect(reader.querySelector('[data-field="agent"] option')!.textContent).toBe("Default (Claude Code, Haiku, high effort)");
   });
 
   it("offers each kind's current model, and an older one only where it is already chosen", () => {

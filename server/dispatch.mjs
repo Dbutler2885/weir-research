@@ -19,7 +19,7 @@ export class DispatchRules {
   choose(role, named) {
     const doc = this.ensure();
     if (named?.agent) return choose(doc || defaultDispatch(named.agent), role, named);
-    return doc ? choose(doc, role) : null;
+    return doc ? choose(doc, role, null, this.catalog) : null;
   }
   change(command, by) {
     const doc = this.ensure();

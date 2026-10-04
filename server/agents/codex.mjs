@@ -1,6 +1,6 @@
 import { streamActions } from "../live-activity.mjs";
 import { AgentProblem } from "./problem.mjs";
-import { codexIsolationArgs } from "./isolation.mjs";
+import { codexIsolationArgs, codexReaderArgs } from "./isolation.mjs";
 
 // The oldest Codex whose app server this adapter was tested against. The app
 // server is experimental, so an older one, or one whose protocol no longer
@@ -19,9 +19,10 @@ export function appServerVersion(userAgent) {
 // started once with the folder, sandbox, approval policy and model; each message
 // then starts a turn, or steers the running turn.
 export const codexAdapter = {
-  /** @param {{folder: string, browser?: {command: string, args: string[], env?: Record<string, string>} | null, compactAt?: number, readOnly?: string[]}} options */
-  args({ folder, browser = null, compactAt = 0, readOnly = [] }) {
-    return ["app-server", ...codexIsolationArgs(folder, { browser, compactAt, readOnly })];
+  /** @param {{folder: string, browser?: {command: string, args: string[], env?: Record<string, string>} | null, compactAt?: number, readOnly?: string[], tools?: boolean}} options */
+  // tools: false starts it with no tools, and nothing to act on.
+  args({ folder, browser = null, compactAt = 0, readOnly = [], tools = true }) {
+    return ["app-server", ...(tools ? codexIsolationArgs(folder, { browser, compactAt, readOnly }) : codexReaderArgs(folder))];
   },
   // Codex agents use the app's own Codex home and home folder, never the human's.
   env(base, { homes }) {
