@@ -171,7 +171,9 @@ export interface Investigation {
   // Checkpoints from before assignments, which converting a project moves into them.
   checkpoints?: Checkpoint[];
   proposals: Proposal[];
-  events: { at: string; message: string }[];
+  // What happened to the batch, in order. A researcher finishing and the batch
+  // becoming ready for Review are marked, so the coordinator hears of each.
+  events: { at: string; message: string; kind?: "finished" | "ready"; researcher?: string }[];
 }
 export interface SourceCollection {
   id: string;
@@ -689,7 +691,8 @@ export function transition(
       const asked = i.assignments?.find((a) => a.id === i.accessRequest!.assignmentId && a.status === "paused");
       if (asked && unavailable) (asked.unreachable ||= []).push({ instruction: i.accessRequest.instruction, ...(i.accessRequest.url ? { url: i.accessRequest.url } : {}), at: now });
       if (asked) {
-        asked.status = "waiting";
+        // While the human has the whole batch paused, it waits with the batch.
+        asked.status = i.pausedAt ? "paused" : "waiting";
         settle(i, now);
       } else i.status = "queued";
       i.events.push({
@@ -846,6 +849,7 @@ export function transition(
     let assignment = command.assignmentId
       ? investigation.assignments?.find((a) => a.id === command.assignmentId)
       : undefined;
+    requireThat(!investigation.pausedAt, "This batch is paused; nothing starts on it until the human resumes it.");
     if (command.assignmentId)
       requireThat(assignment?.status === "waiting", "This assignment is not waiting for a researcher.");
     else assignment = investigation.assignments?.find((a) => a.status === "waiting");

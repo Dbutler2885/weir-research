@@ -13,12 +13,16 @@ export class SeatInbox {
   constructor(seat) {
     this.folder = join(seat, "inbox");
   }
-  // Keeps a message for the seat: a post, with who it is from, or a notice.
-  /** @param {{kind: "post" | "notice", from?: string, text: string}} item */
-  add(item) {
+  // Keeps a message for the seat: a post, with who it is from, or a notice. A message
+  // given an ID and a time is kept once however often it is added, so adding it again
+  // after a restart changes nothing.
+  /** @param {{kind: "post" | "notice", from?: string, text: string}} item @param {{id?: string, at?: string}} [known] */
+  add(item, { id, at } = {}) {
     mkdirSync(this.folder, { recursive: true });
     // Named so that they sort in the order they arrived.
-    const name = `${String(Date.now()).padStart(15, "0")}-${String(++sequence).padStart(6, "0")}-${randomUUID().slice(0, 8)}`;
+    const name = id
+      ? `${String(Date.parse(at) || Date.now()).padStart(15, "0")}-000000-${id}`
+      : `${String(Date.now()).padStart(15, "0")}-${String(++sequence).padStart(6, "0")}-${randomUUID().slice(0, 8)}`;
     writeFileSync(join(this.folder, `${name}.tmp`), JSON.stringify({ ...item, at: new Date().toISOString() }));
     renameSync(join(this.folder, `${name}.tmp`), join(this.folder, `${name}.json`));
   }

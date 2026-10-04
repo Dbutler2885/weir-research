@@ -66,7 +66,12 @@ Reference by number from the parent PRD:
 - The coordinator's `assign`, `steer`, `stop-researcher`, `revise`, `publish`, `batch-ready` and `set-brief` are gone, with the results held for its judgment.
   It has `open-batch` with a title and a goal, `post`, and the new `stop-team`.
 - A seat's inbox is a folder of files in the seat's folder.
-  Posts and notices are written there first and removed once they have been sent to the researcher, or, for those sent in its first message, once its conversation is under way.
+  A message stays there until the turn after it was sent has ended, so one the app closed on before it arrived is sent again rather than lost; after a crash a researcher can therefore receive a message twice.
+- A post is saved with the board first, and each seat records how far down the board it has been given.
+  The app puts the posts a seat is behind on into its inbox whenever it looks, so a post saved just before the app closed still reaches the team.
+- A turn that ends while the seat's Python session is still starting is judged once it has started, since it may yet report a run cut short.
+- While the human has the whole batch paused, nothing starts on it: an answered access request leaves its seat paused, and one seat cannot be resumed alone.
+- The coordinator's news of finishes and of batches reaching Review is read from the batch's record of events, so a seat woken again before the coordinator was told is still reported.
 - A message that reaches a researcher in the middle of a turn may arrive too late for that turn to read it.
   When such a turn ends with the done phrase, the app asks the researcher to say it again rather than finish the seat.
 - The researcher is told once what is outstanding, and is nudged once per idle spell; a new post or notice allows one more of each.

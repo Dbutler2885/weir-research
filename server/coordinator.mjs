@@ -156,11 +156,13 @@ export class Coordinator {
         ...(p.findings[0].replaces ? { replaces: `${p.findings[0].replaces.proposalId}/${p.findings[0].replaces.findingId}` } : {}),
       })),
     );
-    // Researchers who finished since, and batches that reached Review with them.
-    const researchersFinished = state.investigations.flatMap((i) =>
-      (i.assignments || []).filter((a) => a.status === "finished" && changed.seatsBefore?.get(a.id) !== "finished").map((a) => ({ investigationId: i.id, researcher: a.title })),
+    // Each researcher that finished since, and each time a batch reached Review, read
+    // from the batch's record of events, so one that has since been woken is still told.
+    const eventsSince = (i) => i.events.slice(changed.eventsFrom?.get(i.id) ?? 0);
+    const researchersFinished = state.investigations.flatMap((i) => eventsSince(i).filter((e) => e.kind === "finished").map((e) => ({ investigationId: i.id, researcher: e.researcher })));
+    const batchesReady = state.investigations.flatMap((i) =>
+      eventsSince(i).filter((e) => e.kind === "ready").map(() => ({ investigationId: i.id, title: i.title, ...(i.readyAt ? {} : { since: "A post has woken its team again." }) })),
     );
-    const batchesReady = state.investigations.filter((i) => i.goal !== undefined && i.readyAt && !changed.readyBefore?.has(i.id)).map((i) => ({ investigationId: i.id, title: i.title }));
     if (
       !messages.length &&
       !boardPosts.length &&

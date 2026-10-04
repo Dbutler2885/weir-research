@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { accessSync, constants, readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { accessSync, constants, readFileSync, writeFileSync, mkdirSync, existsSync, renameSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { join, delimiter, extname } from "node:path";
 import {
@@ -110,7 +110,8 @@ export class ResearcherPool {
         // Only a team's researcher is taken back; one from before teams waits, paused.
         const record = isTeam(batch) ? kept.find((r) => r.meta.token === a.lease?.token) : null;
         if (record) {
-          const task = { batchId: batch.id, id: a.id, title: a.title, token: record.meta.token, directory: record.meta.directory, lastCheckpoint: undefined, terminated: false };
+          const task = { batchId: batch.id, id: a.id, title: a.title, token: record.meta.token, directory: record.meta.directory, lastCheckpoint: undefined, terminated: false, sent: new Set() };
+          Object.assign(task, this.idle(task));
           task.agent = supervisor.reattach(record, { live: { role: "researcher", name: liveName(record.meta.engine), investigationId: batch.id, assignmentId: a.id, task: a.title, choice: liveChoice(record.meta.engine, a.choice) } });
           this.active.set(a.id, task);
           this.openSession(task);
@@ -132,6 +133,8 @@ export class ResearcherPool {
       }
     // A researcher whose seat moved on while the app was closed is stopped.
     for (const record of kept) supervisor.dismiss(record);
+    // Posts saved just before the app last closed still reach their seats.
+    for (const batch of store.state.investigations) this.materialize(batch.id);
     this.timer = setInterval(() => this.pump(), 2000);
   }
   // Research settings: the size of a new batch's team, a time limit for graph work,
@@ -243,38 +246,54 @@ export class ResearcherPool {
     const key = createHash("sha256").update(`${seatId}\n${String(text).trim()}`).digest("hex");
     const result = this.store.command({ type: "post", assignmentId: seatId, text, key });
     const batch = this.store.state.investigations.find((i) => i.assignments?.some((a) => a.id === seatId));
-    const from = batch.assignments.find((a) => a.id === seatId).title;
-    this.distribute(batch.id, { kind: "post", from, text: String(text).trim() }, seatId);
+    this.materialize(batch.id);
+    this.pump();
     return { posted: true, id: result.postId };
   }
   // The coordinator's post goes on the board and to every seat of the batch, which is
   // how the human's "keep going" reaches the team.
   announce(batchId, text) {
     const result = this.store.command({ type: "coordinator-post", investigationId: batchId, text });
-    this.distribute(batchId, { kind: "post", from: "the coordinator", text: String(text).trim() });
+    this.materialize(batchId);
+    this.pump();
     return result;
   }
-  // A post reaches every seat but the one that wrote it: at once when its researcher
-  // is working, as a new turn when it is idle, and when it next starts otherwise. A
-  // finished seat was woken by the post and starts with it; a paused one has it when
-  // the human resumes it.
-  distribute(batchId, item, except) {
+  // Puts each board post into the inbox of every seat but the one that wrote it, once:
+  // each seat records how far down the board it has been given. The post is saved
+  // with the board before this runs, so one the app closed on is put there when it
+  // next opens. From its inbox a post reaches the seat's researcher at once when it
+  // is working, as a new turn when it is idle, and when it next starts otherwise: a
+  // finished seat was woken by the post and starts with it, and a paused one has it
+  // when the human resumes it.
+  materialize(batchId) {
     const batch = this.batch(batchId);
-    for (const a of batch?.assignments || []) {
-      if (a.id === except || a.status === "stopped") continue;
-      this.inbox(batchId, a.id).add(item);
+    if (!batch || !isTeam(batch)) return;
+    const board = batch.board || [];
+    const behind = batch.assignments.filter((a) => (a.posted ?? 0) < board.length);
+    if (!behind.length) return;
+    for (const a of behind) {
+      if (a.status === "stopped") continue;
+      for (const post of board.slice(a.posted ?? 0)) {
+        if (post.assignmentId === a.id) continue;
+        const from = post.author === "coordinator" ? "the coordinator" : batch.assignments.find((x) => x.id === post.assignmentId)?.title || "a teammate";
+        this.inbox(batchId, a.id).add({ kind: "post", from, text: post.text }, { id: `post-${post.id}`, at: post.at });
+      }
+    }
+    this.store.update((next) => {
+      for (const a of next.investigations.find((i) => i.id === batchId).assignments) a.posted = board.length;
+    });
+    for (const a of behind) {
       const task = this.active.get(a.id);
       if (task) this.deliver(task);
     }
-    this.pump();
   }
-  // Sends a running researcher what its seat's inbox holds, as one message.
+  // Sends a running researcher what its seat's inbox holds and it has not been sent,
+  // as one message. A message stays in the inbox until the turn after it was sent has
+  // ended, so one the app closed on before it arrived is sent again, never lost.
   deliver(task) {
-    if (!task.agent || task.terminated || task.resuming || task.agent.finishing || !this.current(task)) return;
-    const inbox = this.inbox(task.batchId, task.id);
-    // What went out in its first message is forgotten once its conversation is under way.
-    const items = inbox.list().filter((item) => !task.opening?.some((sent) => sent.file === item.file));
-    if (!items.length) return;
+    if (!task.agent || task.terminated || task.resuming || task.agent.finishing || !this.current(task)) return false;
+    const items = this.inbox(task.batchId, task.id).list().filter((item) => !task.sent.has(item.file));
+    if (!items.length) return false;
     // Mid-turn, the message may come too late for the turn to read it; to an idle
     // researcher, it starts a turn of its own.
     const midTurn = task.agent.busy;
@@ -282,14 +301,40 @@ export class ResearcherPool {
       task.agent.steer(inboxText(items));
     } catch {
       /* The researcher has closed its input; the messages wait for its seat's next researcher. */
-      return;
+      return false;
     }
-    inbox.remove(items);
+    for (const item of items) task.sent.add(item.file);
     // It has something new to act on, so what it is owed is counted afresh.
     if (midTurn) task.heard = true;
-    task.nudged = false;
-    task.told = false;
+    this.setIdle(task, { nudged: false, told: false });
     return true;
+  }
+  // Forgets the messages a researcher was sent before the turn that has just ended.
+  received(task) {
+    const inbox = this.inbox(task.batchId, task.id);
+    inbox.remove(inbox.list().filter((item) => task.sent.has(item.file)));
+    task.sent.clear();
+  }
+  // Whether the researcher has been nudged, or told what is outstanding, since it last
+  // had something new to act on: kept with the seat, so a restart does not repeat either.
+  idle(task) {
+    try {
+      return JSON.parse(readFileSync(join(this.seatFolder(task.batchId, task.id), "idle.json"), "utf8"));
+    } catch {
+      return { nudged: false, told: false };
+    }
+  }
+  setIdle(task, change, always = false) {
+    if (!always && Object.entries(change).every(([key, value]) => Boolean(task[key]) === value)) return;
+    Object.assign(task, change);
+    const file = join(this.seatFolder(task.batchId, task.id), "idle.json");
+    try {
+      mkdirSync(this.seatFolder(task.batchId, task.id), { recursive: true });
+      writeFileSync(`${file}.tmp`, JSON.stringify({ nudged: Boolean(task.nudged), told: Boolean(task.told) }));
+      renameSync(`${file}.tmp`, file);
+    } catch {
+      /* The seat's folder is gone; its batch was removed. */
+    }
   }
   pump() {
     if (this.stopped) return;
@@ -300,10 +345,12 @@ export class ResearcherPool {
         this.deliver(task);
       }
     }
-    // Batches are worked in queue order, and a held batch waits. Only a team's seats
-    // start: assignments from before teams are history.
+    // Batches are worked in queue order; a held batch waits, and so does one the human
+    // paused. Only a team's seats start: assignments from before teams are history.
     for (const batch of queueOf(this.store.state)) {
-      if (batch.held || !isTeam(batch)) continue;
+      if (!isTeam(batch)) continue;
+      this.materialize(batch.id);
+      if (batch.held || batch.pausedAt) continue;
       for (const a of waitingIn(batch)) {
         // A researcher the human switched starts again once its old process has gone.
         if (this.active.has(a.id)) continue;
@@ -359,6 +406,8 @@ export class ResearcherPool {
       lastCheckpoint: undefined,
       agent: undefined,
       terminated: false,
+      // The inbox messages it has been sent and has not yet had a turn for.
+      sent: new Set(),
     };
     try {
       mkdirSync(directory, { recursive: true });
@@ -472,8 +521,10 @@ While code of yours is still running, the app keeps you at work until its output
       this.store.state.documents.flatMap((d) => [[`${d.id}${extname(d.name).toLowerCase()}`, d.name], ...Array.from({ length: d.revision ?? 1 }, (_, n) => [`${d.id}.r${n + 1}.txt`, d.name])]),
     );
     // What waited for the seat goes in its first message, and is forgotten once the
-    // conversation is under way, so a researcher that could not start loses nothing.
-    task.opening = this.inbox(task.batchId, task.id).list();
+    // turn it starts has ended, so a researcher that could not start loses nothing.
+    const opening = this.inbox(task.batchId, task.id).list();
+    task.sent = new Set(opening.map((item) => item.file));
+    this.setIdle(task, { nudged: false, told: false }, true);
     task.agent = this.supervisor.start({
       key: `research:${task.id}`,
       provider: engine,
@@ -492,7 +543,7 @@ While code of yours is still running, the app keeps you at work until its output
       model: choice?.model || undefined,
       effort: choice?.effort || undefined,
       resume: task.resuming ?? undefined,
-      prompt: this.opening(this.batch(task.batchId), this.assignment(task), task, task.opening),
+      prompt: this.opening(this.batch(task.batchId), this.assignment(task), task, opening),
       live: { role: "researcher", name, investigationId: task.batchId, assignmentId: task.id, task: task.title, choice: liveChoice(engine, choice) },
       describe: fileDescriber(researcherFiles, titles),
       // What the app needs to take this researcher back if it outlives the app.
@@ -507,8 +558,6 @@ While code of yours is still running, the app keeps you at work until its output
       task.resuming = null;
       if (!this.current(task)) return;
       this.store.command({ type: "assignment-session", assignmentId: task.id, token: task.token, session: { engine, id: session, directory: task.directory, at: new Date().toISOString() } });
-      // Its first message reached it, with what its seat's inbox held.
-      this.inbox(task.batchId, task.id).remove(task.opening?.splice(0) || []);
       this.deliver(task);
     });
     task.agent.on("turn", (turn) => this.turnEnded(task, turn));
@@ -532,22 +581,29 @@ While code of yours is still running, the app keeps you at work until its output
     const out = [];
     const runs = this.sessions?.running?.(task.id) ?? 0;
     if (runs) out.push(`${runs === 1 ? "a Python run of yours is" : `${runs} Python runs of yours are`} still going, and ${runs === 1 ? "its" : "their"} output will reach you as a message`);
-    const waiting = this.inbox(task.batchId, task.id).size;
+    const waiting = this.inbox(task.batchId, task.id).list().filter((item) => !task.sent.has(item.file)).length;
     if (waiting) out.push(`${waiting === 1 ? "a message is" : `${waiting} messages are`} on ${waiting === 1 ? "its" : "their"} way to you`);
     return out;
   }
   // A turn that ends with the done phrase finishes the seat when nothing of its own is
   // outstanding; otherwise the researcher is told what is. A turn that ends without
   // the phrase, with nothing outstanding, gets one nudge.
-  turnEnded(task, { outcome, text } = {}) {
+  turnEnded(task, turn = {}) {
+    const { outcome, text } = turn;
     if (!this.current(task) || outcome === "interrupted") return;
     if (task.resuming) return task.agent.stop();
+    // Its Python session is still starting, and may yet report a run cut short: the
+    // turn is judged once it has.
+    const starting = this.sessions?.starting?.(task.id);
+    // A notice it sent meanwhile has started a new turn, which is judged in its place.
+    if (starting) return void starting.then(() => task.agent?.busy || this.turnEnded(task, turn));
     this.checkpoint(task);
     // An access request in its checkpoint paused it.
     if (!this.current(task)) return;
     // A message that reached it during the turn may have come too late to be read in it.
     const heard = task.heard;
     task.heard = false;
+    this.received(task);
     // What arrived for it while it could not be reached starts its next turn.
     if (this.deliver(task) || task.agent.finishing) return;
     const done = outcome === "done" && saidDone(text);
@@ -563,7 +619,7 @@ While code of yours is still running, the app keeps you at work until its output
     if (done) {
       // Told once; what is outstanding wakes it when it arrives.
       if (task.told) return;
-      task.told = true;
+      this.setIdle(task, { told: true });
       return send(
         outstanding.length
           ? `You said ${DONE_PHRASE}, but ${outstanding.join(", and ")}. You stay at work until then. Carry on with anything else, or end your turn and wait; say ${DONE_PHRASE} again once nothing is left.`
@@ -572,7 +628,7 @@ While code of yours is still running, the app keeps you at work until its output
     }
     if (outcome === "error") this.note(task, `${task.title} ended its turn with an error.`);
     if (outstanding.length || task.nudged) return;
-    task.nudged = true;
+    this.setIdle(task, { nudged: true });
     send(`You ended your turn without saying whether you have finished. Carry on with the goal, or, when nothing you or the board offers is left to pursue, end your turn with the line ${DONE_PHRASE}.`);
   }
   // The seat is finished: its researcher's process ends, keeping its conversation and
@@ -580,11 +636,12 @@ While code of yours is still running, the app keeps you at work until its output
   finish(task) {
     const result = this.store.command({ type: "seat-finished", assignmentId: task.id, token: task.token });
     this.terminate(task);
-    // Every seat has finished: the batch is in Review, and what the human set to
-    // follow automatically starts.
-    if (!result.ready) return;
+    if (result.ready) this.inReview(task.batchId);
+  }
+  // The batch has reached Review: what the human set to follow automatically starts.
+  inReview(batchId) {
     try {
-      autoReview(this.store, task.batchId);
+      autoReview(this.store, batchId);
     } catch {
       /* The human can still ask for a walkthrough or a graph update in Review. */
     }
@@ -658,6 +715,7 @@ While code of yours is still running, the app keeps you at work until its output
     const result = this.store.command({ type: "stop-team", investigationId: batchId, reason });
     for (const task of this.active.values()) if (task.batchId === batchId) this.terminate(task);
     for (const a of this.batch(batchId).assignments || []) this.inbox(batchId, a.id).clear();
+    this.inReview(batchId);
     return result;
   }
 }

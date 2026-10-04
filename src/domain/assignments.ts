@@ -53,6 +53,9 @@ export interface Assignment {
   // From before teams: the coordinator's redirections while it ran, and its notes when
   // it sent it back.
   steering: { at: string; message: string }[];
+  // How many of its batch's board posts have been put in its inbox, so each is put
+  // there once, whenever the app gets to it.
+  posted?: number;
 }
 
 // What a researcher, or the coordinator, posted for the researchers in a batch.
@@ -132,7 +135,7 @@ export function settle(b: Investigation, now = new Date().toISOString()): void {
     if (b.status !== "review") delete b.readyAt;
     else if (!b.readyAt) {
       b.readyAt = now;
-      if (!b.stoppedAt) b.events.push({ at: now, message: "Every researcher has finished; the batch is ready for review." });
+      if (!b.stoppedAt) b.events.push({ at: now, message: "Every researcher has finished; the batch is ready for review.", kind: "ready" });
     }
     return;
   }
@@ -223,7 +226,7 @@ export function assignmentTransition(
       assignment.status = "finished";
       assignment.endedAt = now;
       delete assignment.lease;
-      note(`${sentence(who)} finished.`);
+      batch.events.push({ at: now, message: `${sentence(who)} finished.`, kind: "finished", researcher: assignment.title });
       settle(batch, now);
       return { finished: true, ready: Boolean(batch.readyAt) };
     }
@@ -250,6 +253,7 @@ export function assignmentTransition(
     }
     case "resume-assignment": {
       assert(assignment.status === "paused", "Only a paused researcher can be resumed.");
+      assert(!batch.pausedAt, "The whole batch is paused. Resume the batch, and its researchers resume with it.");
       assignment.status = "waiting";
       settle(batch, now);
       note(`You resumed ${who}.`);

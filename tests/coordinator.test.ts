@@ -348,6 +348,13 @@ describe("research coordination", () => {
     expect(both.researchersFinished).toEqual([{ investigationId, researcher: "Researcher 2" }]);
     expect(both.batchesReady).toEqual([{ investigationId, title: "The mill's buyer" }]);
     expect(both.investigations[0]).toMatchObject({ status: "review", ready: true, findingCount: 1 });
+    // A finish the coordinator has not heard of is still news after a post has woken
+    // the researcher again, and so is the Review the batch has since left.
+    f.store.command({ type: "post", assignmentId: second, text: "A new lead.", key: "k2" });
+    const later = (f.coordinator.delta(f.secret, then) as any).changed;
+    expect(later.researchersFinished).toEqual([{ investigationId, researcher: "Researcher 2" }]);
+    expect(later.batchesReady).toEqual([{ investigationId, title: "The mill's buyer", since: "A post has woken its team again." }]);
+    expect(later.investigations[0]).toMatchObject({ status: "running", ready: false });
   });
   it("keeps project memory across a server replacement, and preserves user-paused work on takeover", () => {
     const f = fixture();

@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { openTeam, assignmentOf } from "./fixtures/assign";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -96,6 +96,11 @@ function fakeSessions() {
     seats,
     running: (key: string) => running.get(key) ?? 0,
     setRunning: (key: string, n: number) => running.set(key, n),
+    // A session still starting, until the test lets it finish.
+    startingNow: null as Promise<void> | null,
+    starting(_key: string) {
+      return this.startingNow;
+    },
     open: (key: string, seat: any) => seats.set(key, { ...seat, open: true }),
     close: (key: string) => seats.has(key) && (seats.get(key).open = false),
     closeAll: () => seats.forEach((seat) => (seat.open = false)),
@@ -150,10 +155,13 @@ describe("a team of researchers", () => {
     expect(f.launches[2]!.executable).toBe("/test/claude");
   });
 
-  it("works with no time limit", () => {
+  it("works with no time limit, even where one is still set for graph work", () => {
     const f = fixture();
+    f.pool.configure({ timeLimitMinutes: 1 });
     f.team(1);
-    f.pool.active.get(f.seats()[0].id).started = Date.now() - 7 * 24 * 60 * 60_000;
+    expect(f.launches[0]!.args.join(" ")).not.toMatch(/time limit|deadline/);
+    const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 7 * 24 * 60 * 60_000);
+    cleanups.push(() => clock.mockRestore());
     f.pool.pump();
     expect(f.launches[0]!.child.killed).toBe(false);
     expect(f.statuses()).toEqual(["running"]);
@@ -244,6 +252,27 @@ describe("the done phrase", () => {
     expect(f.statuses()[1]).toBe("finished");
   });
 
+  it("waits for a Python session that is still starting before it finishes the seat, since a run cut short may yet be reported", async () => {
+    const sessions = fakeSessions();
+    const f = fixture({ sessions });
+    f.team(1);
+    const seat = f.seats()[0].id;
+    let started = () => {};
+    sessions.startingNow = new Promise<void>((done) => (started = done));
+    f.say(f.of(0), DONE_PHRASE);
+    await tick();
+    expect(f.statuses()).toEqual(["running"]);
+    // The session starts and reports the run the restart cut short.
+    sessions.seats.get(seat).deliver("Your last Python run was interrupted before it finished.");
+    sessions.startingNow = null;
+    started();
+    await tick();
+    expect(f.statuses()).toEqual(["running"]);
+    expect(f.of(0).sent.at(-1)).toBe("Your last Python run was interrupted before it finished.");
+    f.say(f.of(0), DONE_PHRASE);
+    expect(f.statuses()).toEqual(["finished"]);
+  });
+
   it("nudges once a turn that ends without it, and leaves a seat that ignores the nudge running and idle", async () => {
     const f = fixture();
     f.team(1);
@@ -262,6 +291,8 @@ describe("the done phrase", () => {
     f.say(f.of(0), "Looked; nothing there.");
     await tick();
     expect(f.of(0).sent.map((m) => m.slice(0, 24))).toEqual(["You are Researcher 1 on ", "You ended your turn with", "A post on your batch's b", "You ended your turn with"]);
+    // That it was nudged is kept with the seat, so a restart does not nudge it again.
+    expect(JSON.parse(readFileSync(join(f.directory, "agents", f.batch().id, f.seats()[0].id, "idle.json"), "utf8"))).toEqual({ nudged: true, told: false });
   });
 
   it("does not finish or nudge a turn that was interrupted, or one that ended to ask the human for access", async () => {
@@ -279,10 +310,24 @@ describe("the done phrase", () => {
     expect(f.statuses()).toEqual(["paused"]);
     expect(f.batch().accessRequest).toMatchObject({ instruction: "Sign in to the county archive." });
     expect(f.of(0).sent).toHaveLength(1);
+    // While the human has the whole batch paused, answering the request starts nothing.
+    f.store.command({ type: "pause", investigationId: f.batch().id });
+    f.store.update((next: any) => (next.investigations[0].accessRequest = { instruction: "Sign in to the county archive.", url: "https://archive.example/", assignmentId: next.investigations[0].assignments[0].id }));
+    f.store.command({ type: "resolve-access", investigationId: f.batch().id });
+    f.pool.pump();
+    expect(f.statuses()).toEqual(["paused"]);
+    expect(f.launches).toHaveLength(1);
+    expect(() => f.pool.resume(f.seats()[0].id)).toThrow("The whole batch is paused");
+    expect(() => f.store.command({ type: "claim", investigationId: f.batch().id, assignmentId: f.seats()[0].id, worker: "x" })).toThrow("This batch is paused");
+    f.store.command({ type: "resume", investigationId: f.batch().id });
+    f.pool.pump();
+    f.init(f.of(0), "session-1");
+    f.pool.pause(f.seats()[0].id);
+    f.store.update((next: any) => (next.investigations[0].accessRequest = { instruction: "Sign in to the county archive.", url: "https://archive.example/", assignmentId: next.investigations[0].assignments[0].id }));
     // The human could not get in: it carries on, told so, with its conversation.
     f.store.command({ type: "resolve-access", investigationId: f.batch().id, outcome: "unavailable" });
     f.pool.pump();
-    expect(f.launches).toHaveLength(2);
+    expect(f.launches).toHaveLength(3);
     expect(f.of(0).args).toContain("--resume");
     expect(f.of(0).sent[0]).toContain("the human could not get in");
     expect(f.of(0).sent[0]).toContain("https://archive.example/: Sign in to the county archive.");
@@ -300,8 +345,12 @@ describe("the board", () => {
     expect(f.batch().board).toEqual([expect.objectContaining({ assignmentId: f.seats()[0].id, text: "The 1881 register is missing from the scans." })]);
     expect(f.of(0).sent).toHaveLength(1);
     for (const place of [1, 2]) expect(f.of(place).sent.at(-1)).toBe("A post on your batch's board, from Researcher 1:\n\nThe 1881 register is missing from the scans.");
-    // Delivered, nothing is left waiting for them.
-    expect([f.inbox(0), f.inbox(1), f.inbox(2)]).toEqual([[], [], []]);
+    // Each keeps the post in its inbox until the turn after it was sent has ended, so
+    // a post the app closed on before it arrived would be sent again, never lost.
+    expect([f.inbox(0), f.inbox(1), f.inbox(2)].map((i) => i.length)).toEqual([0, 1, 1]);
+    f.say(f.of(1), "Noted.");
+    expect(f.inbox(1)).toEqual([]);
+    expect(f.of(1).sent.filter((m) => m.includes("The 1881 register"))).toHaveLength(1);
     // The same post from the same seat, as when code is run again, is refused.
     expect(() => f.pool.post(f.seats()[0].id, "The 1881 register is missing from the scans.")).toThrow("already posted exactly this");
     expect(f.batch().board).toHaveLength(1);
@@ -348,13 +397,13 @@ describe("the board", () => {
       expect(woken.sent[0]).toContain("A post on your batch's board, from the coordinator:\n\nThe human wants the 1890s followed too.");
       expect(woken.sent[0]).toContain(`or end your turn with ${DONE_PHRASE} when nothing is left to pursue`);
     });
-    // The post waits in each inbox until the woken conversation is under way.
-    expect(f.inbox(0)).toHaveLength(1);
+    // The post waits in each inbox until the woken researcher's turn has ended.
     f.init(f.of(0), "session-1");
-    expect(f.inbox(0)).toEqual([]);
+    expect(f.inbox(0)).toHaveLength(1);
     // One finishes again and the other posts: only the finished one is woken.
     f.init(f.of(1), "session-2");
     f.say(f.of(0), DONE_PHRASE);
+    expect(f.inbox(0)).toEqual([]);
     expect(f.statuses()).toEqual(["finished", "running"]);
     f.pool.post(f.seats()[1].id, "A sale notice names the buyer.");
     expect(f.statuses()).toEqual(["running", "running"]);
@@ -391,11 +440,32 @@ describe("the board", () => {
     expect(message).toContain("While you were away:");
     expect(message.indexOf("from Researcher 1:\n\nThe 1881 register is missing from the scans.")).toBeGreaterThan(0);
     expect(message.indexOf("from the coordinator:\n\nThe human has the 1895 directory on paper.")).toBeGreaterThan(message.indexOf("from Researcher 1"));
-    // Delivered once: gone from the inbox once its conversation is under way.
+    // Delivered once: not sent again while they wait, and gone once its turn has ended.
     again.init(again.launches[0]!, "session-2");
+    again.pool.pump();
     await tick();
-    expect(again.inbox(1)).toEqual([]);
     expect(again.launches[0]!.sent).toHaveLength(1);
+    again.say(again.launches[0]!, "Noted; carrying on.");
+    expect(again.inbox(1)).toEqual([]);
+  });
+
+  it("still delivers a post the app closed on after saving it and before giving it to the team", async () => {
+    const f = fixture();
+    f.team(2);
+    f.pool.pause(f.seats()[1].id);
+    // The post is saved with the board, and the app ends before it reaches any inbox.
+    f.pool.stop();
+    f.store.command({ type: "post", assignmentId: f.seats()[0].id, text: "The 1896 deed names the buyer.", key: "k" });
+    expect(f.inbox(1)).toEqual([]);
+    const again = fixture({ directory: f.directory });
+    expect(again.inbox(1)).toHaveLength(1);
+    // Put there once, however often the app looks.
+    again.pool.pump();
+    expect(again.inbox(1)).toHaveLength(1);
+    expect(again.inbox(0)).toEqual([]);
+    again.pool.coordinator = f.pool.coordinator;
+    again.pool.resume(again.seats()[1].id);
+    expect(again.of(1).sent[0]).toContain("from Researcher 1:\n\nThe 1896 deed names the buyer.");
   });
 
   it("holds a post for a seat woken while the human has the whole batch paused", async () => {
@@ -436,7 +506,10 @@ describe("stopping a batch's team", () => {
   it("ends every researcher and its session at once, drops what waited for them, and keeps what they published", async () => {
     const sessions = fakeSessions();
     const f = fixture({ sessions });
-    f.store.update((next: any) => next.documents.push({ id: "deed", collectionId: "web", name: "Deed.pdf", mime: "application/pdf", size: 1, sha256: "x", importedAt: "t", text: "[Page 1]\nSold to Ann Example in 1896.", pages: 1, revision: 1 }));
+    f.store.update((next: any) => {
+      next.reviewSettings = { autoWalkthrough: true, autoGraph: false };
+      next.documents.push({ id: "deed", collectionId: "web", name: "Deed.pdf", mime: "application/pdf", size: 1, sha256: "x", importedAt: "t", text: "[Page 1]\nSold to Ann Example in 1896.", pages: 1, revision: 1 });
+    });
     const { coordinator, session, investigationId } = f.team(3);
     const publisher = new FindingPublisher(f.store);
     const finding = { statement: "Ann Example bought the mill in 1896.", qualification: "supported", explanation: "The deed says so.", evidence: [{ document: "deed", page: 1, quote: "Sold to Ann Example in 1896.", interpretation: "The sale." }] } as any;
@@ -463,6 +536,8 @@ describe("stopping a batch's team", () => {
     // What the team published stays, for Review.
     expect(f.batch().proposals).toHaveLength(1);
     expect(f.batch().status).toBe("review");
+    // What the human set to follow Review automatically starts, as when a team finishes.
+    expect(f.batch().walkthroughRequestedAt).toBeTruthy();
   });
 });
 

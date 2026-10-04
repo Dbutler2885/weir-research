@@ -69,13 +69,18 @@ export class SessionDesk {
     }, this.poll);
     seat.timer.unref();
     this.collect(seat);
-    seat.session.start().then(
-      ({ interrupted, problem }) => {
-        if (interrupted) deliver(`Your last Python run was interrupted before it finished, when the app or the session restarted. It was not run again; your variables are as they were after the run before it.`);
-        if (problem) deliver(problem);
-      },
-      (error) => deliver(`Your Python session could not start: ${error.message}`),
-    );
+    // Until the session has started and said what it found, the seat may yet be owed
+    // a notice of a run cut short.
+    seat.starting = seat.session
+      .start()
+      .then(
+        ({ interrupted, problem }) => {
+          if (interrupted) deliver(`Your last Python run was interrupted before it finished, when the app or the session restarted. It was not run again; your variables are as they were after the run before it.`);
+          if (problem) deliver(problem);
+        },
+        (error) => deliver(`Your Python session could not start: ${error.message}`),
+      )
+      .then(() => (seat.starting = null));
     return seat;
   }
   close(key) {
@@ -87,6 +92,11 @@ export class SessionDesk {
     seat.callWatcher?.close();
     clearInterval(seat.timer);
     seat.session.stop();
+  }
+  // Resolves once a seat's session has started and its notices are delivered; null
+  // when it already has.
+  starting(key) {
+    return this.seats.get(key)?.starting ?? null;
   }
   // How many of a seat's runs are under way.
   running(key) {
