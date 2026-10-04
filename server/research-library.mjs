@@ -126,7 +126,20 @@ function findingsFile(state, title, proposals) {
   return lines(
     `# Findings: ${title}`,
     ...proposals.map((p) =>
-      lines(
+      // A team's finding is published on its own, so it is its whole report.
+      p.key
+        ? (p.findings || [])
+            .filter((f) => f.status !== "superseded")
+            .map((f) =>
+              lines(
+                `## ${f.statement}`,
+                `Finding ${p.id}/${f.id}, published by ${seat(p)} on ${p.createdAt.slice(0, 10)}: ${f.qualification}${f.status === "deferred" ? "; set aside by the human" : ""}.${f.replaces ? ` It replaced finding ${f.replaces.proposalId}/${f.replaces.findingId}.` : ""}`,
+                f.explanation,
+                ...f.evidenceIds.map((id) => evidenceText(state, p, id)),
+              ).trimEnd(),
+            )
+            .join("\n\n")
+        : lines(
         `## ${p.title}`,
         `Report ${p.id}, published ${p.createdAt.slice(0, 10)}.`,
         p.summary,

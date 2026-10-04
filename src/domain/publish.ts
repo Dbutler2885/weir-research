@@ -126,11 +126,13 @@ export function publishFinding(
 
   let replaces: FindingRef | undefined;
   if (input.replaces !== undefined && input.replaces !== null) {
-    refuse(typeof input.replaces === "string" && input.replaces.includes("/"), "Name the finding to replace by its ID, as published.");
-    const [proposalId, replacedId] = input.replaces.split("/") as [string, string];
+    refuse(typeof input.replaces === "string" && input.replaces.trim(), 'Name the finding to replace by its ID, as weir.findings() lists it, such as "<report>/f1".');
+    // A team's finding is the only one in its report, so the report's ID alone names it.
+    const [proposalId, replacedId = "f1"] = input.replaces.trim().split("/") as [string, string?];
+    input = { ...input, replaces: `${proposalId}/${replacedId}` };
     replaces = { proposalId, findingId: replacedId };
     const old = getFinding(batch, replaces);
-    refuse(old, `No finding ${input.replaces} is published in this batch, so there is nothing to replace.`);
+    refuse(old, `No finding ${input.replaces} is published in this batch, so there is nothing to replace. weir.findings() lists the batch's findings with their IDs.`);
     if (old.status === "superseded") {
       const by = batch.proposals.flatMap((p) => (p.findings || []).map((f) => ({ p, f }))).find(({ f }) => f.replaces && findingId(f.replaces) === input.replaces && f.status !== "deferred");
       throw new Error(`Finding ${input.replaces} was already replaced${by ? `, by ${by.p.id}/${by.f.id}: "${by.f.statement}". Replace that one instead` : ""}.`);

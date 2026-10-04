@@ -132,7 +132,7 @@ describe("a team of researchers", () => {
       // Nothing of the bounded pass is left: no brief, retrieval limit or result file.
       expect(instructions).not.toMatch(/brief\.md|result\.json|post\.md|bounded|20 distinct|out of scope/);
       expect(l.sent[0]).toContain(`You are Researcher ${n + 1} on batch 1, "The Example mill".`);
-      expect(l.sent[0]).toContain("post what you mean to try first with weir.post");
+      expect(l.sent[0]).toContain("post the part of the goal you are taking first with weir.post");
       expect(readFileSync(join(l.options.cwd, "AGENTS.md"), "utf8")).toContain("## The goal");
       expect(existsSync(join(l.options.cwd, "brief.md"))).toBe(false);
     });
@@ -662,7 +662,7 @@ describe.each(["claude", "codex"] as const)("a team of %s researchers, end to en
       writeFileSync(
         script,
         JSON.stringify({
-          "post what you mean to try first": [reading(delay)],
+          "post the part of the goal you are taking first": [reading(delay)],
           "without saying whether you have finished": [{ say: `The leads are spent.\n\n${DONE_PHRASE}` }],
           "A post on your batch's board": [{ say: `Noted; it changes nothing.\n\n${DONE_PHRASE}` }],
           default: [],

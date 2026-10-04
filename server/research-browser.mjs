@@ -157,12 +157,15 @@ class ChromiumEngine {
     ], {detached: true, stdio: 'ignore'});
     child.unref();
     this.child = child;
-    for (let n = 0; n < 150; n++) {
+    // A browser that cannot be started, such as one removed since it was found, ends the wait.
+    let failed = null;
+    child.on('error', (error) => (failed = error));
+    for (let n = 0; n < 150 && !failed; n++) {
       const url = await this.running();
       if (url) return url;
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
-    throw new Error('The research browser did not start.');
+    throw new Error(`The research browser did not start${failed ? `: ${failed.code === 'ENOENT' ? `${this.path} is not there` : failed.message}` : '.'}`);
   }
   // The DevTools address of a research browser already running on this profile.
   async running() {
@@ -236,6 +239,7 @@ class FirefoxEngine {
     // A relay that fails ends the wait; one that exits cleanly found another relay running.
     let failed = false;
     child.on('exit', (code) => (failed = code !== 0));
+    child.on('error', () => (failed = true));
     // Firefox makes a new profile slowly the first time, slower still on a busy machine.
     const deadline = Date.now() + 120_000;
     while (Date.now() < deadline && !failed) {

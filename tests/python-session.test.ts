@@ -196,6 +196,7 @@ describe.skipIf(!onMac)("the session desk", () => {
         if (given.finding.evidence[0].page !== 2) throw new Error("Evidence 1 was not found in doc-1 (Harbor ledger.pdf). The quote is not on page 1; it is on page 2. Cite the page it is on.");
         return { id: "report-1/f1", statement: given.finding.statement, evidence: [{ document: "doc-1", pages: [2, 2], check: "checked" }] };
       },
+      findings: async (given: any, context: any) => [{ id: "report-1/f1", by: "Researcher 2", statement: `A finding of ${context.key}'s batch.`, qualification: "supported", explanation: "", evidence: [] }],
       helper: async (given: any, context: any) => {
         asked.push({ ...given, seat: context.key });
         return { id: "h1", status: "queued" };
@@ -257,6 +258,8 @@ describe.skipIf(!onMac)("the session desk", () => {
       finding: { statement: "Ada Example is named in the ledger.", qualification: "supported", explanation: "The ledger names her.", evidence: [{ document: "doc-1", page: 2, quote: "The ledger names Ada Example.", interpretation: "She is named." }], replaces: "report-0/f1" },
     });
     expect((await tool(folder, code(1), "lease-1")).stdout).toBe("Evidence 1 was not found in doc-1 (Harbor ledger.pdf). The quote is not on page 1; it is on page 2. Cite the page it is on.\n");
+    // The batch's findings, to read before publishing and to name one to replace.
+    expect((await tool(folder, "for f in weir.findings():\n    print(f['id'], f['by'], f['statement'])", "lease-1")).stdout).toBe("report-1/f1 Researcher 2 A finding of seat-1's batch.\n");
   });
 
   it("lets running code ask readers, with one prompt or a question and passages, and get the answers into variables", async () => {

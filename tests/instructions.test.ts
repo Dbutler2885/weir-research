@@ -1,0 +1,76 @@
+import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { ResearcherPool } from "../server/researchers.mjs";
+import { Jobs } from "../server/jobs.mjs";
+import { READER_INSTRUCTIONS } from "../src/domain/reader.ts";
+import { buildCoordinatorContext } from "../src/domain/coordinator-context.ts";
+import { projectSkills } from "../server/skills.mjs";
+import { initialState } from "../src/domain/research.ts";
+import { emptyGraph } from "../src/domain/graph-schema.ts";
+
+// Every instruction the app gives the agents that research: what the pool and the jobs
+// write for a researcher and a helper, the coordinator's instructions and skills, and
+// the context a coordinator starts from.
+const seats = [1, 2].map((n) => ({ id: `seat-${n}`, title: `Researcher ${n}`, status: "running", checkpoints: [] }));
+const batch = { id: "batch-a", number: 1, title: "The fictional mill", goal: "Find who bought the fictional Example mill, and when.", scope: ["web"], assignments: seats, proposals: [], events: [], annotations: [], board: [], status: "running" };
+const pool = { library: "/project/library" };
+const researcher = (web: boolean) => (ResearcherPool.prototype as any).instructions.call(pool, batch, { title: "Researcher 1" }, web) as string;
+const opening = (ResearcherPool.prototype as any).opening.call(pool, batch, seats[0], { title: "Researcher 1" }, []) as string;
+const helper = (web: boolean) => (Jobs.prototype as any).instructions.call(pool, { seat: "seat-1" }, batch, web, web) as string;
+const file = (path: string) => readFileSync(path, "utf8");
+const state = { ...initialState(emptyGraph()), investigations: [batch] } as any;
+const texts: Record<string, string> = {
+  "the researcher's instructions, with the web": researcher(true),
+  "the researcher's instructions, from the library": researcher(false),
+  "the researcher's first message": opening,
+  "the helper's instructions, with the web": helper(true),
+  "the helper's instructions, from the library": helper(false),
+  "the reader's instructions": READER_INSTRUCTIONS,
+  "the coordinator's instructions": file("server/agents/coordinator/AGENTS.md"),
+  "the coordinate-research skill": file("skills/coordinate-research/SKILL.md"),
+  "the research-contract skill": file("skills/research-contract/SKILL.md"),
+  "the coordinator's startup context": buildCoordinatorContext(state, { skills: projectSkills(".") as any }).text,
+};
+
+describe("the instructions the research agents work from", () => {
+  it.each(Object.keys(texts))("%s set no limit on retrievals or time and frame no bounded pass", (name) => {
+    expect(texts[name]).not.toMatch(/bounded|retrieval limit|time limit|deadline|\d+ distinct|at most \d+ (sources|retrievals|searches)|within \d+ minutes|out of scope|result\.json|brief\.md|post\.md/i);
+  });
+
+  it("give the researcher the goal, the board, the library, the session and its package, and the done phrase", () => {
+    const text = researcher(true);
+    for (const part of ["## The goal", "## The board", "## The research library", "## Your Python session", "## Findings", "RESEARCH DONE"]) expect(text).toContain(part);
+    for (const call of ["weir.post", "weir.save", "weir.save_page", "weir.save_image", "weir.jev", "weir.reader", "weir.helper", "weir.publish", "weir.reconcile", "weir.library"]) expect(text).toContain(call);
+    // Source text and sub-call answers stay in the session.
+    expect(text).toContain("print only what you need to decide your next step");
+    expect(text).toContain("when nothing you or the board offers is left to pursue".replace(/^w/, "W"));
+    expect(text).toContain("go on for as long as leads remain");
+  });
+
+  it("describe a helper's errand: do it, save every source read, and answer with exact quotes and document IDs", () => {
+    const text = helper(true);
+    expect(text).toContain("sent on one errand");
+    expect(text).toContain("Save every source you rely on with weir.save");
+    expect(text).toContain('"quotes": [{"document": "<saved document\'s ID>", "page": <page number>, "quote": "<exact words from the saved text>"}]');
+    expect(text).not.toMatch(/weir\.post|weir\.publish|weir\.helper/);
+  });
+
+  it("have the coordinator open batches with a goal it leaves whole, and do none of the researchers' work", () => {
+    const text = `${texts["the coordinator's instructions"]}\n${texts["the coordinate-research skill"]}`;
+    expect(text).toContain('{"action":"open-batch","title":"...","goal":"..."}');
+    expect(text).toContain("restated plainly and whole");
+    expect(text).toContain("leave the dividing to the team");
+    expect(text).toContain("Keep to what the human said");
+    // The commands it lost: assigning, steering or stopping one researcher, sending work back, publishing results and marking a batch ready.
+    expect(text).not.toMatch(/"action":"(assign|steer|stop-assignment|send-back|publish-findings|publish|ready|brief)"/);
+    expect(text).not.toMatch(/\bbrief each researcher|write (a|each) researcher'?s? brief/i);
+  });
+
+  it("state the evidence contract for saved documents, transcriptions and one finding at a time", () => {
+    const text = texts["the research-contract skill"]!;
+    expect(text).toContain("Evidence comes from saved documents only.");
+    expect(text).toContain("marked as transcribed");
+    expect(text).toContain("Researchers publish findings one at a time");
+    expect(projectSkills(".").find((s: any) => s.name === "research-contract")!.description).toContain("saved documents");
+  });
+});

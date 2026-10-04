@@ -44,7 +44,7 @@ for (const provider of only.length ? only : ["claude", "codex"]) {
   const desk = new SessionDesk({
     home: appHome,
     library: join(project, "library"),
-    calls: { publish: (given, seat) => publisher.publish(seat.key, given.finding), post: (given, seat) => pool.post(seat.key, given.text) },
+    calls: { publish: (given, seat) => publisher.publish(seat.key, given.finding), findings: (given, seat) => publisher.findings(seat.key), post: (given, seat) => pool.post(seat.key, given.text) },
   });
   pool = new ResearcherPool(store, project, resolve("."), { supervisor, live, sessions: desk });
   const batch = () => store.state.investigations[0];

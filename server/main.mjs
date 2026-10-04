@@ -148,6 +148,7 @@ const researchers = new ResearcherPool(store, directory, root, {
       save_page: (given, seat) => sources.savePage(given).then((receipt) => (jobs.saved(seat.key, receipt), receipt)),
       save_image: (given, seat) => sources.saveImage(given, { folder: seat.folder }).then((receipt) => (jobs.saved(seat.key, receipt), receipt)),
       publish: (given, seat) => findings.publish(seat.key, given.finding),
+      findings: (given, seat) => findings.findings(seat.key),
       post: (given, seat) => researchers.post(seat.key, given.text),
       reader: (given, seat) => jobs.reader(given, seat.key),
       jev: (given) => sweeps.sweep(given),

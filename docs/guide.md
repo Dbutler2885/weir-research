@@ -92,13 +92,13 @@ npm run workspace -- sign-in codex
 ```
 
 Every agent runs in its own folder under its CLI's sandbox, with any command and the web available there, and nothing else on your computer within reach.
-Researchers can also read the project's research library, which they cannot change: every batch's brief, every research pass with its direction, published findings and checkpoints, the walkthroughs, the graph as tables, the sources and the saved documents.
-It leaves out your conversation, your annotations, and findings the coordinator has not yet published.
+Researchers can also read the project's research library, which they cannot change: every batch's goal and board, every published finding with its evidence, every researcher's checkpoints, the walkthroughs, the graph as tables, the sources and the saved documents.
+It leaves out your conversation and your annotations.
 It loads the app's skills from its folder, never your personal instructions, hooks, skills or MCP servers, and an agent CLI started from inside one is stopped and reported.
 Researchers working on the web share one research browser: Google Chrome with the app's own profile, separate from your browsers, reached through Chrome DevTools MCP.
 Open it from Research settings and sign in to archives once; every researcher can then use those sign-ins, each in its own tab.
-The coordinator divides each batch into assignments, one per researcher, each with a title and a brief; Findings shows every research pass under its title and the coordinator's brief.
-At most four researchers work one batch at once, unless you set another number in Research settings; further assignments wait their turn, and other batches are not held back.
+The coordinator opens each batch with a goal, your request restated whole, and a team of researchers shares it and divides the work itself on the batch's board.
+A team is four researchers, unless you set another number in Research settings; each publishes its findings as it makes them, and Findings shows them at once.
 Researchers in a batch post what the others should know on the batch's board, and the coordinator can post there for all of them; each batch's board closes it in Findings, and the Board tab shows every batch's.
 The Queue tab in Investigations shows the batches in the order they are worked; move one up or down, or hold it.
 Research settings also offers an optional limit in whole minutes for each research pass; running passes keep the limit they started with.
@@ -121,9 +121,9 @@ npm run research -- checkpoint /path/to/checkpoint.json
 npm run research -- propose /path/to/proposal.json
 ```
 
-See [the research-agent contract](../skills/research-contract/SKILL.md) for the proposal format, source expectations, and recovery behavior.
+See [the research-agent contract](../skills/research-contract/SKILL.md) for what a finding and its evidence must be, and the older proposal format.
 The supervisor implements a narrow research workflow inspired by Firstmate; it does not run Firstmate's fleet or Git worktrees.
-With the coordinator, researcher findings pass through its synthesis before they become proposals for your review.
+With the coordinator, researchers publish their findings themselves, and the app checks each quote against its saved source at the page cited.
 
 ## Try the isolated example
 

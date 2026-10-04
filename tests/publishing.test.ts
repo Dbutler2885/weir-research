@@ -91,8 +91,30 @@ describe("publishing a finding", () => {
     expect(report.evidence[0]).toMatchObject({ sourceId: "ledger", documentId: "ledger", locator: "page 2", pages: [2, 2], check: "checked", revision: 1, stance: "supports" });
     expect(batch().findingsRevision).toBe(1);
     const page = inLibrary("batches/batch-1/findings.md");
-    expect(page).toContain(`Finding ${receipt.id} (finding f1 in report ${report.id}), published by Researcher 1: supported`);
+    expect(page).toContain(`## Ada Example sold the mill to Ben Example in 1901.\n\nFinding ${receipt.id}, published by Researcher 1 on ${report.createdAt.slice(0, 10)}: supported.\n\nThe ledger records the sale.`);
+    // The statement is said once, and nothing is said of a decision the human never made.
+    expect(page.match(/Ada Example sold the mill to Ben Example in 1901\./g)).toHaveLength(1);
+    expect(page).not.toMatch(/kept by the human|Report /);
     expect(page).toContain("The app found this quote at the page cited, in revision 1 of the saved text (documents/ledger.r1.txt).");
+  });
+
+  it("lists the batch's findings that stand, newest first, for a researcher about to publish", () => {
+    const { publisher, one, two, sale } = fixture();
+    expect(publisher.findings(one)).toEqual([]);
+    const first = publisher.publish(one, sale());
+    const founded = publisher.publish(two, { statement: "The company was founded in 1842.", qualification: "reported", explanation: "The archive's own account.", evidence: [{ document: "ledger", page: 1, quote: "Example Trading Company was founded in 1842.", interpretation: "The founding year." }] });
+    expect(publisher.findings(one)).toEqual(publisher.findings(two));
+    expect(publisher.findings(one)).toMatchObject([
+      { id: founded.id, by: "Researcher 2", statement: "The company was founded in 1842.", qualification: "reported", evidence: [{ document: "ledger", pages: [1, 1], quote: "Example Trading Company was founded in 1842." }] },
+      { id: first.id, by: "Researcher 1", statement: "Ada Example sold the mill to Ben Example in 1901.", qualification: "supported", explanation: "The ledger records the sale." },
+    ]);
+    // A replaced finding leaves the list, and its replacement says what it replaced.
+    // The report's ID alone names its one finding.
+    const fuller = publisher.publish(two, { ...sale(), statement: "Ada Example sold the mill to Ben Example in 1901, the ledger says.", replaces: first.id.split("/")[0] });
+    expect(fuller.replaced).toBe(first.id);
+    expect(publisher.findings(one).map((f: any) => [f.id, f.replaces])).toEqual([[fuller.id, first.id], [founded.id, undefined]]);
+    expect(() => publisher.publish(one, { ...sale(), statement: "Another.", replaces: "no-such-report" })).toThrow("No finding no-such-report/f1 is published in this batch, so there is nothing to replace. weir.findings() lists the batch's findings with their IDs.");
+    expect(() => publisher.findings("no-such-seat")).toThrow("This session's seat is in no batch.");
   });
 
   it("refuses a quote at the wrong page, or not in the text, saying why, and publishes nothing", () => {

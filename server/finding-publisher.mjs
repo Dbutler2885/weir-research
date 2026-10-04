@@ -25,6 +25,30 @@ export class FindingPublisher {
       return undefined;
     }
   }
+  // The findings that stand in the seat's batch, newest first: what a researcher reads
+  // before it publishes, and where it finds the ID of one to replace.
+  findings(assignmentId) {
+    const batch = this.store.state.investigations.find((i) => i.assignments?.some((a) => a.id === assignmentId));
+    if (!batch) throw new Error("This session's seat is in no batch.");
+    const by = (p) => batch.assignments.find((a) => a.id === p.assignmentId)?.title || "an earlier researcher";
+    return batch.proposals
+      .filter((p) => p.kind === "findings" || !p.kind)
+      .flatMap((p) =>
+        (p.findings || [])
+          .filter((f) => f.status !== "superseded" && f.status !== "deferred")
+          .map((f) => ({
+            id: `${p.id}/${f.id}`,
+            by: by(p),
+            at: p.createdAt,
+            statement: f.statement,
+            qualification: f.qualification,
+            explanation: f.explanation,
+            evidence: f.evidenceIds.map((id) => p.evidence.find((e) => e.id === id)).filter(Boolean).map((e) => ({ document: e.documentId ?? null, pages: e.pages ?? null, quote: e.quote })),
+            ...(f.replaces ? { replaces: `${f.replaces.proposalId}/${f.replaces.findingId}` } : {}),
+          })),
+      )
+      .reverse();
+  }
   // Publishes the finding for the seat, and resolves with its receipt; throws with
   // the reason when it is refused. Findings are applied one at a time.
   publish(assignmentId, finding) {

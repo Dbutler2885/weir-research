@@ -216,6 +216,18 @@ def post(text):
     return _app.call("post", text=text)
 
 
+def findings():
+    """The findings that stand in your batch, newest first, yours and your teammates':
+    each {"id", "by", "at", "statement", "qualification", "explanation",
+    "evidence": [{"document", "pages", "quote"}]}, with "replaces" where it replaced an
+    earlier one.
+
+    Read it before you publish, so each finding you add tells the human something new,
+    and for the ID of a finding to replace.
+    """
+    return _app.call("findings")
+
+
 def publish(statement, qualification, explanation, evidence, replaces=None):
     """Publishes one finding with its evidence, and returns its receipt:
     {"id", "statement", "evidence": [{"document", "pages", "check"}]}.
@@ -229,7 +241,8 @@ def publish(statement, qualification, explanation, evidence, replaces=None):
     The app checks that each quote appears in the document's saved text at the pages
     cited; spacing and line breaks do not matter, every other character does.
     replaces is the ID of an earlier finding in this batch, yours or a teammate's,
-    that this one corrects.
+    that this one corrects or says more fully; weir.findings() lists them. The earlier
+    finding is superseded at once, and a published finding stays until it is replaced.
 
     Raises weir.AppError, saying why, when the finding is refused: a quote that is
     not on its page comes back with the page it is on, or the nearest passage there.
@@ -240,4 +253,4 @@ def publish(statement, qualification, explanation, evidence, replaces=None):
     return _app.call("publish", finding=finding)
 
 
-__all__ = ["AppError", "Helper", "helper", "helpers", "jev", "library", "output", "post", "publish", "reader", "reconcile", "save", "save_image", "save_page"]
+__all__ = ["AppError", "Helper", "findings", "helper", "helpers", "jev", "library", "output", "post", "publish", "reader", "reconcile", "save", "save_image", "save_page"]

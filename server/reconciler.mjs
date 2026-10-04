@@ -42,7 +42,7 @@ export function seatsAtWork(state) {
   return state.investigations.filter((batch) => !batch.closedAt).flatMap((batch) => (batch.assignments || []).filter((seat) => ["running", "paused"].includes(seat.status)).map((seat) => seat.id));
 }
 
-const INSTRUCTIONS = `You are reconciling the text of one page of a saved document against the page itself, for a research workspace. You are not a coding agent here.
+const INSTRUCTIONS = `You are reconciling the text of one page of a saved document against the page itself, for a research workspace. Your work here is deciding what the page says.
 
 The document was read into text by a program, and that text can be wrong: a scan misread, a table scrambled, a letter mistaken for a digit. Researchers have quoted this page in published findings, so its text and their quotes must agree with what the page says.
 

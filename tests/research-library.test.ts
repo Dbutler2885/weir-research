@@ -139,10 +139,10 @@ describe("the research library", () => {
     // its evidence; a transcription is marked as one.
     const findings = text("batches/batch-2/findings.md");
     expect(findings.indexOf("The mill was rebuilt in 1911.")).toBeLessThan(findings.indexOf("Ann Pryce bought the mill in 1896."));
-    expect(findings).toContain(`Finding ${deed.id} (finding f1 in report ${deed.id.split("/")[0]}), published by Researcher 1: supported`);
+    expect(findings).toContain(`Finding ${deed.id}, published by Researcher 1 on 2026-02-01: supported.`);
     expect(findings).toContain("> Sold to Ann Pryce, corn dealer, in 1896.");
     expect(findings).toContain("The app found this quote at the page cited, in revision 1 of the saved text (documents/doc-1.r1.txt).");
-    expect(findings).toContain("published by Researcher 2: reported");
+    expect(findings).toContain("published by Researcher 2 on 2026-02-01: reported.");
     expect(findings).toContain("From a transcription, which the app cannot check against the image.");
     // A running researcher's checkpoints are there for its teammates.
     expect(text("batches/batch-2/researcher-1/checkpoints.md")).toContain("The deed read");

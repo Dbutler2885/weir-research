@@ -21,7 +21,7 @@ const done = { say: "Nothing is left to pursue.\n\nRESEARCH DONE" };
 writeFileSync(
   steps,
   JSON.stringify({
-    "post what you mean to try first": [
+    "post the part of the goal you are taking first": [
       {
         tool: "Write",
         input: { file_path: "checkpoint.json" },

@@ -39,7 +39,7 @@ node tools/research.mjs search Alex employment
 node tools/research.mjs '{"action":"map","notes":"Purpose, threads, uncertainties and stable references"}'
 ```
 
-Search returns bounded excerpts and stable references across entities, batches with their findings, and preserved text documents.
+Search returns short excerpts and stable references across entities, batches with their findings, and preserved text documents.
 Inspect the referenced records with commands:
 
 ```json
@@ -118,6 +118,7 @@ The goal is the human's request, restated plainly and whole, up to a few thousan
 Every researcher in the team reads it, and it is all they have of the conversation: say what the human wants to know, what they already have, and where they suggested looking.
 When the human pointed at something in an annotation, find its ID and name it in the goal; the researchers can read each of them in the research library.
 State the goal and leave the dividing to the team: the researchers post their opening plans on the board and spread out across the goal themselves.
+Keep to what the human said: how to go about the research, which sources to read first and what to produce are the team's to choose.
 The app creates one researcher per place in the team, as many as the human's team size setting, and starts them all at once; a held batch waits until the human releases it.
 If `engine` is omitted, the project's dispatch rules choose the researchers' agent, model and effort; name `engine`, `model` and `effort` when one of their conditional rules fits this batch.
 
@@ -136,7 +137,7 @@ The team organizes on the batch's board: opening plans, sources found or ruled o
 Every post reaches every other researcher in the batch at once, stays on the board for any who start later, and reaches you in the app's news.
 Post yourself with `{"action":"post","investigationId":"...","text":"..."}` when the team should know something: a source the human supplied, a correction to the goal, a decision that changes their work.
 Your post reaches every researcher and wakes those who had finished, which is how the human's "keep going" reaches the team: post what they want pursued further.
-You post as the coordinator: the research itself is the team's.
+A post of yours says what the human said, or what you noticed in the team's findings, to the whole team; who takes it up is the team's to settle on the board.
 
 ### Finishing, Review and stopping
 
