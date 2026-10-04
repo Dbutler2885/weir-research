@@ -106,7 +106,8 @@ The human asked that researchers be encouraged to work together and check with o
   On Codex's cheapest model, with the first form of this wording, five findings and none repeated.
   On Claude's cheapest model, ten findings of which four repeated another's: it published without offering first.
 - `npm run test:live-research -- --default-models` runs the researchers on the default model; without it they run on the cheapest, and the check prints how many findings cite a quote an earlier one cites.
-- Codex reached its usage limit before the final wording could be run on it.
+- On Codex's cheapest model with the final wording, two runs: every finding was offered first, and four and five findings were published with none repeated.
+  In the second, the two researchers twice swapped parts at the same moment, and the coordinator then assigned each a part; the check at the time let "Researcher 1 covers" through, and now fails on it.
 
 ## Checks
 

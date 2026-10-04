@@ -97,8 +97,8 @@ const pause = (ms) => new Promise((done) => setTimeout(done, ms));
 const SEAT = /\bresearchers? ?#?(\d|one|two|three|four|a\b|b\b)|\b(first|second|third|fourth|other) researcher\b/i;
 // A seat spoken to or given something to do, which is steering one researcher; saying
 // who published a finding is not.
-const STEERED = new RegExp(`(${SEAT.source})\\s*[,:]|,\\s*(${SEAT.source})\\s*[.!]|(${SEAT.source}),? (please|should|must|will take|take|to take|can take|focus|cover|handle)\\b`, "i");
-for (const steering of ["Researcher 1: investigate the deeds; Researcher 2: investigate the gazette.", "researcher two, take the letters", "The second researcher should read the ledger.", "Thank you, Researcher 2. Please stop the cleanup.", "Researcher 2, please focus on what became of the mill."]) assert.match(steering, STEERED);
+const STEERED = new RegExp(`(${SEAT.source})\\s*[,:]|,\\s*(${SEAT.source})\\s*[.!]|(${SEAT.source}),? (please|should|must|will take|takes?|to take|can take|focus(es)?|covers?|handles?)\\b`, "i");
+for (const steering of ["Researcher 1: investigate the deeds; Researcher 2: investigate the gazette.", "researcher two, take the letters", "The second researcher should read the ledger.", "Thank you, Researcher 2. Please stop the cleanup.", "Researcher 2, please focus on what became of the mill.", "Coordinator assignment, final: Researcher 1 covers deeds, owners, and transfers."]) assert.match(steering, STEERED);
 for (const whole of ["The human also wants the year the mill opened.", "Two findings give the 1901 sale; please settle on the board which stands.", "Researchers, the archive has a fifth page.", "The 1912 sale is published twice, as e6d3 (Researcher 2) and 632b (Researcher 1); please settle which stands.", "Researcher 1 replaced its own finding."]) assert.doesNotMatch(whole, STEERED);
 
 for (const provider of only.length ? only : ["claude", "codex"]) {
@@ -177,9 +177,11 @@ for (const provider of only.length ? only : ["claude", "codex"]) {
     // The researchers: sources saved, the board used, findings published and checked.
     assert.ok(saved.length >= 3, "the researchers saved the archive's pages into the library");
     assert.ok(board.filter((p) => p.assignmentId).length >= 2, "the researchers posted to the board");
-    assert.ok(findings.some((f) => /1901/.test(f.statement)), "a finding gives the year the mill passed to Ben Example");
-    assert.ok(findings.some((f) => /1912/.test(f.statement)), "a finding gives the sale to the company");
-    assert.ok(findings.some((f) => /1923|fire/i.test(f.statement)), "a finding says what became of the mill");
+    // What a finding shows is its statement with the quotes it cites.
+    const shown = findings.map((f) => `${f.statement} ${f.evidence.map((e) => e.quote).join(" ")}`);
+    assert.ok(shown.some((f) => /1901/.test(f)), "a finding gives the year the mill passed to Ben Example");
+    assert.ok(shown.some((f) => /1912/.test(f)), "a finding gives the sale to the company");
+    assert.ok(shown.some((f) => /1923|fire/i.test(f)), "a finding says what became of the mill");
     const evidence = batch().proposals.flatMap((p) => p.evidence);
     assert.ok(evidence.length && evidence.every((e) => e.check === "checked"), "every quote was checked against a saved page");
     assert.ok(evidence.every((e) => saved.some((d) => d.id === e.documentId)), "every quote cites a page the team saved");
