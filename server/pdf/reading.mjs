@@ -43,7 +43,11 @@ export const pageText = (pages) => pages.map((p) => `[Page ${p.number}]\n${p.tex
 const isPdf = (d) => d.mime === "application/pdf";
 
 export class PdfReading {
-  constructor(store, { home, directory }) {
+  // revised(id, from) is told when a document read again has a new text, with the
+  // revision it had before.
+  /** @param {any} store @param {{home: string, directory: string, revised?: (id: string, from: number) => void}} options */
+  constructor(store, { home, directory, revised = () => {} }) {
+    this.revised = revised;
     this.store = store;
     this.home = home;
     this.directory = directory;
@@ -139,6 +143,8 @@ export class PdfReading {
           d.pages = pages.length;
           d.reading = { state: "done", engine, at, ...(pages.some((p) => p.method === "ocr") ? { ocrPages: pages.filter((p) => p.method === "ocr").length } : {}) };
         });
+        // A text that changed is reconciled with the quotes published from it.
+        if (before?.text !== undefined && before.text !== text) this.revised(next.id, before.revision ?? 1);
       },
       (error) => {
         if (this.stopped) return;

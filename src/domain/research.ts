@@ -230,18 +230,39 @@ export interface ResearchDocument {
     bundle?: string;
   };
 }
+// A place where a document's text and a published quote did not agree, and what was
+// decided about it against the page. It is kept with the document, with the text
+// around it, so a later reading of the document can be corrected the same way.
 export interface TextCorrection {
   id: string;
   pages: [number, number];
+  // The wording the quote was checked against.
   wording: string;
   // The revision the wording was found in, and the one that no longer holds it.
   fromRevision: number;
   missingFrom: number;
-  // The quote that cites it, as "<report id>/<evidence id>".
-  evidence: string;
-  status: "unreconciled";
+  // The quote that cites it, as "<report id>/<evidence id>"; absent for a correction a
+  // researcher asked for.
+  evidence?: string;
+  // Not yet reconciled against the page; reconciled; or reconciled without the page
+  // settling it, so the earlier wording stands.
+  status: "unreconciled" | "reconciled" | "unsettled";
   reason: string;
   at: string;
+  // What reconciliation decided: the earlier wording was right, the new reading was,
+  // or neither, and the passage was transcribed from the page.
+  decision?: "old" | "new" | "transcribed" | "unsettled";
+  // The change made to the document's text: on which page, the wording the reader
+  // gave, the wording that replaced it, and the text on either side.
+  fix?: { page: number; before: string; after: string; context: { before: string; after: string } };
+  // The quote's wording before and after, when the quote was changed.
+  quote?: { before: string; after: string };
+  // The finding that was replaced because the change altered what it says, or why it
+  // could not be.
+  finding?: { replaced: string; by?: string; note?: string };
+  // The revision whose text holds the outcome.
+  appliedIn?: number;
+  reconciledAt?: string;
 }
 export interface ResearchState {
   version: 1;

@@ -21,10 +21,12 @@ export const DEFAULT_HELPER_LIMIT = 8;
 export const helperLimit = (state) => state.researchSettings?.helperLimit ?? DEFAULT_HELPER_LIMIT;
 const MAX_ERRAND = 20_000;
 // What a helper's session may ask of the app: it saves, reads, sweeps and calls readers.
-export const HELPER_CALLS = new Set(["save", "save_page", "save_image", "reader", "jev"]);
+export const HELPER_CALLS = new Set(["save", "save_page", "save_image", "reader", "jev", "reconcile"]);
+// A task of the app's own reads what it was given and the library, and may ask readers.
+const TASK_CALLS = new Set(["reader"]);
 const ENDED = new Set(["answered", "failed", "cancelled"]);
 
-const helperKey = (job) => `helper:${job.seat}:${job.id}`;
+const helperKey = (job) => (job.kind === "task" ? `task:${job.id}` : `helper:${job.seat}:${job.id}`);
 // The seat and helper a session's key names: a researcher's key is its seat's ID.
 export function sessionOwner(key) {
   const match = /^helper:([^:]+):(.+)$/.exec(key);
@@ -97,12 +99,16 @@ export class Jobs {
   // Whether a job's ticket still stands: until the job ends or its seat is stopped.
   live(job) {
     if (ENDED.has(job.status)) return false;
+    if (job.kind === "task") return job.alive();
     const seat = this.batchOf(job.seat)?.assignments.find((a) => a.id === job.seat);
     return Boolean(seat) && seat.status !== "stopped";
   }
   // Records a job as it now stands. What the researcher's session reads of a helper,
   // its status and its answer, is written beside the session's variables.
   save(job) {
+    // A task of the app's own is not recorded: what it is for is in the project's state,
+    // and the app starts it again from there.
+    if (job.kind === "task") return;
     const { agent: _agent, ...record } = job;
     const file = this.file(job);
     mkdirSync(join(this.seatFolder(job), "jobs"), { recursive: true });
@@ -115,7 +121,19 @@ export class Jobs {
     renameSync(join(shown, `${job.id}.tmp`), join(shown, `${job.id}.json`));
   }
   key(job) {
-    return `${job.seat}/${job.id}`;
+    return job.kind === "task" ? `task/${job.id}` : `${job.seat}/${job.id}`;
+  }
+  // An agent the app itself sends on a task, such as reconciling a page of a document
+  // against its quotes. It runs on the helpers' machinery: a place under the helper
+  // limit, a ticket and a Python session of its own, and one fresh start if it is cut
+  // short. prepare(folder) puts what it needs in its folder. Resolves with its reply.
+  task({ id, folder, title, instructions, prompt, prepare = () => {}, alive = () => true }) {
+    return new Promise((resolve, reject) => {
+      const job = { kind: "task", id, seat: null, own: folder, title, instructions, errand: prompt, prepare, alive, resolve, reject, ticket: randomUUID(), status: "queued", attempts: 0, at: new Date().toISOString(), saved: [] };
+      this.jobs.set(this.key(job), job);
+      this.waiting.push(job);
+      this.pump();
+    });
   }
   // The helpers and recovered readers still at work for a seat.
   outstanding(seatId) {
@@ -185,7 +203,8 @@ Work in this folder and the library; your shell runs any command here.
   }
   // Starts a helper's agent and its Python session, both answering to its ticket.
   start(job, record = null) {
-    const batch = this.batchOf(job.seat);
+    const task = job.kind === "task";
+    const batch = task ? { id: null, scope: [], assignments: [] } : this.batchOf(job.seat);
     if (!this.live(job) || !batch) return this.end(job, "cancelled");
     const choice = this.dispatch?.choose("helper");
     const executable = choice && this.findExecutable(choice.agent);
@@ -194,11 +213,11 @@ Work in this folder and the library; your shell runs any command here.
     job.status = "running";
     this.running.add(job);
     this.save(job);
-    const own = join(this.seatFolder(job), "helpers", job.id);
+    const own = task ? job.own : join(this.seatFolder(job), "helpers", job.id);
     const folder = record?.meta.directory || join(own, `agent-${job.attempts}`);
     const web = batch.scope.includes("web");
     const name = (record?.provider || choice.agent) === "codex" ? "Codex helper" : "Claude helper";
-    const live = { role: "helper", name, investigationId: batch.id, assignmentId: job.seat, task: short(job.errand, 120) };
+    const live = task ? { role: "helper", name, task: short(job.title, 120) } : { role: "helper", name, investigationId: batch.id, assignmentId: job.seat, task: short(job.errand, 120) };
     const follow = (agent) => {
       job.agent = agent;
       // Its session's messages, such as the output of a long run, start its next turn.
@@ -214,7 +233,7 @@ Work in this folder and the library; your shell runs any command here.
           }
         },
         live: () => this.live(job),
-        can: HELPER_CALLS,
+        can: task ? TASK_CALLS : HELPER_CALLS,
         refusal: (call) =>
           call === "helper"
             ? "A helper works its errand itself: it can call readers, sweep with Jev and save sources, and its researcher sends the helpers."
@@ -236,15 +255,16 @@ Work in this folder and the library; your shell runs any command here.
     if (record) return follow(this.supervisor.reattach(record, { live }));
     try {
       mkdirSync(folder, { recursive: true });
-      const again = job.attempts > 1 ? "An earlier helper on this errand was interrupted before it answered, and you are starting it again from the beginning. Sources it saved are already in the library, so saving one again costs nothing.\n\n" : "";
+      const again = task ? "" : job.attempts > 1 ? "An earlier helper on this errand was interrupted before it answered, and you are starting it again from the beginning. Sources it saved are already in the library, so saving one again costs nothing.\n\n" : "";
       const launch = (browser) => {
         if (!this.live(job) || job.agent) return;
-        const instructions = this.instructions(job, batch, web, Boolean(browser));
+        if (task) job.prepare(folder);
+        const instructions = task ? job.instructions : this.instructions(job, batch, web, Boolean(browser));
         writeFileSync(join(folder, "AGENTS.md"), instructions);
         try {
           follow(
             this.supervisor.start({
-              key: `errand:${job.seat}:${job.id}`,
+              key: task ? `task:${job.id}` : `errand:${job.seat}:${job.id}`,
               provider: choice.agent,
               executable,
               folder,
@@ -260,7 +280,8 @@ Work in this folder and the library; your shell runs any command here.
               live,
               describe: fileDescriber(researcherFiles),
               // What the app needs to take this helper back if it outlives the app.
-              meta: { project: this.directory, role: "errand", seat: job.seat, batch: job.batch, job: job.id, ticket: job.ticket, directory: folder },
+              // A task is not taken back: the app starts it again from the project's state.
+              meta: { project: this.directory, role: task ? "task" : "errand", seat: job.seat, batch: job.batch, job: job.id, ticket: job.ticket, directory: folder },
             }),
           );
         } catch (error) {
@@ -284,6 +305,10 @@ Work in this folder and the library; your shell runs any command here.
   // The helper has answered: its answer is written where its researcher's session
   // reads it, and then the researcher is told, in one line.
   answer(job, text) {
+    if (job.kind === "task") {
+      this.end(job, "answered");
+      return job.resolve(text);
+    }
     job.result = answerOf(text, this.store.state.documents);
     const { quotes } = job.result;
     this.end(job, "answered");
@@ -298,6 +323,7 @@ Work in this folder and the library; your shell runs any command here.
     if (ENDED.has(job.status)) return;
     job.problem = reason;
     this.end(job, "failed");
+    if (job.kind === "task") return job.reject(new Error(reason));
     this.notice(job.seat, `Helper ${job.id} failed ("${short(job.errand)}"): ${reason}.${job.saved.length ? ` The ${plural(job.saved.length, "source")} it saved ${job.saved.length === 1 ? "is" : "are"} in the library: ${job.saved.map((s) => s.id).join(", ")}.` : ""} It no longer counts as outstanding.`, `helper-${job.id}`);
   }
   // A helper whose process ended before it answered starts again from the beginning,
@@ -321,6 +347,7 @@ Work in this folder and the library; your shell runs any command here.
   }
   end(job, status) {
     job.status = status;
+    if (job.kind === "task" && status === "cancelled") job.reject(new Error("it was cancelled"));
     this.save(job);
     this.waiting = this.waiting.filter((waiting) => waiting !== job);
     this.release(job);
@@ -413,6 +440,8 @@ Work in this folder and the library; your shell runs any command here.
       } else this.interrupted(job);
     }
     for (const record of kept) this.supervisor.dismiss(record);
+    // A task of the app's own is started again from the project's state, not taken back.
+    for (const record of this.supervisor.hosted?.((r) => r.meta?.project === this.directory && r.meta?.role === "task") || []) this.supervisor.dismiss(record);
     this.pump();
   }
   // The app is closing: helpers the human keeps running carry on under their hosts.

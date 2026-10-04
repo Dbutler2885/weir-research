@@ -32,7 +32,8 @@
     "test:live-team": "node --no-warnings scripts/live-team.mjs",
     "test:live-readers": "node --no-warnings scripts/live-readers.mjs",
     "test:live-jev": "node --no-warnings scripts/live-jev.mjs",
-    "test:live-helper": "node --no-warnings scripts/live-helper.mjs"
+    "test:live-helper": "node --no-warnings scripts/live-helper.mjs",
+    "test:live-reconcile": "node --no-warnings scripts/live-reconcile.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.1",

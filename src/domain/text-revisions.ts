@@ -59,12 +59,17 @@ export function reviseText(
     for (const p of batch.proposals)
       for (const e of p.evidence) {
         if (e.documentId !== d.id || e.check !== "checked" || !e.pages) continue;
+        const ref = `${p.id}/${e.id}`;
+        // What is already recorded for this quote and not put right: still waiting, or
+        // reconciled without the page settling it.
+        const waiting = d.corrections?.find((c) => c.evidence === ref && c.status !== "reconciled");
         if (checkQuote(text, e.pages[0], e.pages[1], e.quote).found) {
           e.revision = d.revision;
+          // The text holds the wording again, so there is nothing left to reconcile.
+          if (waiting) Object.assign(waiting, { status: "reconciled", decision: "old", appliedIn: d.revision, reconciledAt: now, reason: `Revision ${d.revision} of the text holds this wording.` });
           continue;
         }
-        const ref = `${p.id}/${e.id}`;
-        if (d.corrections?.some((c) => c.evidence === ref)) continue;
+        if (waiting) continue;
         unsettled++;
         (d.corrections ||= []).push({
           id: id(),

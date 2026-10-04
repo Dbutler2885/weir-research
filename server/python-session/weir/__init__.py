@@ -5,6 +5,7 @@ save(url): saves a web page or PDF into the library, for the whole team.
 save_page(url): saves the page open in the research browser, as it shows there.
 save_image(source, transcription): saves an image with your transcription of it.
 jev(document, questions): sweeps a long document for the passages likely to matter.
+reconcile(document, page, problem): has a page's text checked against the page itself.
 reader(question, passages): asks cheap readers about passages, and returns their answers.
 helper(errand): sends a helper on an errand and returns its handle at once.
 helpers(): the helpers you have sent, by handle.
@@ -67,6 +68,19 @@ def save_image(source, transcription, title=None):
     if title is not None:
         arguments["title"] = title
     return _app.call("save_image", **arguments)
+
+
+def reconcile(document, page, problem):
+    """Asks the app to check a page of a saved document's text against the page itself,
+    when you notice the text is wrong: a scan misread, a table scrambled, a digit
+    mistaken for a letter. problem says what is wrong: the words as the text has them,
+    and what you think the page says.
+
+    Returns {"started": True, ...} at once. A model looks at the page's picture and
+    corrects the text as a new revision; you are sent a one-line message when it has,
+    and weir.library.corrections(document) lists what changed.
+    """
+    return _app.call("reconcile", document=document, page=page, problem=problem)
 
 
 def jev(document, questions, threshold=0.3):
@@ -226,4 +240,4 @@ def publish(statement, qualification, explanation, evidence, replaces=None):
     return _app.call("publish", finding=finding)
 
 
-__all__ = ["AppError", "Helper", "helper", "helpers", "jev", "library", "output", "post", "publish", "reader", "save", "save_image", "save_page"]
+__all__ = ["AppError", "Helper", "helper", "helpers", "jev", "library", "output", "post", "publish", "reader", "reconcile", "save", "save_image", "save_page"]

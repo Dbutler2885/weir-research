@@ -1,6 +1,7 @@
 """The project's research library, read into variables.
 
-documents() lists the saved documents, sources() the project's sources, read(id)
+documents() lists the saved documents, sources() the project's sources, corrections(id)
+what was decided where a document's text and a quote disagreed, read(id)
 gives a document's text as pages, text(id) as one string, and search(pattern) finds
 lines across the documents' text.
 """
@@ -39,6 +40,27 @@ def _document(doc_id):
         if row["id"] == doc_id:
             return row
     raise KeyError(f"No saved document has the ID {doc_id!r}.")
+
+
+def corrections(doc_id=None):
+    """What was decided where a document's text and a published quote disagreed, for
+    one document or, with no ID, for every document as {id: [...]}.
+
+    Each is {"pages", "status", "decision", "wording", "reason", "revision"}, with
+    "text": {"page", "before", "after"} where the document's text was corrected and
+    "quote": {"before", "after"} where a quote was. decision is "old" when the
+    earlier wording was what the page says, "new" when the new reading was,
+    "transcribed" when the passage was read from the page itself, and "unsettled"
+    when the page did not settle it and the quote keeps its wording.
+    """
+    import json
+
+    path = _path("documents", "corrections.json")
+    if not os.path.exists(path):
+        return [] if doc_id is not None else {}
+    with open(path, encoding="utf-8") as file:
+        every = json.load(file)
+    return every.get(doc_id, []) if doc_id is not None else every
 
 
 def read(doc_id):

@@ -114,6 +114,7 @@ describe("the research library", () => {
       "batches/batch-2/goal.md",
       "batches/batch-2/researcher-1/checkpoints.md",
       "batches/batch-2/researcher-2/checkpoints.md",
+      "documents/corrections.json",
       "documents/doc-1.pdf",
       "documents/doc-1.r1.txt",
       "documents/documents.csv",

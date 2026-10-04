@@ -24,7 +24,7 @@ You can read and search it; you cannot change it.
 - \`walkthroughs/batch-N.md\`: how each batch's research was explained to the human.
 - \`graph/\`: the project's graph as tables: \`nodes.csv\`, \`edges.csv\`, the project's types, fields and relationships, and \`evidence.csv\`, the evidence the graph cites.
 - \`sources.csv\`: every source the project knows, by ID.
-- \`documents/\`: the project's saved documents by ID, with \`documents.csv\` listing them, each with the address it was saved from, if any; a PDF's or a web page's text is beside it as \`<id>.r<n>.txt\`, where n is the text's revision, a PDF's with "[Page n]" before each page. \`documents.csv\` names each document's current revision and the file that holds it. A document read again has a new revision in a new file; the files of its earlier revisions stay as they were.
+- \`documents/\`: the project's saved documents by ID, with \`documents.csv\` listing them, each with the address it was saved from, if any; a PDF's or a web page's text is beside it as \`<id>.r<n>.txt\`, where n is the text's revision, a PDF's with "[Page n]" before each page. \`documents.csv\` names each document's current revision and the file that holds it. A document read again has a new revision in a new file; the files of its earlier revisions stay as they were. \`documents/corrections.json\` lists, by document, each place where a document's text and a published quote disagreed and what was decided against the page: the earlier wording kept, the new reading adopted, or the passage transcribed.
 
 IDs here are the ones to cite and to name in your work.
 `;
@@ -220,6 +220,28 @@ export function libraryFiles(state) {
     for (const r of d.textRevisions || []) files.set(textFile(d, r.revision), { copy: `${d.id}.r${r.revision}.txt`, size: r.size });
     documents.push([d.id, d.name, d.collectionId, original, text || (d.mime === "application/pdf" ? "not read yet" : original), d.pages ?? "", d.url ?? "", d.capturedAt ?? "", d.text !== undefined ? d.revision ?? 1 : ""]);
   }
+  // What reconciliation decided about each document's text, by document.
+  const corrections = Object.fromEntries(
+    state.documents
+      .filter((d) => d.corrections?.length)
+      .map((d) => [
+        d.id,
+        d.corrections.map((c) => ({
+          pages: c.pages,
+          status: c.status,
+          ...(c.decision ? { decision: c.decision } : {}),
+          wording: c.wording,
+          ...(c.fix ? { text: { page: c.fix.page, before: c.fix.before, after: c.fix.after } } : {}),
+          ...(c.quote ? { quote: c.quote } : {}),
+          ...(c.finding ? { finding: c.finding } : {}),
+          ...(c.evidence ? { evidence: c.evidence } : {}),
+          reason: c.reason,
+          revision: c.appliedIn ?? c.missingFrom,
+          at: c.reconciledAt ?? c.at,
+        })),
+      ]),
+  );
+  files.set("documents/corrections.json", `${JSON.stringify(corrections, null, 2)}\n`);
   files.set("documents/documents.csv", csv(["id", "name", "collection", "file", "text", "pages", "url", "saved", "revision"], documents));
   return files;
 }

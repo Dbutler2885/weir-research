@@ -103,7 +103,9 @@ describe("an agent that reaches its usage limit", () => {
   const read = `steps:${JSON.stringify([{ tool: "Read", input: { file_path: "AGENTS.md" } }])}`;
 
   it("pauses with the reason and reset time, holds the app's messages, and carries on with them at the reset", async () => {
-    const a = start();
+    // A reset a few seconds away: one a moment away could pass, on a busy machine,
+    // before the pause has been looked at.
+    const a = start(3);
     const paused = await new Promise<any>((done) => a.agent.once("paused", done));
     expect(paused.reason).toMatch(/^Paused: the usage limit is reached\. It carries on at \d+:\d\d [AP]M\.$/);
     expect(a.live.list()[0]!.latest!.text).toBe(paused.reason);

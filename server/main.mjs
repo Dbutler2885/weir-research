@@ -22,6 +22,7 @@ import { Coordinator } from "./coordinator.mjs";
 import { ResearcherPool, executableOnPath } from "./researchers.mjs";
 import { Readers } from "./readers.mjs";
 import { Jobs } from "./jobs.mjs";
+import { Reconciler, seatsAtWork } from "./reconciler.mjs";
 import { JevClient, JevSweeps } from "./jev.mjs";
 import { stowKey, typesafeKey } from "./typesafe-key.mjs";
 import { ResearchLibrary } from "./research-library.mjs";
@@ -150,6 +151,7 @@ const researchers = new ResearcherPool(store, directory, root, {
       post: (given, seat) => researchers.post(seat.key, given.text),
       reader: (given, seat) => jobs.reader(given, seat.key),
       jev: (given) => sweeps.sweep(given),
+      reconcile: (given) => reconciler.request(given),
       helper: (given, seat) => jobs.helper(given.errand, seat.key),
     },
     closed: (key) => readers.cancel(key),
@@ -169,6 +171,16 @@ readers.dispatch = dispatch;
 const jobs = new Jobs(store, directory, { supervisor, sessions: researchers.sessions, readers, dispatch, findExecutable: executableOnPath, browser: researchBrowser, notice: (seat, text, id) => researchers.notice(seat, text, id) });
 researchers.jobs = jobs;
 jobs.recover();
+// A document read again is reconciled with the quotes published from it, and the
+// researchers at work are told its text has changed.
+const reconciler = new Reconciler(store, directory, {
+  jobs,
+  written: () => library.write(),
+  notify: ({ document, to, text }) => {
+    for (const seat of seatsAtWork(store.state)) researchers.notice(seat, text, `revision-${document.id}-${to}`);
+  },
+});
+reconciler.recover();
 process.on("exit", () => jobs.stop());
 process.on("exit", () => writers.stop());
 process.on("exit", () => graphBuilders.stop());
@@ -212,7 +224,7 @@ const coordinatorToken = randomBytes(32).toString("hex");
 const documentsDir = join(directory, "documents");
 mkdirSync(documentsDir, { recursive: true });
 // Every PDF is read into searchable text in the background.
-const pdfs = new PdfReading(store, { home: appDirectory, directory });
+const pdfs = new PdfReading(store, { home: appDirectory, directory, revised: (id, from) => reconciler.revised(id, from).catch(() => {}) });
 process.on("exit", () => pdfs.stop());
 pdfs.pump();
 // Findings the researchers publish themselves, each quote checked against the saved text.
