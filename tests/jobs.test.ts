@@ -3,7 +3,7 @@ import { openTeam } from "./fixtures/assign";
 import { afterEach, describe, expect, it } from "vitest";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import dataset from "./fixtures/workshop.json";
@@ -312,6 +312,29 @@ describe("jobs across a restart of the app", () => {
     expect(opening.match(/Helper h1 has answered/g)).toHaveLength(1);
     expect(opening.match(/Helper h2 has answered/g)).toHaveLength(1);
   });
+  it("sends a helper's notice after a restart when the app closed between recording its answer and sending it", async () => {
+    const f = fixture();
+    f.jobs.helper("Search the gazette.", f.seat().id);
+    f.pool.pause(f.seat().id);
+    f.answer(0, "Found it.");
+    // The notice is recorded with the answer, and marked once it is in the inbox.
+    expect(f.record("h1")).toMatchObject({ status: "answered", notified: true, notice: expect.stringContaining("Helper h1 has answered") });
+    // As if the app had closed after the answer was recorded and before the notice was sent.
+    const file = join(f.directory, "agents", f.batch().id, f.seat().id, "jobs", "h1.json");
+    const { notified: _sent, ...record } = f.record("h1");
+    writeFileSync(file, JSON.stringify(record));
+    const inbox = join(f.directory, "agents", f.batch().id, f.seat().id, "inbox");
+    rmSync(inbox, { recursive: true, force: true });
+    const g = restart(f);
+    g.jobs.recover();
+    expect(readdirSync(inbox).filter((name) => name.includes("helper-h1"))).toHaveLength(1);
+    expect(g.record("h1").notified).toBe(true);
+    // Recovered again, it is not sent a second time.
+    rmSync(inbox, { recursive: true, force: true });
+    const h = restart(g);
+    h.jobs.recover();
+    expect(existsSync(inbox)).toBe(false);
+  });
   it("starts an interrupted helper again once, and fails it the second time", async () => {
     const f = fixture();
     f.jobs.helper("Search the gazette.", f.seat().id);
@@ -354,26 +377,77 @@ describe("jobs across a restart of the app", () => {
     g.answer(0, "Found after the restart.");
     expect(g.shown("h1")).toMatchObject({ status: "answered", answer: "Found after the restart." });
   });
-  it("runs a batch of readers again when the app closed before they answered", async () => {
-    const asked: any[] = [];
-    let release: (value: unknown) => void = () => {};
-    const slow = { ask: (given: any, context: any) => (asked.push({ given, context }), new Promise((done) => (release = done))) };
-    const f = fixture({ readers: slow });
+  it("runs a batch of readers again when the app closed before they answered, and again if it closes on them once more", async () => {
+    let refuse: (error: Error) => void = () => {};
+    const closing = { ask: () => new Promise((_done, fail) => (refuse = fail)), cancel: () => {} };
+    const f = fixture({ readers: closing });
     const given = { question: "Who sold the mill?", passages: [{ label: "ledger", text: "Ada Example sold the mill." }] };
-    const reading = f.jobs.reader(given, f.seat().id);
+    const reading = f.jobs.reader(given, f.seat().id).catch((error: Error) => error.message);
     const folder = join(f.directory, "agents", f.batch().id, f.seat().id, "jobs");
-    expect(readdirSync(folder).filter((name) => name.startsWith("r-"))).toHaveLength(1);
+    const records = () => readdirSync(folder).filter((name) => name.startsWith("r-"));
+    expect(records()).toHaveLength(1);
     f.pool.pause(f.seat().id);
-    // The app closes before the readers answer.
+    // The app closes: its readers are stopped, and the batch's record stays.
+    f.jobs.stop();
+    refuse(new Error("The app is closing."));
+    expect(await reading).toBe("The app is closing.");
+    expect(records()).toHaveLength(1);
+    // It runs again when the app opens, and the app closes on it again.
     const again: any[] = [];
-    const g = restart(f, { readers: { ask: async (given2: any, context: any) => (again.push({ given: given2, context }), []) } });
+    let refuseAgain: (error: Error) => void = () => {};
+    const g = restart(f, { readers: { ask: (given2: any, context: any) => (again.push({ given: given2, context }), new Promise((_done, fail) => (refuseAgain = fail))), cancel: () => {} } });
     g.jobs.recover();
     expect(again).toEqual([{ given, context: { seat: g.seat().id } }]);
+    expect(g.jobs.outstanding(g.seat().id)).toHaveLength(1);
+    g.jobs.stop();
+    refuseAgain(new Error("The app is closing."));
     await tick();
-    expect(readdirSync(folder).filter((name) => name.startsWith("r-"))).toEqual([]);
+    expect(records()).toHaveLength(1);
+    // The third time it answers: the record goes, and the seat is told, so a researcher waiting on it wakes.
+    const h = restart(g, { readers: { ask: async () => [], cancel: () => {} } });
+    h.jobs.recover();
+    await tick();
+    await tick();
+    expect(records()).toEqual([]);
+    expect(h.jobs.outstanding(h.seat().id)).toEqual([]);
+    const inbox = join(h.directory, "agents", h.batch().id, h.seat().id, "inbox");
+    expect(readdirSync(inbox).filter((name) => name.includes("reader-"))).toHaveLength(1);
+    h.pool.resume(h.seat().id);
+    expect(h.researcher().sent[0]).toContain("The readers that were reading for your seat when the app restarted have finished.");
+  });
+  it("ends readers picked up after a restart when their batch's team is stopped", async () => {
+    const pending = { ask: () => new Promise(() => {}), cancel: () => {} };
+    const f = fixture({ readers: pending });
+    void f.jobs.reader({ prompt: "Anything." }, f.seat().id).catch(() => {});
+    f.pool.pause(f.seat().id);
+    f.jobs.stop();
+    const cancelled: string[] = [];
+    const g = restart(f, { readers: { ask: () => new Promise(() => {}), cancel: (seat: string) => cancelled.push(seat) } });
+    g.jobs.recover();
+    expect(g.jobs.outstanding(g.seat().id)).toHaveLength(1);
+    g.pool.stopTeam(g.batch().id, "The human stopped the batch.");
+    expect(cancelled).toContain(g.seat().id);
     expect(g.jobs.outstanding(g.seat().id)).toEqual([]);
-    // A batch that is answered leaves no record behind.
-    release([{ label: "ledger", relevant: true }]);
-    expect(await reading).toEqual([{ label: "ledger", relevant: true }]);
+    expect(readdirSync(join(g.directory, "agents", g.batch().id, g.seat().id, "jobs")).filter((name) => name.startsWith("r-"))).toEqual([]);
+  });
+});
+
+describe("the app's own tasks", () => {
+  it("keep their Python sessions while the researcher pool looks after its seats' sessions", async () => {
+    const f = fixture();
+    const reply = f.jobs.task({ id: "reconcile-ledger-2", folder: join(f.directory, "agents", "reconciliation", "ledger", "page-2"), title: "Reconciling page 2", instructions: "Decide.", prompt: "Begin." });
+    const key = "task:reconcile-ledger-2";
+    expect(f.sessions.seats.get(key)).toMatchObject({ open: true });
+    expect([...f.sessions.seats.get(key).can]).toEqual(["reader"]);
+    // The pool's rounds leave a session that is not a seat's alone.
+    f.pool.pump();
+    expect(f.sessions.seats.get(key).open).toBe(true);
+    f.answer(0, "Decided.");
+    expect(await reply).toBe("Decided.");
+    expect(f.sessions.seats.get(key).open).toBe(false);
+    // One that cannot run says why.
+    const failing = f.jobs.task({ id: "reconcile-ledger-3", folder: join(f.directory, "agents", "reconciliation", "ledger", "page-3"), title: "Reconciling page 3", instructions: "Decide.", prompt: "Begin." });
+    f.supervisor.started[1].agent.emit("turn", { outcome: "error", text: "" });
+    await expect(failing).rejects.toThrow("its turn ended with an error");
   });
 });

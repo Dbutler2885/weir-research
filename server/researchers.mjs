@@ -390,7 +390,9 @@ export class ResearcherPool {
       }
     }
     // A session outlasts a pause, and ends when its seat is stopped or its batch closes.
-    for (const key of this.sessions?.keys?.() ?? []) if (!key.startsWith("helper:") && !this.seatLive(key)) this.sessions.close(key);
+    // Only researchers' sessions, which are keyed by their seats: a helper's or a task's
+    // session is its job's to end.
+    for (const key of this.sessions?.keys?.() ?? []) if (!key.includes(":") && !this.seatLive(key)) this.sessions.close(key);
     // Batches are worked in queue order; a held batch waits, and so does one the human
     // paused. Only a team's seats start: assignments from before teams are history.
     for (const batch of queueOf(this.store.state)) {

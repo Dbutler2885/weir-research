@@ -79,7 +79,8 @@ function pageSpan(text: string, page: number): { start: number; end: number } | 
 
 // Where some wording is on a page: its exact characters, or the same words with other
 // spacing. With several places, the one whose text before it matches the context.
-function place(text: string, page: number, wording: string, context = ""): { at: number; length: number } | null {
+// strict takes only a place whose text before it matches the context, where there is one.
+function place(text: string, page: number, wording: string, context = "", strict = false): { at: number; length: number } | null {
   const span = pageSpan(text, page);
   if (!span || !wording.trim()) return null;
   const within = text.slice(span.start, span.end);
@@ -87,17 +88,19 @@ function place(text: string, page: number, wording: string, context = ""): { at:
   const found = [...within.matchAll(pattern)];
   if (!found.length) return null;
   const wanted = flat(context).slice(-20);
-  const chosen = (wanted && found.find((m) => flat(within.slice(Math.max(0, m.index! - CONTEXT - 20), m.index!)).endsWith(wanted))) || (found.length === 1 ? found[0] : null);
+  const chosen = (wanted && found.find((m) => flat(within.slice(Math.max(0, m.index! - CONTEXT - 20), m.index!)).endsWith(wanted))) || (found.length === 1 && !(strict && wanted) ? found[0] : null);
   return chosen ? { at: span.start + chosen.index!, length: chosen[0].length } : null;
 }
 
 // The text with some wording on a page replaced, and the text that was around it.
-function replaceOn(text: string, page: number, replaces: string, wording: string, context = ""): { text: string; fix: NonNullable<TextCorrection["fix"]> } | null {
-  const found = place(text, page, replaces, context);
-  if (!found) return null;
+function replaceOn(text: string, page: number, replaces: string, wording: string, context = "", strict = false): { text: string; fix: NonNullable<TextCorrection["fix"]> } | null {
+  const found = place(text, page, replaces, context, strict);
+  const span = pageSpan(text, page);
+  if (!found || !span) return null;
   return {
     text: text.slice(0, found.at) + wording + text.slice(found.at + found.length),
-    fix: { page, before: text.slice(found.at, found.at + found.length), after: wording, context: { before: text.slice(Math.max(0, found.at - CONTEXT), found.at), after: text.slice(found.at + found.length, found.at + found.length + CONTEXT) } },
+    // The text on either side, within the page: another page's words are not its place.
+    fix: { page, before: text.slice(found.at, found.at + found.length), after: wording, context: { before: text.slice(Math.max(span.start, found.at - CONTEXT), found.at), after: text.slice(found.at + found.length, Math.min(span.end, found.at + found.length + CONTEXT)) } },
   };
 }
 
@@ -110,8 +113,9 @@ export function reuseCorrections(d: Pick<ResearchDocument, "corrections">, text:
   for (const c of d.corrections || []) {
     if (!c.fix || c.status !== "reconciled" || c.fix.before === c.fix.after) continue;
     // The new reading already has the corrected wording there.
-    if (place(corrected, c.fix.page, c.fix.after, c.fix.context.before)) continue;
-    const next = replaceOn(corrected, c.fix.page, c.fix.before, c.fix.after, c.fix.context.before);
+    if (place(corrected, c.fix.page, c.fix.after, c.fix.context.before, true)) continue;
+    // Only in its own place: the same words elsewhere on the page are another matter.
+    const next = replaceOn(corrected, c.fix.page, c.fix.before, c.fix.after, c.fix.context.before, true);
     if (!next) continue;
     corrected = next.text;
     reused.push(c.id);
@@ -145,12 +149,11 @@ export function applyReconciliation(
   const d = next.documents.find((x) => x.id === documentId);
   if (!d || d.text === undefined) throw new Error("This document has no text to reconcile.");
   const open = new Map([...openQuotes(next, documentId).values()].flat().map((q) => [q.ref, q]));
-  let text = d.text;
-  const settled: { quote: OpenQuote; decision: QuoteDecision; fix?: TextCorrection["fix"]; wording?: string; problem?: string }[] = [];
+  type Settled = { quote: OpenQuote; decision: QuoteDecision; change?: { replaces: string; wording: string }; fix?: TextCorrection["fix"]; wording?: string; problem?: string };
+  const settled: Settled[] = [];
   for (const decision of decisions) {
     const quote = open.get(decision.evidence);
     if (!quote || settled.some((s) => s.quote === quote)) continue;
-    const pages = quote.correction.pages;
     const unsettled = (problem: string) => settled.push({ quote, decision: { ...decision, decision: "unsettled" }, problem });
     if (decision.decision === "unsettled") settled.push({ quote, decision });
     else if (decision.decision === "new") {
@@ -160,51 +163,58 @@ export function applyReconciliation(
       else settled.push({ quote, decision, wording });
     } else {
       // The earlier wording, or a transcription, replaces what the new reading has.
-      // The words that go in their place: for the earlier wording, the part of the quote
-      // that the new reading has wrong, or the whole quote when no part is named.
-      const wording = (decision.wording || "").trim() || (decision.decision === "old" ? quote.evidence.quote : "");
-      // The whole quote in place of a few words would repeat the rest of it in the text.
-      const whole = !(decision.wording || "").trim() && decision.decision === "old";
-      const fits = !whole || (flat(decision.replaces || "").length * 2 >= flat(wording).length && flat(decision.replaces || "").length <= flat(wording).length * 2);
-      let replaced = null;
-      for (let page = pages[0]; page <= pages[1] && !replaced; page++) replaced = wording && decision.replaces && fits ? replaceOn(text, page, decision.replaces, wording) : null;
-      if (!replaced) unsettled(`The reconciliation ${decision.decision === "old" ? "kept the earlier wording" : "transcribed the passage"} without naming words of the new reading that it replaces, in one place on the page.`);
-      else {
-        text = replaced.text;
-        settled.push({ quote, decision, fix: replaced.fix, wording: decision.decision === "old" ? quote.evidence.quote : (decision.quote || "").trim() || wording });
-      }
+      const given = (decision.wording || "").trim();
+      const replaces = (decision.replaces || "").trim();
+      // With no words given to put in their place, the earlier wording goes back whole,
+      // which holds only where the words named stand for the whole quote: the same
+      // number of words. Fewer would repeat the rest of the quote in the text.
+      const whole = !given && decision.decision === "old" && flat(replaces).split(" ").length === flat(quote.evidence.quote).split(" ").length;
+      const wording = given || (whole ? quote.evidence.quote : "");
+      if (!replaces || !wording) unsettled(`The reconciliation ${decision.decision === "old" ? "kept the earlier wording" : "transcribed the passage"} without naming the words of the new reading that are wrong and what the page says in their place.`);
+      else settled.push({ quote, decision, change: { replaces, wording }, wording: decision.decision === "old" ? quote.evidence.quote : (decision.quote || "").trim() || wording });
     }
   }
-  // Corrections nobody's quote asked for: a researcher noticed a problem in the text.
+  // The corrected text is built from the document's text and the changes that stand,
+  // and every quote is checked against that text. A change that cannot be placed, or a
+  // quote the text then does not hold, is set aside and the text built again without
+  // it, until what is left agrees.
   const extra: TextCorrection[] = [];
-  for (const fix of fixes) {
-    const replaced = fix.replaces && fix.wording?.trim() ? replaceOn(text, fix.page, fix.replaces, fix.wording.trim()) : null;
-    if (!replaced) continue;
-    text = replaced.text;
-    extra.push({ id: id(), pages: [fix.page, fix.page], wording: replaced.fix.before, fromRevision: d.revision ?? 1, missingFrom: d.revision ?? 1, status: "reconciled", decision: "transcribed", reason: fix.reason, at: now, fix: replaced.fix, reconciledAt: now });
-  }
-  // A quote whose new wording the corrected text does not hold keeps its wording instead.
-  for (const s of settled) {
-    if (s.decision.decision === "unsettled" || !s.wording) continue;
-    const [from, to] = s.quote.correction.pages;
-    if (checkQuote(text, from, to, s.wording).found) continue;
-    s.problem = "The wording the reconciliation gave for the quote is not in the text at the pages cited.";
-    s.decision = { ...s.decision, decision: "unsettled" };
-  }
-  // An unsettled decision changes nothing in the text.
-  const dropped = settled.filter((s) => s.decision.decision === "unsettled" && s.fix);
-  if (dropped.length) {
+  let text = d.text;
+  for (let stable = false; !stable; ) {
+    stable = true;
     text = d.text;
     for (const s of settled) {
-      if (!s.fix || s.decision.decision === "unsettled") continue;
-      const again = replaceOn(text, s.fix.page, s.fix.before, s.fix.after, s.fix.context.before);
-      if (again) text = again.text;
+      delete s.fix;
+      if (s.decision.decision === "unsettled" || !s.change) continue;
+      // A quote may run over the end of its last cited page onto the next.
+      const [from, to] = s.quote.correction.pages;
+      let replaced = null;
+      for (let page = from; page <= to + 1 && !replaced; page++) replaced = replaceOn(text, page, s.change.replaces, s.change.wording);
+      if (replaced) {
+        text = replaced.text;
+        s.fix = replaced.fix;
+        continue;
+      }
+      s.problem = "The words the reconciliation named as wrong are not in one place on the page, so the text was not changed.";
+      s.decision = { ...s.decision, decision: "unsettled" };
+      stable = false;
     }
-    for (const c of extra) {
-      const again = replaceOn(text, c.fix!.page, c.fix!.before, c.fix!.after, c.fix!.context.before);
-      if (again) text = again.text;
+    // Corrections nobody's quote asked for: a researcher noticed a problem in the text.
+    extra.length = 0;
+    for (const fix of fixes) {
+      const replaced = fix.replaces && fix.wording?.trim() ? replaceOn(text, fix.page, fix.replaces, fix.wording.trim()) : null;
+      if (!replaced) continue;
+      text = replaced.text;
+      extra.push({ id: id(), pages: [fix.page, fix.page], wording: replaced.fix.before, fromRevision: d.revision ?? 1, missingFrom: d.revision ?? 1, status: "reconciled", decision: "transcribed", reason: fix.reason, at: now, fix: replaced.fix, reconciledAt: now });
     }
-    for (const s of dropped) delete s.fix;
+    for (const s of settled) {
+      if (s.decision.decision === "unsettled" || !s.wording) continue;
+      const [from, to] = s.quote.correction.pages;
+      if (checkQuote(text, from, to, s.wording).found) continue;
+      s.problem = "The wording the reconciliation gave for the quote is not in the corrected text at the pages cited.";
+      s.decision = { ...s.decision, decision: "unsettled" };
+      stable = false;
+    }
   }
   // The quotes change before the text is rechecked, so the recheck finds them.
   for (const s of settled) {

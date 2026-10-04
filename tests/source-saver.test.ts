@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it } from "vitest";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -267,6 +267,13 @@ describe("saving an image with a transcription", () => {
     expect(receipt.url).toBeUndefined();
     await expect(f.saver.saveImage({ source: "../../outside.png", transcription }, { folder })).rejects.toThrow("An image file must be in your own folder.");
     await expect(f.saver.saveImage({ source: "missing.png", transcription }, { folder })).rejects.toThrow('There is no file "missing.png" in your folder.');
+    // A link in the folder that leads out of it is not followed.
+    symlinkSync(join(f.directory, "outside.png"), join(folder, "linked.png"));
+    await expect(f.saver.saveImage({ source: "linked.png", transcription }, { folder })).rejects.toThrow("An image file must be in your own folder.");
+    mkdirSync(join(f.directory, "elsewhere"));
+    writeFileSync(join(f.directory, "elsewhere", "scan.png"), SCAN);
+    symlinkSync(join(f.directory, "elsewhere"), join(folder, "scans"));
+    await expect(f.saver.saveImage({ source: "scans/scan.png", transcription }, { folder })).rejects.toThrow("An image file must be in your own folder.");
   });
   it("is refused without a transcription, and for a file that is not an image", async () => {
     const f = await fixture();

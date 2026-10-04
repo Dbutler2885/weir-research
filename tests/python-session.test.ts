@@ -182,8 +182,11 @@ describe.skipIf(!onMac)("the session desk", () => {
     let stopped = false;
     // What the app would do for the session's code: a stand-in for saving a source.
     const asked: any[] = [];
+    // The agent's folder each save was made from.
+    const folders: string[] = [];
     const calls = {
       save: async (given: any, context: any) => {
+        folders.push(context.folder);
         asked.push({ ...given, seat: context.key });
         if (given.url.endsWith("/missing")) throw new Error(`${given.url} could not be downloaded: the site answered 404 Not Found.`);
         return { id: "doc-9", title: "Fictional gazette", url: given.url, pages: 1, characters: 80, existing: false };
@@ -223,7 +226,7 @@ describe.skipIf(!onMac)("the session desk", () => {
       return folder;
     };
     const folder = open(lease);
-    return { folder, messages, open, asked, revoke: (next = "lease-2") => (lease = next), stop: () => (stopped = true), running: () => d.running("seat-1") };
+    return { folder, messages, open, asked, folders, revoke: (next = "lease-2") => (lease = next), stop: () => (stopped = true), running: () => d.running("seat-1") };
   }
 
   it("runs the researcher's code through its tool", async () => {
@@ -348,6 +351,18 @@ describe.skipIf(!onMac)("the session desk", () => {
     const code = "for ask in (lambda: weir.post('x'), lambda: weir.publish('s', 'supported', 'e', []), lambda: weir.helper('go')):\n    try:\n        ask()\n    except weir.AppError as error:\n        print(error)\nprint(weir.save('https://example.org/gazette')['id'])";
     expect((await tool(folder, code, "lease-1")).stdout).toBe("A helper's session cannot post; put it in your answer.\nA helper's session cannot publish; put it in your answer.\nA helper's session cannot helper; put it in your answer.\ndoc-9\n");
     expect(asked).toHaveLength(1);
+  });
+  it("makes a run's calls from the folder of the agent that started it, though the seat has passed to another's", async () => {
+    const { folder, open, revoke, folders } = desk();
+    const long = tool(folder, "import time\ntime.sleep(1.2)\nweir.save('https://example.org/gazette')", "lease-1");
+    await new Promise((done) => setTimeout(done, 400));
+    revoke("lease-2");
+    const next = open("lease-2");
+    await until(() => folders.length === 1);
+    expect(folders).toEqual([folder]);
+    await tool(next, "weir.save('https://example.org/gazette')", "lease-2");
+    expect(folders).toEqual([folder, next]);
+    void long;
   });
   it("keeps a seat's session, and the code running in it, when the seat is opened again for its next researcher", async () => {
     const { folder, open, revoke, messages } = desk();

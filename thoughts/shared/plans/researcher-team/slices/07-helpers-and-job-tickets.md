@@ -85,6 +85,21 @@ See **Depths and roles**, **Pausing and stopping**, **The Python session** and *
 - Corrections left waiting, by slice 03 or by a round the app closed on, are picked up when the app opens.
 - Every seat that is running or paused is told of a new revision in one line; the app does not know which researchers read the document, and a finished seat is not woken for it.
 
+## Review fixes
+
+- A helper's notice is recorded with its answer and marked once it is in the seat's inbox, so a restart between the two still sends it, once.
+- A batch of readers the app closed on keeps its record until it has answered, however many restarts that takes; when it answers, its seat is told, so a researcher waiting on it wakes.
+- Readers picked up after a restart are ended when their batch's team is stopped.
+- The researcher pool leaves alone the sessions of helpers and of the app's own tasks; it had been closing the reconciliation job's session within two seconds.
+- A run's calls are made from the folder of the agent that started it, though the seat has since passed to another's.
+- An image file is opened once, read from that opening, and checked to be the file in the agent's folder, so a link put in its place meanwhile is not followed.
+- The corrected text is built from the changes that stand, and every quote is checked against that text; a decision that does not hold is set aside and the text built again, until what is left agrees.
+- A correction is put back only in its own place: where the text before it on the page matches.
+- With no words given to put in their place, the earlier wording goes back whole only where the words named are as many as the quote's.
+- A finding changed by two pages' decisions is replaced once: a reader puts the versions together, and without one the first stands.
+- The job is given the page and the one after it, and a correction can fall on either, since a quote can run over the end of its page.
+- A researcher's request reopens the quotes that page did not settle, and a quote the resulting correction unsettles is reconciled in a further pass, up to three.
+
 ## Checks
 
 `npm run test:live-helper` sends a real helper on an errand on each CLI, and `npm run test:live-reconcile` has a real model reconcile a scanned page against its picture.
@@ -94,6 +109,7 @@ Both run outside `npm run check`.
 
 - The Firefox capture for `weir.save_page` is written but was not run here: no Firefox is installed on this machine, so the integration check covered Chromium only.
 - A reconciliation job waits out a usage limit, as a helper does, so a document's quotes can stay unreconciled for hours.
+- The check on an image file's path was tested against links that lead out of the folder, not against a link swapped in at the moment of reading.
 - The live panel shows helpers as it shows other agents; arranging them under their seats is slice 09.
 
 ## User stories addressed

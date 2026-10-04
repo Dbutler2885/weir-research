@@ -25,7 +25,7 @@ const FIRST = [page(1, "Fictional Harbor Archive\nExample Trading Company was fo
 // the name on page 3 misread another way, and the witness on page 4 misread.
 const SECOND = [page(1, "Fictional Harbor Archive\nExample Trading Company was founded in 1B42."), page(2, "Ada Example sold the mill\nto Ben Example in 1901."), page(3, "Cora Exmple kept the ledger."), page(4, "Dan Examp1e, witness.")].join("\n\n");
 
-function fixture({ picture }: { picture?: any } = {}) {
+function fixture({ picture, readers = null, first = FIRST }: { picture?: any; readers?: any; first?: string } = {}) {
   const directory = mkdtempSync(join(tmpdir(), "reconciliation-"));
   mkdirSync(join(directory, "documents"), { recursive: true });
   const store = new WorkspaceStore(directory, emptyGraph());
@@ -33,7 +33,7 @@ function fixture({ picture }: { picture?: any } = {}) {
   const { investigationId } = store.command({ type: "open-batch", title: "Who owned the Example mill", goal: "Find who owned the fictional mill, and when." }) as any;
   writeFileSync(join(directory, "documents", "ledger"), fictionalPdf([{ text: ["Fictional Harbor Archive", "Example Trading Company was founded in 1842."] }, { text: ["Ada Example sold the mill", "to Ben Example in 1901."] }, { text: ["Cora Example kept the ledger."] }, { text: ["Dan Example, witness."] }]));
   store.update((next: any) => {
-    next.documents.push({ id: "ledger", collectionId: "web", name: "Harbor ledger.pdf", mime: "application/pdf", size: 9, sha256: "x", importedAt: "2026-01-01T00:00:00Z", text: FIRST, pages: 4, revision: 1, reading: { state: "done", engine: "standard" } });
+    next.documents.push({ id: "ledger", collectionId: "web", name: "Harbor ledger.pdf", mime: "application/pdf", size: 9, sha256: "x", importedAt: "2026-01-01T00:00:00Z", text: first, pages: 4, revision: 1, reading: { state: "done", engine: "standard" } });
     (next.dataset.sources ||= []).push({ id: "ledger", title: "Harbor ledger" });
   });
   const library = new ResearchLibrary(store, directory);
@@ -45,24 +45,26 @@ function fixture({ picture }: { picture?: any } = {}) {
   const batch = () => store.state.investigations.find((i: any) => i.id === investigationId) as any;
   const doc = () => store.state.documents.find((d: any) => d.id === "ledger") as any;
   const [one] = batch().assignments.map((a: any) => a.id) as [string];
-  const publish = (pageNumber: number, quote: string, statement: string) =>
-    publisher.publish(one, { statement, qualification: "supported", explanation: "As the ledger has it.", evidence: [{ document: "ledger", page: pageNumber, quote, interpretation: "The ledger's words." }] }).id as string;
+  const publish = (pageNumber: number, quote: string, statement: string, more: { page: number; quote: string }[] = []) =>
+    publisher.publish(one, { statement, qualification: "supported", explanation: "As the ledger has it.", evidence: [{ page: pageNumber, quote }, ...more].map((e) => ({ document: "ledger", ...e, interpretation: "The ledger's words." })) }).id as string;
   // The model's stand-in: what it was given for each page, and the reply the test gives.
   const tasks: any[] = [];
-  const replies = new Map<number, unknown>();
+  const replies = new Map<number, any>();
   const jobs = {
     async task(spec: any) {
       const folder = join(spec.folder, "agent-1");
       spec.prepare(folder);
       const given = JSON.parse(readFileSync(join(folder, "task.json"), "utf8"));
       tasks.push({ spec, folder, given, current: readFileSync(join(folder, "current.txt"), "utf8"), earlier: readFileSync(join(folder, "earlier.txt"), "utf8") });
-      const reply = replies.get(given.page);
+      const set = replies.get(given.page);
+      // A reply can depend on what the job was given, as when a page is reconciled twice.
+      const reply = typeof set === "function" ? set(given) : set;
       if (reply instanceof Error) throw reply;
       return typeof reply === "string" ? reply : JSON.stringify(reply ?? { quotes: [], corrections: [] });
     },
   };
   const notices: any[] = [];
-  const reconciler = new Reconciler(store, directory, { jobs, written: () => library.write(), notify: (notice: any) => notices.push(notice), ...(picture === undefined ? { picture: () => "page.png" } : picture ? { picture } : {}) });
+  const reconciler = new Reconciler(store, directory, { jobs, written: () => library.write(), notify: (notice: any) => notices.push(notice), readers, ...(picture === undefined ? { picture: (_d: any, _file: string, n: number) => `page-${n}.png` } : picture ? { picture } : {}) });
   // The document is read again, with this result.
   const reread = (text: string) => {
     const from = doc().revision;
@@ -102,15 +104,16 @@ describe("a document read again, with quotes its new text words differently", ()
     expect(second.given).toEqual({
       document: { id: "ledger", name: "Harbor ledger.pdf", revision: 2 },
       page: 2,
-      picture: "page.png",
+      pictures: [{ page: 2, file: "page-2.png" }, { page: 3, file: "page-3.png" }],
       quotes: [{ evidence: q.ref(q.sold), quote: "to Ben Example in 190l.", checkedInRevision: 1, pages: [2, 2], interpretation: "The ledger's words.", finding: { statement: "The ledger dates the sale to Ben Example to 190l.", explanation: "As the ledger has it.", qualification: "supported" } }],
       earlierCorrections: [],
     });
-    expect(second.current).toBe("Ada Example sold the mill\nto Ben Example in 1901.");
-    expect(second.earlier).toBe("Ada Example sold the mill\nto Ben Example in 190l.");
-    // The page itself, drawn from the PDF, is in the job's folder.
-    expect(readFileSync(join(second.folder, "page.png")).subarray(1, 4).toString()).toBe("PNG");
-    expect(second.spec.instructions).toContain("Look at it: it is the page itself");
+    // The page and the one after it, since a quote can run over the end of a page.
+    expect(second.current).toBe("[Page 2]\nAda Example sold the mill\nto Ben Example in 1901.\n\n[Page 3]\nCora Exmple kept the ledger.");
+    expect(second.earlier).toBe("[Page 2]\nAda Example sold the mill\nto Ben Example in 190l.\n\n[Page 3]\nCora Exarnple kept the ledger.");
+    // The pages themselves, drawn from the PDF, are in the job's folder.
+    expect(readFileSync(join(second.folder, "page-2.png")).subarray(1, 4).toString()).toBe("PNG");
+    expect(second.spec.instructions).toContain("Look at them: they are the pages themselves");
   }, 60_000);
 
   it("keeps the right wording, corrects the text, updates the quote or transcribes the passage, as one corrected revision", async () => {
@@ -240,8 +243,8 @@ describe("a decision the app cannot bear out", () => {
     expect(f.doc().revision).toBe(2);
     expect(f.doc().text).toBe(SECOND);
     const by = (id: string) => f.doc().corrections.find((c: any) => c.evidence === q.ref(id));
-    expect(by(q.founded)).toMatchObject({ status: "unsettled", reason: "The reconciliation kept the earlier wording without naming words of the new reading that it replaces, in one place on the page. The quote keeps the wording it was checked against." });
-    expect(by(q.sold)).toMatchObject({ status: "unsettled", reason: "The wording the reconciliation gave for the quote is not in the text at the pages cited. The quote keeps the wording it was checked against." });
+    expect(by(q.founded)).toMatchObject({ status: "unsettled", reason: "The words the reconciliation named as wrong are not in one place on the page, so the text was not changed. The quote keeps the wording it was checked against." });
+    expect(by(q.sold)).toMatchObject({ status: "unsettled", reason: "The wording the reconciliation gave for the quote is not in the corrected text at the pages cited. The quote keeps the wording it was checked against." });
     expect(by(q.kept)).toMatchObject({ status: "unsettled", reason: "The reconciliation could not be completed: its turn ended with an error. The quote keeps the wording it was checked against." });
     expect(by(q.witness)).toMatchObject({ status: "unsettled", reason: "The reconciliation gave no decision for this quote. The quote keeps the wording it was checked against." });
     expect(f.evidenceOf(q.sold)).toMatchObject({ quote: "to Ben Example in 190l.", revision: 1 });
@@ -250,7 +253,8 @@ describe("a decision the app cannot bear out", () => {
   it("does not put a whole quote where a few wrong words were named, which would repeat the rest of it", async () => {
     const f = fixture();
     const q = fourQuotes(f);
-    f.replies.set(1, { quotes: [{ evidence: q.ref(q.founded), decision: "old", replaces: "1B42.", reason: "It reads 1842.", finding: null }], corrections: [] });
+    // A few of the quote's words named, with nothing to put in their place.
+    f.replies.set(1, { quotes: [{ evidence: q.ref(q.founded), decision: "old", replaces: "founded in 1B42.", reason: "It reads 1842.", finding: null }], corrections: [] });
     await f.reread(SECOND);
     expect(f.doc().text).toContain("Example Trading Company was founded in 1B42.");
     expect(f.doc().corrections.find((c: any) => c.evidence === q.ref(q.founded)).status).toBe("unsettled");
@@ -269,6 +273,75 @@ describe("a decision the app cannot bear out", () => {
     expect(f.batch().proposals).toHaveLength(4);
     expect(f.evidenceOf(q.sold).quote).toBe("to Ben Example in 1901.");
     expect(f.doc().corrections.find((c: any) => c.evidence === q.ref(q.sold)).finding).toEqual({ replaced: q.sold, note: "Its batch is closed, so the finding was not replaced. It should now read: The ledger dates the sale to Ben Example to 1901." });
+  });
+});
+
+describe("decisions that bear on one another", () => {
+  it("checks every quote against the text as it finally stands, after a decision that did not hold is taken back", async () => {
+    const first = FIRST.replace("Fictional Harbor Archive", "Fictional Harbor Archlve");
+    const f = fixture({ first });
+    const archive = f.publish(1, "Fictional Harbor Archlve", "It is the harbor archive's.");
+    const founded = f.publish(1, "Example Trading Company was founded in 1842.", "The company was founded in 1842.");
+    const ref = (id: string) => `${id.split("/")[0]}/e1`;
+    f.replies.set(1, {
+      quotes: [
+        // Corrects the year in the text, but gives a quote the page does not hold: not applied.
+        { evidence: ref(founded), decision: "transcribed", replaces: "1B42.", wording: "1842.", quote: "was founded in 1999.", reason: "Misjudged.", finding: null },
+        // Holds only while the first decision's correction stands.
+        { evidence: ref(archive), decision: "new", quote: "Company was founded in 1842.", reason: "Misjudged too.", finding: null },
+      ],
+      corrections: [],
+    });
+    await f.reread(SECOND);
+    expect(f.doc().text).toBe(SECOND);
+    expect(f.doc().corrections.map((c: any) => c.status)).toEqual(["unsettled", "unsettled"]);
+    expect(f.evidenceOf(archive).quote).toBe("Fictional Harbor Archlve");
+    expect(f.evidenceOf(founded).quote).toBe("Example Trading Company was founded in 1842.");
+  });
+  it("replaces a finding once when two pages' decisions both change it, putting them together", async () => {
+    const asked: any[] = [];
+    const readers = { ask: async (given: any) => (asked.push(given), JSON.stringify({ statement: "Ada Example sold the mill in 1901, and Cora Example kept the ledger.", explanation: "As the ledger has it.", qualification: "supported" })) };
+    const f = fixture({ readers });
+    const both = f.publish(2, "to Ben Example in 190l.", "Ada Example sold the mill in 190l, and Cora Exarnple kept the ledger.", [{ page: 3, quote: "Cora Exarnple kept the ledger." }]);
+    const [proposalId] = both.split("/");
+    const finding = (statement: string) => ({ statement, explanation: "As the ledger has it.", qualification: "supported" });
+    f.replies.set(2, { quotes: [{ evidence: `${proposalId}/e1`, decision: "new", quote: "to Ben Example in 1901.", reason: "The year is 1901.", finding: finding("Ada Example sold the mill in 1901, and Cora Exarnple kept the ledger.") }], corrections: [] });
+    f.replies.set(3, { quotes: [{ evidence: `${proposalId}/e2`, decision: "transcribed", replaces: "Exmple", wording: "Example", quote: "Cora Example kept the ledger.", reason: "The name is Example.", finding: finding("Ada Example sold the mill in 190l, and Cora Example kept the ledger.") }], corrections: [] });
+    await f.reread(SECOND);
+    expect(asked).toHaveLength(1);
+    expect(asked[0].prompt).toContain("Ada Example sold the mill in 1901, and Cora Exarnple kept the ledger.");
+    expect(asked[0].prompt).toContain("Ada Example sold the mill in 190l, and Cora Example kept the ledger.");
+    // One replacement, with both corrections and both corrected quotes.
+    expect(f.batch().proposals).toHaveLength(2);
+    const replacement = f.batch().proposals[1];
+    expect(replacement.findings[0].statement).toBe("Ada Example sold the mill in 1901, and Cora Example kept the ledger.");
+    expect(replacement.evidence.map((e: any) => e.quote)).toEqual(["to Ben Example in 1901.", "Cora Example kept the ledger."]);
+    // With no reader to put them together, the first page's version stands, and still only one replacement is made.
+    const g = fixture();
+    const again = g.publish(2, "to Ben Example in 190l.", "Ada Example sold the mill in 190l, and Cora Exarnple kept the ledger.", [{ page: 3, quote: "Cora Exarnple kept the ledger." }]);
+    const [other] = again.split("/");
+    g.replies.set(2, { quotes: [{ evidence: `${other}/e1`, decision: "new", quote: "to Ben Example in 1901.", reason: "The year is 1901.", finding: finding("First version.") }], corrections: [] });
+    g.replies.set(3, { quotes: [{ evidence: `${other}/e2`, decision: "transcribed", replaces: "Exmple", wording: "Example", quote: "Cora Example kept the ledger.", reason: "The name is Example.", finding: finding("Second version.") }], corrections: [] });
+    await g.reread(SECOND);
+    expect(g.batch().proposals).toHaveLength(2);
+  });
+  it("repairs a quote that runs over the end of its page onto the next", async () => {
+    const f = fixture();
+    const spanning = f.publish(2, "to Ben Example in 190l. Cora Exarnple kept", "The sale and the ledger's keeper.");
+    // The new reading changes only the page after the one cited.
+    const next = FIRST.replace("Cora Exarnple kept the ledger.", "Cora Exmple kept the ledger.");
+    f.replies.set(2, { quotes: [{ evidence: `${spanning.split("/")[0]}/e1`, decision: "transcribed", replaces: "Exmple", wording: "Example", quote: "to Ben Example in 190l. Cora Example kept", reason: "The name on the next page is Example.", finding: null }], corrections: [] });
+    await f.reread(next);
+    expect(f.tasks[0].current).toContain("[Page 3]\nCora Exmple kept the ledger.");
+    expect(f.doc().text).toContain("[Page 3]\nCora Example kept the ledger.");
+    expect(f.doc().corrections[0]).toMatchObject({ status: "reconciled", fix: { page: 3, before: "Exmple", after: "Example" } });
+    expect(f.evidenceOf(spanning)).toMatchObject({ quote: "to Ben Example in 190l. Cora Example kept", revision: 3 });
+  });
+  it("puts a correction back only in its own place, not wherever the same words appear", () => {
+    const correction = { id: "c1", pages: [1, 1], wording: "x", fromRevision: 1, missingFrom: 2, status: "reconciled", reason: "r", at: "t", fix: { page: 1, before: "1B42.", after: "1842.", context: { before: "Example Trading Company was founded in ", after: "" } } } as any;
+    expect(reuseCorrections({ corrections: [correction] }, "[Page 1]\nExample Trading Company was founded in 1B42.")!.text).toBe("[Page 1]\nExample Trading Company was founded in 1842.");
+    // The same misreading, of another figure.
+    expect(reuseCorrections({ corrections: [correction] }, "[Page 1]\nRevenue for the year was 1B42.")).toBeNull();
   });
 });
 
@@ -297,6 +370,30 @@ describe("a researcher who notices a problem in a document's text", () => {
     expect(f.doc().corrections).toMatchObject([{ status: "reconciled", decision: "transcribed", pages: [4, 4], fix: { page: 4, before: "Dan Example, witness.", after: "Dan Example, witness, of Example Harbor." }, reason: "The page has three more words at the end of the line.", appliedIn: 2 }]);
     await until(() => f.notices.length === 1);
     expect(f.notices[0].text).toContain("has a new text: revision 2, where it was revision 1; 1 passage was reconciled against the page.");
+  });
+  it("has the quotes the page did not settle before looked at again, and a quote its correction unsettles reconciled in turn", async () => {
+    const f = fixture();
+    const q = fourQuotes(f);
+    await f.reread(SECOND);
+    const witness = () => f.doc().corrections.filter((c: any) => c.evidence === q.ref(q.witness)).at(-1);
+    expect(witness().status).toBe("unsettled");
+    // Asked about the page, the job is given the quote again, and this time settles it.
+    f.replies.set(4, (given: any) => ({ quotes: given.quotes.map((quote: any) => ({ evidence: quote.evidence, decision: "old", replaces: "Examp1e,", wording: "Example,", reason: "On a closer look the page reads Example.", finding: null })), corrections: [] }));
+    f.reconciler.request({ document: "ledger", page: 4, problem: "The witness's name looks misread." });
+    await until(() => witness().status === "reconciled");
+    expect(f.tasks.at(-1).given.quotes.map((quote: any) => quote.evidence)).toEqual([q.ref(q.witness)]);
+    expect(f.doc().text).toContain("Dan Example, witness.");
+    // A correction that changes words a published quote holds: the quote is reconciled in a second pass.
+    const jobs = f.tasks.length;
+    f.replies.set(1, (given: any) =>
+      given.quotes.length
+        ? { quotes: given.quotes.map((quote: any) => ({ evidence: quote.evidence, decision: "new", quote: "Example Trading Company was founded in 1843.", reason: "The page reads 1843.", finding: null })), corrections: [] }
+        : { quotes: [], corrections: [{ replaces: "1842.", wording: "1843.", reason: "The last digit is a 3." }] },
+    );
+    f.reconciler.request({ document: "ledger", page: 1, problem: "The founding year looks wrong." });
+    await until(() => f.evidenceOf(q.founded).quote === "Example Trading Company was founded in 1843.");
+    expect(f.tasks).toHaveLength(jobs + 2);
+    expect(f.doc().text).toContain("founded in 1843.");
   });
   it("is told what to give when the document, the page or the problem is missing", () => {
     const f = fixture();

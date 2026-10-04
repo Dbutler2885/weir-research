@@ -3,7 +3,7 @@
 // whole team shares one copy and every quote can be checked against it. A capture has
 // its own ID and never changes; a later capture of the same address is another document.
 import { createHash, randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { basename, join, resolve, sep } from "node:path";
 import { declaredCharset, readableText } from "./html-text.mjs";
 import { pageText } from "./pdf/reading.mjs";
@@ -169,15 +169,39 @@ export class SourceSaver {
     } else {
       if (!folder) throw new Error("Give the image's web address, starting with https://.");
       const root = realpathSync(folder);
-      let file;
+      const refuse = () => new Error("An image file must be in your own folder. Save it there, or give its web address.");
+      const inside = (file) => file === root || file.startsWith(root + sep);
+      let named;
       try {
-        file = realpathSync(resolve(root, source.trim()));
+        named = realpathSync(resolve(root, source.trim()));
       } catch {
         throw new Error(`There is no file ${JSON.stringify(source)} in your folder.`);
       }
-      if (file !== root && !file.startsWith(root + sep)) throw new Error("An image file must be in your own folder. Save it there, or give its web address.");
-      if (statSync(file).size > this.maxBytes) throw new Error(`${basename(file)} is larger than ${Math.floor(this.maxBytes / 1_000_000)} MB, so it was not saved.`);
-      bytes = readFileSync(file);
+      if (!inside(named)) throw refuse();
+      // The file is opened once and read from that opening, and what was opened is then
+      // checked to be the file in the folder: a link put in its place meanwhile, or in
+      // the place of a folder above it, is refused rather than followed.
+      let descriptor;
+      try {
+        descriptor = openSync(named, constants.O_RDONLY | constants.O_NOFOLLOW);
+      } catch {
+        throw refuse();
+      }
+      try {
+        const opened = fstatSync(descriptor);
+        let now;
+        try {
+          now = realpathSync(named);
+        } catch {
+          throw refuse();
+        }
+        const there = lstatSync(now);
+        if (!opened.isFile() || !inside(now) || there.ino !== opened.ino || there.dev !== opened.dev) throw refuse();
+        if (opened.size > this.maxBytes) throw new Error(`${basename(named)} is larger than ${Math.floor(this.maxBytes / 1_000_000)} MB, so it was not saved.`);
+        bytes = readFileSync(descriptor);
+      } finally {
+        closeSync(descriptor);
+      }
     }
     const kind = IMAGES.find((image) => image.is(bytes));
     if (!kind) throw new Error("This is not an image the app can save: PNG, JPEG, GIF, WebP and TIFF images can be saved. A page or a PDF is saved with weir.save.");

@@ -24,11 +24,12 @@ const MAX_PROBLEM = 5_000;
 // the picture's name, or nothing when the document has no picture to give.
 export function pagePicture(document, file, page, folder) {
   if (document.mime === "application/pdf") {
-    const drawn = spawnSync(process.execPath, ["--no-warnings", RENDER, file, String(page), join(folder, "page.png")], { timeout: 120_000 });
-    return drawn.status === 0 ? "page.png" : null;
+    const name = `page-${page}.png`;
+    const drawn = spawnSync(process.execPath, ["--no-warnings", RENDER, file, String(page), join(folder, name)], { timeout: 120_000 });
+    return drawn.status === 0 ? name : null;
   }
   if (/^image\//.test(document.mime)) {
-    const name = `page${document.name.match(/\.[^.]+$/)?.[0] || ""}`;
+    const name = `page-${page}${document.name.match(/\.[^.]+$/)?.[0] || ""}`;
     copyFileSync(file, join(folder, name));
     return name;
   }
@@ -47,9 +48,9 @@ The document was read into text by a program, and that text can be wrong: a scan
 
 In this folder:
 - task.json: what to decide. It holds the document, the page number, the quotes to reconcile with the findings that hold them, any problem a researcher reported, and corrections made to this page before.
-- current.txt: the page's text as the document has it now.
-- earlier.txt: the page's text as it was when the quotes were checked, where that is known.
-- the page's picture, named in task.json as "picture", where the document has one. Look at it: it is the page itself, and it settles what the text should say.
+- current.txt: the page's text as the document has it now, under its "[Page n]" line, followed by the next page's, since a quote can run over the end of a page.
+- earlier.txt: the same pages as they were when the quotes were checked, where that is known.
+- the pages' pictures, named in task.json under "pictures", where the document has them. Look at them: they are the pages themselves, and they settle what the text should say.
 
 For each quote in task.json, decide one of:
 - "old": the wording the quote has is what the page says, and the current text is wrong there. Give "replaces", the exact words of current.txt that are wrong, and "wording", what the page says in their place, so that the text then holds the quote.
@@ -86,8 +87,10 @@ function parse(reply) {
 export class Reconciler {
   // jobs runs the model; written() brings the library up to date; notify(notice) tells
   // the researchers at work, with {document, from, to, reconciled, text}.
-  /** @param {any} store @param {string} directory @param {{jobs: any, written?: () => void, notify?: (notice: {document: any, from: number, to: number, reconciled: number, text: string}) => void, picture?: typeof pagePicture}} options */
-  constructor(store, directory, { jobs, written = () => {}, notify = () => {}, picture = pagePicture }) {
+  // readers, when given, put together a finding that two pages' decisions both change.
+  /** @param {any} store @param {string} directory @param {{jobs: any, readers?: any, written?: () => void, notify?: (notice: {document: any, from: number, to: number, reconciled: number, text: string}) => void, picture?: typeof pagePicture}} options */
+  constructor(store, directory, { jobs, readers = null, written = () => {}, notify = () => {}, picture = pagePicture }) {
+    this.readers = readers;
     this.store = store;
     this.directory = directory;
     this.jobs = jobs;
@@ -147,14 +150,23 @@ export class Reconciler {
       const { previous } = this.store.update((next) => reviseText(next, id, reused.text, { engine: "corrections", at: new Date().toISOString() }));
       this.keep(id, previous);
     }
-    const open = openQuotes(this.store.state, id);
-    const pages = new Set([...open.keys(), ...(asked ? [asked.page] : [])]);
+    // A researcher's request reopens what the page did not settle before.
+    if (asked)
+      this.store.update((next) => {
+        for (const c of next.documents.find((x) => x.id === id)?.corrections || []) if (c.status === "unsettled" && c.evidence && c.pages[0] <= asked.page && asked.page <= c.pages[1] + 1) c.status = "unreconciled";
+      });
     let reconciled = 0;
-    if (pages.size) {
+    let worked = false;
+    // A corrected text can itself unsettle another quote, which is then reconciled in turn.
+    for (let pass = 0; pass < 3; pass++) {
+      const open = openQuotes(this.store.state, id);
+      const pages = new Set([...open.keys(), ...(asked && pass === 0 ? [asked.page] : [])]);
+      if (!pages.size) break;
+      worked = true;
       // One job for each page, side by side.
       const answers = await Promise.all(
         [...pages].map((page) =>
-          this.page(id, page, open.get(page) || [], asked?.page === page ? asked.problem : null).then(
+          this.page(id, page, open.get(page) || [], asked?.page === page && pass === 0 ? asked.problem : null).then(
             (answer) => ({ page, ...answer }),
             (error) => ({ page, failed: error.message }),
           ),
@@ -164,8 +176,9 @@ export class Reconciler {
       if (!d) return;
       const decisions = [];
       const fixes = [];
+      const current = openQuotes(this.store.state, id);
       for (const answer of answers) {
-        const quotes = openQuotes(this.store.state, id).get(answer.page) || [];
+        const quotes = current.get(answer.page) || [];
         // A job that could not answer leaves its quotes with the wording they have.
         if (answer.failed) decisions.push(...quotes.map((q) => ({ evidence: q.ref, decision: "unsettled", reason: `The reconciliation could not be completed: ${answer.failed}.` })));
         else {
@@ -175,6 +188,7 @@ export class Reconciler {
           fixes.push(...answer.corrections.map((c) => ({ ...c, page: answer.page })));
         }
       }
+      await this.oneFinding(decisions, [...current.values()].flat());
       const result = this.store.update((next) => {
         const applied = applyReconciliation(next, id, decisions, fixes);
         // Graph work under way for a batch was built from findings that have now changed.
@@ -182,11 +196,11 @@ export class Reconciler {
         return applied;
       });
       this.keep(id, result.previous);
-      reconciled = result.outcomes.length;
+      reconciled += result.outcomes.length;
     }
     d = this.document(id);
     const to = d.revision ?? 1;
-    if (reused || pages.size) this.written();
+    if (reused || worked) this.written();
     if (to === before && !reconciled) return;
     const how = [reconciled ? `${reconciled} passage${reconciled === 1 ? " was" : "s were"} reconciled against the page` : "", reused ? `${reused.reused.length} earlier correction${reused.reused.length === 1 ? " was" : "s were"} put back` : ""].filter(Boolean).join(", and ");
     this.notify({
@@ -197,22 +211,54 @@ export class Reconciler {
       text: `"${d.name}" (${d.id}) ${to === before ? `has had its quotes reconciled at revision ${to}` : `has a new text: revision ${to}, where it was revision ${before}`}${how ? `; ${how}` : ""}. weir.library.corrections("${d.id}") lists what changed, and weir.library.read gives the text as it is now.`,
     });
   }
+  // A finding whose quotes are on several pages can be changed by more than one page's
+  // decision, each knowing only its own page. They are put together into the one
+  // finding that replaces it: by a reader where the app has readers, and otherwise the
+  // first stands.
+  async oneFinding(decisions, quotes) {
+    const byFinding = new Map();
+    for (const decision of decisions) {
+      const quote = quotes.find((q) => q.ref === decision.evidence);
+      if (!decision.finding || !quote?.finding || decision.decision === "unsettled") continue;
+      const key = `${quote.proposal.id}/${quote.finding.id}`;
+      byFinding.set(key, [...(byFinding.get(key) || []), { decision, quote }]);
+    }
+    for (const several of byFinding.values()) {
+      if (several.length < 2) continue;
+      const original = several[0].quote.finding;
+      let merged = null;
+      try {
+        const reply = await this.readers?.ask({
+          prompt: `A research finding quotes several pages of one document. The document's text was corrected on each page, and each correction gives the finding as it should now read, knowing only its own page. Put them together into the one finding that takes in every correction.\n\nThe finding as published:\n${JSON.stringify({ statement: original.statement, explanation: original.explanation, qualification: original.qualification })}\n\nThe corrections:\n${several.map(({ decision }) => JSON.stringify({ reason: decision.reason, finding: decision.finding })).join("\n")}\n\nReply with JSON and nothing else: {"statement": "...", "explanation": "...", "qualification": "supported" | "reported" | "disputed" | "unresolved"}`,
+        });
+        const value = typeof reply === "string" ? parse(reply) : null;
+        if (value && typeof value.statement === "string" && value.statement.trim() && typeof value.explanation === "string" && value.explanation.trim()) merged = { statement: value.statement, explanation: value.explanation, qualification: value.qualification || several[0].decision.finding.qualification };
+      } catch {
+        /* No reader could put them together; the first stands. */
+      }
+      several[0].decision.finding = merged || several[0].decision.finding;
+      for (const { decision } of several.slice(1)) decision.finding = null;
+    }
+  }
   // One page's job: resolves with its decisions and corrections.
   async page(id, page, quotes, problem) {
     const d = this.document(id);
     const original = join(this.directory, "documents", id);
     const own = join(this.directory, "agents", "reconciliation", id, `page-${page}-${Date.now()}-${++this.next}`);
     const earlierRevision = Math.max(0, ...quotes.map((q) => q.correction.fromRevision));
+    // The page and the one after it, since a quote can run over the end of a page.
+    const numbers = [page, page + 1].filter((n) => pagesOf(d.text).some((p) => p.page === n));
+    const shown = (text) => numbers.map((n) => `[Page ${n}]\n${pageOf(text, n)}`).join("\n\n");
     let earlier = "";
     try {
-      if (earlierRevision) earlier = pageOf(readFileSync(join(this.directory, "documents", `${id}.r${earlierRevision}.txt`), "utf8"), page);
+      if (earlierRevision) earlier = shown(readFileSync(join(this.directory, "documents", `${id}.r${earlierRevision}.txt`), "utf8"));
     } catch {
       /* The earlier revision's text was not kept. */
     }
     const prepare = (folder) => {
       mkdirSync(folder, { recursive: true });
-      const picture = existsSync(original) ? this.picture(d, original, page, folder) : null;
-      writeFileSync(join(folder, "current.txt"), pageOf(d.text, page));
+      const pictures = existsSync(original) ? numbers.map((n) => ({ page: n, file: this.picture(d, original, n, folder) })).filter((p) => p.file) : [];
+      writeFileSync(join(folder, "current.txt"), shown(d.text));
       writeFileSync(join(folder, "earlier.txt"), earlier);
       writeFileSync(
         join(folder, "task.json"),
@@ -220,7 +266,7 @@ export class Reconciler {
           {
             document: { id: d.id, name: d.name, revision: d.revision ?? 1 },
             page,
-            picture,
+            pictures,
             ...(problem ? { problem } : {}),
             quotes: quotes.map((q) => ({
               evidence: q.ref,

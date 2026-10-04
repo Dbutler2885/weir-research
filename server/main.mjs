@@ -175,6 +175,7 @@ jobs.recover();
 // researchers at work are told its text has changed.
 const reconciler = new Reconciler(store, directory, {
   jobs,
+  readers,
   written: () => library.write(),
   notify: ({ document, to, text }) => {
     for (const seat of seatsAtWork(store.state)) researchers.notice(seat, text, `revision-${document.id}-${to}`);

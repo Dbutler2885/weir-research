@@ -311,20 +311,26 @@ Work in this folder and the library; your shell runs any command here.
     }
     job.result = answerOf(text, this.store.state.documents);
     const { quotes } = job.result;
-    this.end(job, "answered");
     const unfound = quotes.filter((q) => !q.found).length;
-    this.notice(
-      job.seat,
-      `Helper ${job.id} has answered ("${short(job.errand)}"): ${plural(quotes.length, "quote")}${unfound ? `, ${unfound} of them not found in the saved text` : ""}, ${plural(job.saved.length, "source")} saved. Its full answer is in your session as weir.helpers()["${job.id}"].answer.`,
-      `helper-${job.id}`,
-    );
+    // The notice is recorded with the answer, so a restart between the two still sends it.
+    job.notice = `Helper ${job.id} has answered ("${short(job.errand)}"): ${plural(quotes.length, "quote")}${unfound ? `, ${unfound} of them not found in the saved text` : ""}, ${plural(job.saved.length, "source")} saved. Its full answer is in your session as weir.helpers()["${job.id}"].answer.`;
+    this.end(job, "answered");
+    this.tell(job);
+  }
+  // Puts an ended helper's notice in its seat's inbox, once, and records that it is there.
+  tell(job) {
+    if (!job.notice || job.notified) return;
+    this.notice(job.seat, job.notice, `helper-${job.id}`);
+    job.notified = true;
+    this.save(job);
   }
   fail(job, reason) {
     if (ENDED.has(job.status)) return;
     job.problem = reason;
+    if (job.kind !== "task") job.notice = `Helper ${job.id} failed ("${short(job.errand)}"): ${reason}.${job.saved.length ? ` The ${plural(job.saved.length, "source")} it saved ${job.saved.length === 1 ? "is" : "are"} in the library: ${job.saved.map((s) => s.id).join(", ")}.` : ""} It no longer counts as outstanding.`;
     this.end(job, "failed");
     if (job.kind === "task") return job.reject(new Error(reason));
-    this.notice(job.seat, `Helper ${job.id} failed ("${short(job.errand)}"): ${reason}.${job.saved.length ? ` The ${plural(job.saved.length, "source")} it saved ${job.saved.length === 1 ? "is" : "are"} in the library: ${job.saved.map((s) => s.id).join(", ")}.` : ""} It no longer counts as outstanding.`, `helper-${job.id}`);
+    this.tell(job);
   }
   // A helper whose process ended before it answered starts again from the beginning,
   // once; cut short a second time, it fails.
@@ -364,17 +370,27 @@ Work in this folder and the library; your shell runs any command here.
     if (!batch || !this.readers) return this.readers.ask(given, { seat: key });
     const job = { kind: "reader", id: `r-${randomUUID().slice(0, 8)}`, seat, batch: batch.id, status: "running", at: new Date().toISOString(), given };
     this.save(job);
+    let answered = false;
     try {
-      return await this.readers.ask(given, { seat: key });
+      const answers = await this.readers.ask(given, { seat: key });
+      answered = true;
+      return answers;
     } finally {
-      rmSync(this.file(job), { force: true });
+      // A batch the app closed on keeps its record, to run again when the app opens.
+      if (answered || !this.stopped) rmSync(this.file(job), { force: true });
     }
   }
 
   // Stopping a batch's team ends every job under it at once: nothing of theirs is
   // delivered afterwards, and what they saved to the library stays.
   stopBatch(batchId) {
-    for (const job of [...this.jobs.values()].filter((j) => j.batch === batchId)) this.end(job, "cancelled");
+    for (const job of [...this.jobs.values()].filter((j) => j.batch === batchId)) {
+      if (job.kind === "reader") {
+        // Readers picked up after a restart belong to no session whose closing would end them.
+        this.jobs.delete(this.key(job));
+        this.readers?.cancel(job.seat);
+      } else this.end(job, "cancelled");
+    }
     const folder = join(this.directory, "agents", batchId);
     for (const record of this.recorded(folder)) {
       if (record.kind === "reader") rmSync(this.file(record), { force: true });
@@ -410,17 +426,34 @@ Work in this folder and the library; your shell runs any command here.
   recover() {
     const kept = this.supervisor.hosted?.((r) => r.meta?.project === this.directory && r.meta?.role === "errand") || [];
     for (const record of this.recorded()) {
-      if (ENDED.has(record.status)) continue;
+      // A helper that ended as the app closed may not have had its notice sent.
+      if (ENDED.has(record.status)) {
+        if (record.kind === "helper" && record.notice && !record.notified) this.tell({ ...record });
+        continue;
+      }
       const job = { ...record };
       if (record.kind === "reader") {
-        // A reader has no effects beyond its answer, so it simply runs again.
-        rmSync(this.file(job), { force: true });
-        if (!this.live(job) || !this.readers) continue;
+        // A reader has no effects beyond its answer, so it simply runs again. Its record
+        // stays until it has, so a second restart runs it again too.
+        if (!this.live(job) || !this.readers) {
+          rmSync(this.file(job), { force: true });
+          continue;
+        }
         this.jobs.set(this.key(job), job);
         this.readers
           .ask(job.given, { seat: job.seat })
-          .catch(() => {})
-          .finally(() => this.jobs.delete(this.key(job)));
+          .then(
+            () => true,
+            () => !this.stopped,
+          )
+          .then((ended) => {
+            if (!ended) return;
+            const cancelled = !this.jobs.has(this.key(job));
+            this.jobs.delete(this.key(job));
+            rmSync(this.file(job), { force: true });
+            // Its seat may be waiting on it to finish: the notice starts its next turn.
+            if (!cancelled) this.notice(job.seat, "The readers that were reading for your seat when the app restarted have finished. Their answers are kept, so asking the same question of the same passages again returns at once.", `reader-${job.id}`);
+          });
         continue;
       }
       this.jobs.set(this.key(job), job);

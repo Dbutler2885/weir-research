@@ -78,7 +78,7 @@ export class SessionDesk {
       session: this.makeSession({ folder: seatFolder, library: this.library, home: this.home, outputLimit: this.outputLimit }),
       taken: new Set(),
       state,
-      // The runs in progress, each with the lease it was accepted on.
+      // The runs in progress, each with the lease and the agent's folder it was accepted from.
       runs: new Map(),
     };
     this.seats.set(key, seat);
@@ -192,7 +192,8 @@ export class SessionDesk {
       else if (seat.can && !seat.can.has(call.name)) reply({ error: seat.refusal(call.name) });
       else
         Promise.resolve()
-          .then(() => this.calls[call.name](call.arguments || {}, { key: seat.key, folder: seat.folder }))
+          // The folder is the one the run was accepted from, though the seat has since passed to another agent's.
+          .then(() => this.calls[call.name](call.arguments || {}, { key: seat.key, folder: seat.runs.get(call.run)?.folder ?? seat.folder }))
           .then(
             (result) => reply({ result: result ?? null }),
             (error) => reply({ error: error.message }),
@@ -216,7 +217,7 @@ export class SessionDesk {
       answered = true;
       this.answer(seat, id, { pending: true, note: `Still running after ${duration(this.wait)}. It carries on, and its output will reach you as a message when it finishes; you can keep working meanwhile, and later code waits for it.` });
     }, this.wait);
-    seat.runs.set(id, request.lease);
+    seat.runs.set(id, { lease: request.lease, folder: seat.folder });
     // The agent that asked may be gone by the time the run ends, paused or switched:
     // what its code printed then goes to the seat as a message, for whoever holds it next.
     const asker = () => !seat.closed && seat.folder === folder && seat.authorize(request.lease);
