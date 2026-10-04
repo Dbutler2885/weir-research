@@ -10,11 +10,11 @@ import { dirname, resolve } from 'node:path';
 import { codeStamp, launcherFile } from './start-launcher.mjs';
 import { agentHomes } from './agents/isolation.mjs';
 import { setupRoutes } from './setup-routes.mjs';
-import { typesafeKey } from './typesafe-key.mjs';
+import { stowKey } from './typesafe-key.mjs';
 import { home } from '../scripts/workspace-lib.mjs';
 
-// The TypeSafe key is taken out of the environment before anything is started.
-typesafeKey();
+// A TypeSafe key in the environment is moved into the app's own file before anything is started.
+stowKey(resolve(home));
 // The code this launcher runs, so a later start can tell when it is out of date.
 const stamp = codeStamp();
 const setup = setupRoutes({home: resolve(home), homes: agentHomes(resolve(home)), next: {label: 'Continue', href: '/welcome'}});

@@ -22,7 +22,7 @@ import { Coordinator } from "./coordinator.mjs";
 import { ResearcherPool, executableOnPath } from "./researchers.mjs";
 import { Readers } from "./readers.mjs";
 import { JevClient, JevSweeps } from "./jev.mjs";
-import { typesafeKey } from "./typesafe-key.mjs";
+import { stowKey, typesafeKey } from "./typesafe-key.mjs";
 import { ResearchLibrary } from "./research-library.mjs";
 import { GraphBuilders } from "./graph-builders.mjs";
 import { WalkthroughWriters } from "./walkthrough-writers.mjs";
@@ -47,9 +47,6 @@ import { SessionDesk } from "./python-session/desk.mjs";
 import { SourceSaver } from "./source-saver.mjs";
 import { FindingPublisher } from "./finding-publisher.mjs";
 
-// The human's TypeSafe key stays with the app: it is taken out of the environment here,
-// before anything is started, so no agent, shell or Python session inherits it.
-const jevKey = typesafeKey();
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const directory = resolve(
   process.env.RESEARCH_STATE_DIR || join(root, ".research"),
@@ -99,6 +96,9 @@ const coordinator = new Coordinator(store, { workers: () => live.list(), skills:
 // One supervisor launches and reads every agent the app runs.
 // Codex agents share the app's own homes, beside the projects.
 const appDirectory = resolve(process.env.RESEARCH_HOME || join(root, ".research"));
+// The human's TypeSafe key stays with the app: a key in the environment is moved into
+// the app's own file here, before anything is started, so nothing inherits it.
+stowKey(appDirectory);
 // Each agent runs under its own host process, recorded beside the projects, so a
 // worker the human keeps running outlives the app and is taken back when it opens.
 const supervisor = new AgentSupervisor({
@@ -128,7 +128,7 @@ process.on("exit", () => library.stop());
 const readers = new Readers(store, directory, { supervisor, findExecutable: executableOnPath });
 process.on("exit", () => readers.stop());
 // Jev sweeps long documents for the passages worth a reader's time.
-const sweeps = new JevSweeps(store, directory, { client: new JevClient({ key: jevKey }), readers });
+const sweeps = new JevSweeps(store, directory, { client: new JevClient({ key: typesafeKey(appDirectory) }), readers });
 const researchers = new ResearcherPool(store, directory, root, {
   coordinator,
   live,

@@ -3,7 +3,6 @@ import { readFileSync } from 'node:fs';
 import { executableOnPath } from './researchers.mjs';
 import { findBrowser } from './research-browser.mjs';
 import { TESTED_CODEX } from './agents/codex.mjs';
-import { typesafeKey } from './typesafe-key.mjs';
 
 const output = (command, args, env) => {
   const result = spawnSync(command, args, {encoding: 'utf8', timeout: 20_000, env: env || process.env});
@@ -31,7 +30,7 @@ function linuxInstaller(read = (file) => readFileSync(file, 'utf8')) {
 // What the app needs, and where each part stands: the agent CLIs, whether each is
 // signed in by its own status command, and the tools the research browser and
 // sandboxes use. It reads no credentials; the CLIs report on themselves.
-export function checkSetup({findExecutable = executableOnPath, homes = null, run = output, platform = process.platform, browser = findBrowser, installer = linuxInstaller, typesafe = Boolean(typesafeKey())} = {}) {
+export function checkSetup({findExecutable = executableOnPath, homes = null, run = output, platform = process.platform, browser = findBrowser, installer = linuxInstaller, typesafe = false} = {}) {
   const claudePath = findExecutable('claude');
   const codexPath = findExecutable('codex');
   const claude = {id: 'claude', label: 'Claude Code', account: 'Claude', installed: Boolean(claudePath), package: '@anthropic-ai/claude-code'};

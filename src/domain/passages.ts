@@ -83,8 +83,26 @@ export function chunkPages(pages: { page: number; text: string }[], size = CHUNK
     });
   }
   close();
-  // A document of blank lines alone has nothing to read.
-  return chunks.filter((c) => c.segments.some((s) => s.text.trim()));
+  // A document of blank lines alone has nothing to read. Blank stretches within one
+  // stay, so that a passage is the document's own text, with nothing dropped.
+  return chunks.some((c) => !blank(c)) ? chunks : [];
+}
+
+// A chunk with nothing but spacing in it.
+export const blank = (chunk: Chunk) => chunk.segments.every((s) => !s.text.trim());
+
+// How many characters of the document's text the chunks numbered here hold, counting
+// the line ends between chunks that follow one another.
+export function charactersIn(chunks: Chunk[], numbers: number[]): number {
+  const sorted = [...new Set(numbers)].sort((a, b) => a - b);
+  let total = 0;
+  for (let i = 0; i < sorted.length; ) {
+    let j = i;
+    while (j + 1 < sorted.length && sorted[j + 1] === sorted[j]! + 1) j++;
+    total += pagesOf(chunks.slice(sorted[i]!, sorted[j]! + 1)).reduce((sum, p) => sum + p.text.length, 0);
+    i = j + 1;
+  }
+  return total;
 }
 
 // Runs of chunks, each [first, last], cut so that none is larger than the cap. Cuts
@@ -122,7 +140,7 @@ export function buildPassages(chunks: Chunk[], flags: boolean[], { cap = READER_
       if (last && run[0] <= last[1] + 1) last[1] = run[1];
       else runs.push(run);
     }
-  return runs
+  const built = runs
     .flatMap((run) => capped(chunks, run, cap, whole ? 0 : 1))
     .map(([first, last]) => {
       const pages = pagesOf(chunks.slice(first, last + 1));
@@ -139,4 +157,15 @@ export function buildPassages(chunks: Chunk[], flags: boolean[], { cap = READER_
         characters: pages.reduce((sum, p) => sum + p.text.length, 0),
       };
     });
+  // Passages cut from one long line have the same line range; each still needs a label of its own.
+  const times = new Map<string, number>();
+  for (const passage of built) times.set(passage.label, (times.get(passage.label) ?? 0) + 1);
+  const part = new Map<string, number>();
+  for (const passage of built)
+    if (times.get(passage.label)! > 1) {
+      const n = (part.get(passage.label) ?? 0) + 1;
+      part.set(passage.label, n);
+      passage.label = `${passage.label}, part ${n}`;
+    }
+  return built;
 }

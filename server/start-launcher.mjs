@@ -6,6 +6,7 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, statSync } from "no
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { stowKey } from "./typesafe-key.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 // Where the running launcher records itself; the same folder as the projects.
@@ -41,6 +42,8 @@ export async function startLauncher() {
         /* It has gone already. */
       }
   }
+  // The launcher starts without the TypeSafe key in its environment; the app keeps it in a file.
+  stowKey(home);
   const file = join(mkdtempSync(join(tmpdir(), "research-launcher-")), "url");
   spawn(process.execPath, ["--no-warnings", join(root, "server/launcher.mjs"), file], { cwd: root, detached: true, stdio: "ignore" }).unref();
   for (let n = 0; n < 100; n++) {

@@ -17,10 +17,14 @@ import { spawn, spawnSync } from "node:child_process";
 import { initialState } from "../src/domain/research.ts";
 import { emptyGraph } from "../src/domain/graph-schema.ts";
 import { codeStamp } from "../server/start-launcher.mjs";
+import { stowKey } from "../server/typesafe-key.mjs";
 export const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const home = resolve(
   process.env.RESEARCH_HOME || join(root, ".research"),
 );
+// A TypeSafe key in the environment goes into the app's own file before this starter
+// starts anything, so nothing it starts, however briefly, has the key in its environment.
+stowKey(home);
 export function read(file, fallback) {
   return existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : fallback;
 }

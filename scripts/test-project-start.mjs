@@ -11,10 +11,13 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { typesafeKey } from "../server/typesafe-key.mjs";
 const exec = promisify(execFile);
 const directory = mkdtempSync(join(tmpdir(), "research-start-e2e-"));
 // The test drives the coordinator API itself, so the app starts no coordinator agent.
-const env = { ...process.env, RESEARCH_HOME: directory, RESEARCH_COORDINATOR_AGENT: "0" };
+// The app is started with a fictional TypeSafe key in the environment, as the human's shell gives it.
+const FICTIONAL_KEY = "fictional-typesafe-key-for-the-start-check";
+const env = { ...process.env, RESEARCH_HOME: directory, RESEARCH_COORDINATOR_AGENT: "0", TYPESAFE_API_KEY: FICTIONAL_KEY };
 const run = async (script, args) =>
   JSON.parse(
     (
@@ -45,6 +48,14 @@ try {
   ]);
   ({ url } = started);
   assert.equal(started.project.name, "Example Harbor industrial history");
+  // The key is kept in the app's own file, and no process the app left running was
+  // started with it: a process's first environment can be read for as long as it runs.
+  assert.equal(typesafeKey(directory), FICTIONAL_KEY);
+  if (process.platform === "darwin") {
+    const listed = (await exec("ps", ["eww", "-Ao", "pid,command"], { maxBuffer: 50_000_000 })).stdout;
+    const showing = listed.split("\n").filter((line) => line.includes(FICTIONAL_KEY)).map((line) => line.split(/\s+/).filter((part) => !part.includes("=")).slice(0, 6).join(" "));
+    assert.deepEqual(showing, [], "No running process shows the TypeSafe key in its environment");
+  }
   ({ sessionFile } = await run("coordinator", ["attach", "Test coordinator", "--project", started.project.id]));
   assert.ok(sessionFile);
   let current = await state();

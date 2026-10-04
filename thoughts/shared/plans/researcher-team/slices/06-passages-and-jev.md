@@ -42,8 +42,13 @@ See **Passages and Jev**.
   Showing them in Research settings is slice 09.
 - Three chunks the sweep passed over, chosen at random, go to one reader with the same questions.
   The sweep does not wait for them, and nothing is sampled when the whole document went through.
-- The key is taken out of the app's environment as the app starts, before anything else is started, so no agent, shell or Python session inherits it.
-  The launcher does the same.
+- The human gives the key as `TYPESAFE_API_KEY` in the environment of whatever starts the app.
+  Whatever starts one of the app's services first moves the key into a file of the app's own, `typesafe-key` in the app's folder, readable only by the human's account, and takes it out of the environment.
+  The services read the file.
+  Deleting the variable inside a running service is not enough: on macOS a process's first environment can be read by other processes, such as with `ps`, for as long as it runs, so the services are started without the key in theirs.
+  No agent's sandbox reaches the app's folder, as the isolation checks confirm for the Codex sign-in kept beside it.
+- A key with a space or line break in it is not a key, and is not kept.
+  A failed connection is reported by its kind only, since its own words can hold the request, key and all.
 - The setup screen has a row for the key, saying whether it is set and how to set it; it shows only whether there is one.
 
 ## Checks
@@ -51,10 +56,20 @@ See **Passages and Jev**.
 `npm run test:live-jev` sweeps a fictional ledger with TypeSafe's real API, outside `npm run check`, and is skipped without the key.
 On 2026-10-03 it swept 110,000 characters in 28 chunks in under a second, for about 36,000 input tokens, and found the one page that mattered.
 
-## Known limitation
+## Review fixes
 
-The app has the key only when the shell that starts it has it.
-An agent asked to run `npm start` may start it from a shell that has not read the human's profile, and Jev is then refused until the app is started again from one that has.
+- Passages cut from one very long line have the same line range, so each also says which part it is.
+- Blank stretches inside a document stay in its passages; Jev is not asked about a chunk with nothing in it.
+- The document's size and the size let through are both counted over the document's own text, page by page.
+- A wait that TypeSafe asks for also delays requests already waiting their turn, and a retry cannot take a place beyond the limit of requests under way.
+- What the answered requests cost is recorded even when another request fails the sweep.
+- Questions too long for one reader's question are sampled in turns, and a chunk is counted once.
+
+## Known limitations
+
+The app has the key once it has been started from a shell that has it; after that it keeps it, and a start from a shell without it still finds it.
+To stop the app using a key, delete `typesafe-key` from the app's folder.
+A service run by hand as `node server/main.mjs` with the key in its environment keeps the key in its first environment for as long as it runs; `npm start` and the workspace commands do not.
 
 ## User stories addressed
 

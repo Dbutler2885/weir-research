@@ -1,24 +1,29 @@
-// Live check, outside `npm run check`, and only when TYPESAFE_API_KEY is set: a real
+// Live check, outside `npm run check`, and only when there is a TypeSafe key: a real
 // Jev sweep of a fictional ledger finds the one page that records a sale, lets through
 // a small part of the document, and costs nothing when repeated. It costs a few
 // thousand tokens on the human's TypeSafe key.
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import assert from "node:assert/strict";
 import { JevClient, JevSweeps } from "../server/jev.mjs";
-import { typesafeKey } from "../server/typesafe-key.mjs";
+import { stowKey, typesafeKey } from "../server/typesafe-key.mjs";
 
-const key = typesafeKey();
+// The key comes from the environment, or from the app's own file where the app has kept it.
+const directory = mkdtempSync(join(tmpdir(), "weir-live-jev-"));
+const appHome = resolve(process.env.RESEARCH_HOME || ".research");
+const given = Boolean(process.env.TYPESAFE_API_KEY);
+stowKey(given ? directory : appHome);
+const key = typesafeKey(given ? directory : appHome);
 if (!key) {
-  console.log("Jev: TYPESAFE_API_KEY is not set, skipped.");
+  console.log("Jev: no TypeSafe key in TYPESAFE_API_KEY or kept by the app, skipped.");
+  rmSync(directory, { recursive: true, force: true });
   process.exit(0);
 }
-assert.equal(process.env.TYPESAFE_API_KEY, undefined, "the key is out of the environment once taken");
+assert.equal(process.env.TYPESAFE_API_KEY, undefined, "the key is out of the environment once stowed");
 const entry = (n) => `Entry ${n}: the fictional harbor clerk recorded ${(n * 7) % 90} barrels of example flour, weighed at the quay and carted to the store.`;
 const page = (n) => Array.from({ length: 30 }, (_, i) => (n === 12 && i === 14 ? "Ada Example sold the mill to Ben Example in 1901 for four hundred example pounds." : entry(n * 100 + i))).join("\n");
 const text = Array.from({ length: 30 }, (_, n) => `[Page ${n + 1}]\n${page(n + 1)}`).join("\n\n");
-const directory = mkdtempSync(join(tmpdir(), "weir-live-jev-"));
 const state = { documents: [{ id: "doc-1", text }] };
 const store = { state, update: (change) => change(state) };
 const sweeps = new JevSweeps(store, directory, { client: new JevClient({ key }) });

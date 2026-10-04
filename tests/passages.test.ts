@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildPassages, chunkPages, chunkText, type Chunk } from "../src/domain/passages";
+import { buildPassages, charactersIn, chunkPages, chunkText, type Chunk } from "../src/domain/passages";
 import { readerPassages } from "../src/domain/reader";
 
 // A fictional document of one-line pages, each its own chunk, so chunks are easy to name.
@@ -32,6 +32,23 @@ describe("cutting a document into chunks", () => {
     const [whole] = buildPassages(chunks, chunks.map(() => true), { cap: 10_000 });
     expect(whole!.pages).toEqual([{ page: 1, text: `Before.\n${line}\nAfter.` }]);
     expect([whole!.from, whole!.to]).toEqual([{ page: 1, line: 1 }, { page: 1, line: 3 }]);
+  });
+  it("gives passages cut from one very long line labels of their own", () => {
+    const chunks = chunkPages([{ page: 1, text: "word ".repeat(400) }], 100);
+    const passages = buildPassages(chunks, chunks.map(() => true), { cap: 600, name: "doc-1" });
+    expect(passages.length).toBeGreaterThan(3);
+    expect(passages.slice(0, 2).map((p) => p.label)).toEqual(["doc-1, page 1 line 1 to page 1 line 1, part 1", "doc-1, page 1 line 1 to page 1 line 1, part 2"]);
+    expect(readerPassages(passages)).toHaveLength(passages.length);
+    expect(passages.map((p) => p.pages[0]!.text).join("")).toBe("word ".repeat(400));
+  });
+  it("keeps the blank stretches inside a document, so a passage is its own text with nothing dropped", () => {
+    const text = `${"A".repeat(90)}\n${" ".repeat(300)}\n\n\n\nB`;
+    const chunks = chunkPages([{ page: 1, text }], 100);
+    const [whole] = buildPassages(chunks, chunks.map(() => true), { cap: 10_000 });
+    expect(whole!.pages).toEqual([{ page: 1, text }]);
+    expect(charactersIn(chunks, chunks.map((_, n) => n))).toBe(text.length);
+    // Chunks that do not follow one another are counted apart.
+    expect(charactersIn(chunks, [0, chunks.length - 1])).toBeLessThan(text.length);
   });
   it("has no chunks for a document with nothing in it", () => {
     expect(chunkPages([{ page: 1, text: "\n\n  \n" }])).toEqual([]);

@@ -1,6 +1,7 @@
 import { statSync } from 'node:fs';
 import { join } from 'node:path';
 import { checkSetup, startInstall, startSignIn } from './setup.mjs';
+import { typesafeKey } from './typesafe-key.mjs';
 import { setupPage, welcomePage } from './setup-page.mjs';
 import { choosePdfReader, pdfReading } from './pdf/reading.mjs';
 import { createTopicProject, openProject, project, projects, sampleProject } from '../scripts/workspace-lib.mjs';
@@ -16,7 +17,7 @@ export function setupRoutes({home, homes, next}) {
   // Each check runs the CLIs' own commands; a page and its polling share one.
   const check = () => {
     if (cached && Date.now() - cached.at < 1500) return cached.setup;
-    cached = {at: Date.now(), setup: checkSetup({homes})};
+    cached = {at: Date.now(), setup: checkSetup({homes, typesafe: Boolean(typesafeKey(home))})};
     return cached.setup;
   };
   const current = () => {

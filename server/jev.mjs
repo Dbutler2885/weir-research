@@ -5,7 +5,8 @@
 // few of the chunks it passed over go to a reader, to see what it missed.
 import { appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { buildPassages, chunkPages, chunkText } from "../src/domain/passages.ts";
+import { blank, buildPassages, charactersIn, chunkPages, chunkText } from "../src/domain/passages.ts";
+import { readerQuestion } from "../src/domain/reader.ts";
 import { pagesOf } from "../src/domain/quotes.ts";
 import { CallCache } from "./call-cache.mjs";
 
@@ -19,6 +20,8 @@ const MAX_QUESTION = 2_000;
 const RATE = { requests: 60, tokens: 80_000, inFlight: 32 };
 const RETRIES = 6;
 const SAMPLE = 3;
+// How much of a reader's question the sweep's questions may fill.
+const ROOM = 9_000;
 
 export class JevProblem extends Error {
   constructor(message, { status = 0, retryAfter = 0 } = {}) {
@@ -27,7 +30,7 @@ export class JevProblem extends Error {
     this.retryAfter = retryAfter;
   }
 }
-const retryable = (error) => !(error instanceof JevProblem) || error.status === 408 || error.status === 429 || error.status >= 500;
+const retryable = (error) => error instanceof JevProblem && (error.status === 408 || error.status === 429 || error.status >= 500);
 
 // The one call to TypeSafe: a state and yes-or-no questions in; each question's
 // probability of yes out, with the tokens it used. Tests replace it with a fake.
@@ -42,12 +45,18 @@ export class JevClient {
   }
   // questions: {name: question}. Resolves with {answers: {name: probability}, inputTokens}.
   async ask({ state, questions }) {
-    const response = await this.request(this.endpoint, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${this.key}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ state, model: this.model, questions: Object.fromEntries(Object.entries(questions).map(([name, instructions]) => [name, { type: "noul", instructions }])) }),
-      signal: AbortSignal.timeout(this.timeout),
-    });
+    let response;
+    try {
+      response = await this.request(this.endpoint, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${this.key}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ state, model: this.model, questions: Object.fromEntries(Object.entries(questions).map(([name, instructions]) => [name, { type: "noul", instructions }])) }),
+        signal: AbortSignal.timeout(this.timeout),
+      });
+    } catch (error) {
+      // Only the kind of failure is passed on: its own words can hold the request, key and all.
+      throw new JevProblem(`TypeSafe could not be reached (${error?.name === "TimeoutError" ? "it did not answer in time" : error?.cause?.code || error?.code || "the connection failed"}).`, { status: 503 });
+    }
     if (!response.ok) {
       const detail = (await response.text().catch(() => "")).slice(0, 500);
       const retryAfter = Number(response.headers.get("retry-after")) || 0;
@@ -71,22 +80,27 @@ class Pace {
   constructor({ requests, tokens, inFlight }, { now, sleep }) {
     Object.assign(this, { requests, tokens, inFlight, now, sleep });
     this.next = 0;
+    this.held = 0;
     this.running = 0;
     this.waiting = [];
   }
   async enter(tokens) {
+    // A place freed by leave() is handed straight to whoever waited longest.
     if (this.running >= this.inFlight) await new Promise((go) => this.waiting.push(go));
-    this.running++;
+    else this.running++;
     const at = Math.max(this.now(), this.next);
     this.next = at + 1000 * Math.max(1 / this.requests, tokens / this.tokens);
-    if (at > this.now()) await this.sleep(at - this.now());
+    // A hold asked for while this request waited its turn delays it too.
+    for (let until = Math.max(at, this.held); this.now() < until; until = Math.max(until, this.held)) await this.sleep(until - this.now());
   }
   leave() {
-    this.running--;
-    this.waiting.shift()?.();
+    const next = this.waiting.shift();
+    if (next) next();
+    else this.running--;
   }
   hold(ms) {
-    this.next = Math.max(this.next, this.now() + ms);
+    this.held = Math.max(this.held, this.now() + ms);
+    this.next = Math.max(this.next, this.held);
   }
 }
 
@@ -126,7 +140,7 @@ export class JevSweeps {
       try {
         return await this.client.ask({ state, questions });
       } catch (error) {
-        if (!retryable(error) || attempt >= this.retries) throw error instanceof JevProblem ? error : new JevProblem(`TypeSafe could not be reached: ${error.message}`);
+        if (!retryable(error) || attempt >= this.retries) throw error instanceof JevProblem ? error : new JevProblem("TypeSafe could not be asked.");
         const wait = Math.max((error.retryAfter || 0) * 1000, Math.min(30_000, 500 * 2 ** attempt) * (1 + this.random() / 4));
         // Whatever slowed this request slows the others too.
         this.pace.hold(wait);
@@ -149,11 +163,13 @@ export class JevSweeps {
     const call = (n, name) => ({ kind: "jev", model: this.client.model || JEV_MODEL, question: questions[name], input: texts[n] });
     let inputTokens = 0;
     let requests = 0;
-    // Each chunk's probability for each question, from the cache or one request for the rest.
-    const answers = await Promise.all(
-      chunks.map(async (_, n) => {
+    // Each chunk's probability for each question, from the cache or one request for the
+    // rest. A chunk with nothing in it is not asked about.
+    const settled = await Promise.allSettled(
+      chunks.map(async (chunk, n) => {
         const known = {};
         const asked = {};
+        if (blank(chunk)) return known;
         for (const name of Object.keys(questions)) {
           const cached = this.cache.get(call(n, name));
           if (typeof cached === "number") known[name] = cached;
@@ -171,6 +187,13 @@ export class JevSweeps {
         return known;
       }),
     );
+    const failed = settled.find((s) => s.status === "rejected");
+    if (failed) {
+      // What the answered requests cost is recorded, though the sweep is not.
+      if (inputTokens) this.store.update((next) => ((next.jevFigures ||= emptyFigures()).inputTokens += inputTokens));
+      throw failed.reason;
+    }
+    const answers = settled.map((s) => s.value);
     const flags = answers.map((a) => Object.values(a).some((p) => p >= threshold));
     const built = buildPassages(chunks, flags, { name: id });
     const passages = built.map((passage) => {
@@ -178,13 +201,14 @@ export class JevSweeps {
       const within = answers.slice(first, last + 1);
       // The questions that flagged it, and how likely the likeliest is.
       const matched = Object.keys(questions).filter((name) => within.some((a) => a[name] >= threshold));
-      return { ...passage, document: id, probability: Math.max(...within.flatMap((a) => Object.values(a))), matched };
+      return { ...passage, document: id, probability: Math.max(0, ...within.flatMap((a) => Object.values(a))), matched };
     });
     const flagged = flags.filter(Boolean).length;
     const whole = flagged * 2 > chunks.length;
-    const characters = document.text.length;
+    // Both sizes are of the document's own text, page by page, without its page lines.
+    const characters = charactersIn(chunks, chunks.map((_, n) => n));
     const covered = new Set(built.flatMap((p) => chunks.slice(p.chunks[0], p.chunks[1] + 1)));
-    const passed = [...covered].reduce((sum, chunk) => sum + chunk.segments.reduce((s, segment) => s + segment.text.length, 0), 0);
+    const passed = charactersIn(chunks, chunks.map((chunk, n) => (covered.has(chunk) ? n : -1)).filter((n) => n >= 0));
     const record = { at: new Date().toISOString(), document: id, questions: Object.values(questions), threshold, chunks: chunks.length, flagged, characters, passed, requests, inputTokens };
     this.store.update((next) => {
       const figures = (next.jevFigures ||= emptyFigures());
@@ -201,29 +225,35 @@ export class JevSweeps {
   // each the reader finds relevant is a miss. The sweep does not wait for them.
   check({ id, chunks, texts, covered, questions }) {
     if (!this.readers || !this.sample) return;
-    const left = chunks.map((chunk, n) => ({ chunk, n })).filter(({ chunk }) => !covered.has(chunk));
+    const left = chunks.map((chunk, n) => ({ chunk, n })).filter(({ chunk }) => !covered.has(chunk) && !blank(chunk));
     const picked = [];
     while (picked.length < this.sample && left.length) picked.push(...left.splice(Math.floor(this.random() * left.length), 1));
     if (!picked.length) return;
-    const question = `Does the passage answer, or help to answer, any of these questions?\n${Object.values(questions).map((q) => `- ${q}`).join("\n")}`;
+    // As many of the questions in each reader's question as it takes.
+    const opening = "Does the passage answer, or help to answer, any of these questions?";
+    const asks = [];
+    for (const q of Object.values(questions)) {
+      const last = asks[asks.length - 1];
+      if (last && last.length + q.length + 3 <= ROOM) asks[asks.length - 1] = `${last}\n- ${q}`;
+      else asks.push(`${opening}\n- ${q}`);
+    }
+    const passages = picked.map(({ n }) => ({ label: `chunk ${n + 1}`, text: texts[n], chunk: n }));
     const sampling = Promise.resolve()
-      .then(() => this.readers.ask({ question, passages: picked.map(({ n }) => ({ label: `chunk ${n + 1}`, text: texts[n], chunk: n })) }))
-      .then(
-        (answers) => {
-          const read = answers.filter((a) => typeof a.relevant === "boolean");
-          const misses = read.filter((a) => a.relevant);
-          if (!read.length) return;
-          this.store.update((next) => {
-            const figures = (next.jevFigures ||= emptyFigures());
-            figures.sampled += read.length;
-            figures.misses += misses.length;
-          });
-          this.log({ at: new Date().toISOString(), document: id, sampled: read.map((a) => a.chunk), misses: misses.map((a) => ({ chunk: a.chunk, answer: a.answer })) });
-        },
-        () => {
-          /* No reader could run; nothing is recorded for this sample. */
-        },
-      )
+      .then(() => Promise.all(asks.map((question) => this.readers.ask({ question: readerQuestion(question), passages }))))
+      .then((rounds) => {
+        // A chunk is read when any reader answered for it, and a miss when any found it relevant.
+        const read = passages.map((p, i) => ({ chunk: p.chunk, answers: rounds.map((answers) => answers[i]).filter((a) => typeof a?.relevant === "boolean") })).filter((p) => p.answers.length);
+        const misses = read.filter((p) => p.answers.some((a) => a.relevant));
+        if (!read.length) return;
+        this.store.update((next) => {
+          const figures = (next.jevFigures ||= emptyFigures());
+          figures.sampled += read.length;
+          figures.misses += misses.length;
+        });
+        this.log({ at: new Date().toISOString(), document: id, sampled: read.map((p) => p.chunk), misses: misses.map((p) => ({ chunk: p.chunk, answer: p.answers.find((a) => a.relevant).answer })) });
+      })
+      // No reader could run, or the figures could not be saved: nothing is recorded for this sample.
+      .catch(() => {})
       .finally(() => this.sampling.delete(sampling));
     this.sampling.add(sampling);
   }
