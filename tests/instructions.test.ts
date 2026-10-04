@@ -84,6 +84,10 @@ describe("the instructions the research agents work from", () => {
     expect(text).toContain("print only what you need to decide your next step");
     expect(text).toContain("when nothing you or the board offers is left to pursue".replace(/^w/, "W"));
     expect(text).toContain("go on for as long as leads remain");
+    // The team checks with one another before publishing, so each thing is published once.
+    expect(text).toContain('Before you publish a finding, post it on the board in a line beginning "About to publish:"');
+    expect(text).toContain("When a teammate offered or published it before you, it is theirs");
+    expect(text).toContain("ask on the board when you are unsure");
   });
 
   it("describe a helper's errand: do it, save every source read, and answer with exact quotes and document IDs", () => {
@@ -100,6 +104,7 @@ describe("the instructions the research agents work from", () => {
     expect(text).toContain("restated plainly and whole");
     expect(text).toContain("leave the dividing to the team");
     expect(text).toContain("Keep to what the human said");
+    expect(text).toContain("Address every post to the team as a whole.");
     // The commands it lost: assigning, steering or stopping one researcher, sending work back, publishing results and marking a batch ready.
     expect(text).not.toMatch(/"action":"(assign|steer|stop-assignment|send-back|publish-findings|publish|ready|brief)"/);
     expect(text).not.toMatch(/\bbrief each researcher|write (a|each) researcher'?s? brief/i);

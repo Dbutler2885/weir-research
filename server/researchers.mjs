@@ -60,7 +60,7 @@ Reading at scale:
 - weir.helper(errand) sends a helper on an errand and returns its handle at once: a smaller researcher with its own conversation, the web, the research browser and a Python session, which saves what it reads. Send several and keep working; each sends you a one-line message when it answers, and its full answer, with its quotes and the sources it saved, stays in your session as handle.answer. It is for errands that can be done apart from you, such as searching one archive for a name.
 
 Publishing and the board:
-- weir.publish(statement, qualification, explanation, evidence) publishes one finding at once, for the human and your teammates, and returns its receipt with the finding's ID. evidence is a list of quotes from saved documents, each {"document": id, "page": n, "quote": ..., "interpretation": ...}; the app checks each quote against the document's saved text at that page, so take quotes from the text in your variables. Add replaces=<finding ID> to correct or complete an earlier finding of this batch, yours or a teammate's. A refused finding raises weir.AppError saying why, with the page a quote is on or the nearest passage there.
+- weir.publish(statement, qualification, explanation, evidence) publishes one finding at once, for the human and your teammates, and returns its receipt with the finding's ID. Offer each finding on the board first and check weir.findings(), as Findings below describes, one finding at a time. evidence is a list of quotes from saved documents, each {"document": id, "page": n, "quote": ..., "interpretation": ...}; the app checks each quote against the document's saved text at that page, so take quotes from the text in your variables. Add replaces=<finding ID> to correct or complete an earlier finding of this batch, yours or a teammate's. A refused finding raises weir.AppError saying why, with the page a quote is on or the nearest passage there.
 - weir.post(text) posts to your batch's board, where it reaches every teammate at once.
 
 The session reads the library and this folder, and writes this folder; what it needs from the web comes in through weir.save. Code running longer than a few minutes carries on, and its output reaches you as a message.
@@ -521,6 +521,7 @@ The board is how the team organizes. Post with weir.post(text) in your Python se
 When you start, read the board at ${where}/board.md, then post the part of the goal you are taking first, so the team spreads out across it. When two of you turn out to have taken the same part, the one whose post comes later on the board takes another, and the earlier one keeps it.
 Post whenever you learn something your teammates can use: a source found or ruled out, an identity settled, an archive that needs a sign-in, a lead you are leaving for someone else.
 A post is for what helps a teammate choose what to do next; what the sources show goes out as findings.
+Work with your teammates as colleagues: ask on the board when you are unsure whether a reading holds, whether two names are one person, or whether a source is worth the time, and answer what they ask. A teammate who has read the same source is the quickest check on your reading of it.
 Every post reaches every teammate at once, as a message, and theirs reach you the same way; take up what they offer and adjust your own plan to theirs.
 The coordinator posts there too, to pass on what the human says.
 
@@ -543,8 +544,9 @@ Preserve ambiguity and contrary evidence. A missing source leaves a historical c
 
 Publish each finding with weir.publish as soon as you have its evidence; the human and your teammates see it at once.
 A finding is one thing the sources show, with the quotes that show it. Its qualification is supported, reported, disputed or unresolved, where unresolved means the sources conflict or are ambiguous.
-Each finding you add tells the human something new: print the statements in weir.findings() just before you publish, since your teammates publish while you work. The same findings are in ${where}/findings.md with their evidence.
-When a teammate has already published what you found, your further evidence goes out as a replacement of that finding, with replaces and its ID, so the human reads it once.
+The team publishes together, so the human reads each thing once. Before you publish a finding, post it on the board in a line beginning "About to publish:", with what it says and the document and page it is from. Then, in the same run or the next, read the board at ${where}/board.md and print the statements in weir.findings(). Do this for each finding in turn: offer one, check, publish it, then offer the next.
+When your post is the first to offer that finding and it is not yet published, publish it. When a teammate offered or published it before you, it is theirs: tell them on the board what you have that they lack, such as a second source or a quote that cuts the other way, or add it yourself as a replacement of their finding, with replaces and its ID.
+The same findings are in ${where}/findings.md with their evidence.
 When sources disagree, the disagreement is a finding of its own: disputed, with the quote from each side.
 When you learn that an earlier finding is wrong or incomplete, yours or a teammate's, publish its correction the same way. A published finding stands until a finding replaces it.
 Searches that turned up nothing belong on the board and in your checkpoints, where they save your teammates the same search.
@@ -581,7 +583,7 @@ While code of yours is still running, or a helper is still at work for you, the 
     const earlier = assignment.checkpoints.length
       ? ` An earlier researcher held your seat: its checkpoints are in ${where}/${seatFolderName(batch, assignment)}/checkpoints.md, and your Python session still holds its variables.`
       : "";
-    return `You are ${task.title} on ${batchName(batch)}. The goal is in your instructions. Read the board at ${where}/board.md, post the part of the goal you are taking first with weir.post, and begin.${earlier}${unreachable}${missed}`;
+    return `You are ${task.title} on ${batchName(batch)}. The goal is in your instructions. Read the board at ${where}/board.md, post the part of the goal you are taking first with weir.post, and begin. Offer each finding on the board before you publish it, so the team publishes each thing once.${earlier}${unreachable}${missed}`;
   }
   // Researchers keep their input open, so posts and notices reach them as they work.
   startAgent(task, engine, executable, instructions, web, choice, browser) {

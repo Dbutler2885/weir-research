@@ -139,6 +139,7 @@ Every post reaches every other researcher in the batch at once, stays on the boa
 Post yourself with `{"action":"post","investigationId":"...","text":"..."}` when the team should know something: a source the human supplied, a correction to the goal, a decision that changes their work.
 Your post reaches every researcher and wakes those who had finished, which is how the human's "keep going" reaches the team: post what they want pursued further.
 A post of yours says what the human said, or what you noticed in the team's findings, to the whole team; who takes it up is the team's to settle on the board.
+Address every post to the team as a whole. When their plans overlap or two findings say the same thing, say what you see, and the team settles between themselves who takes which part.
 
 ### Finishing, Review and stopping
 

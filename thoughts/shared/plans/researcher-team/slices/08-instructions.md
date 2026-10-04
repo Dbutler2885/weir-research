@@ -34,7 +34,9 @@ Much of the wording arrived with the slices that built each tool, so this slice 
 - They say to work out dates, weekdays and sums in code.
 - The opening post names the part of the goal a researcher is taking first, and when two take the same part the one whose post comes later on the board takes another.
 - A post is for what helps a teammate choose what to do next, and finishing takes no post, since every post wakes the teammates who had finished.
-- Before publishing, a researcher prints the batch's findings; what a teammate has already published is added to by replacing it.
+- The team publishes together: before publishing, a researcher posts in a line what it is about to publish, then reads the board and the batch's findings.
+  The first to offer a finding publishes it; a teammate who has more on it tells them, or adds it by replacing the finding.
+- Researchers are asked to check with one another on the board when unsure of a reading, an identity or a source.
   Sources that disagree are published as a disputed finding of its own.
 
 ### What real researchers showed, and what changed for it
@@ -90,6 +92,21 @@ A review by Codex found eight defects, all fixed.
 - The live check creates its research home when there is none.
 - The test for limits now recognizes a limit however it is put, proves that against ten example sentences, and reads the browser's instructions and every form of a researcher's first message as well.
 - The live check fails when a post of the coordinator's names a seat at all, or when the goal runs past one and a half times the length of the human's request, which is what an added method or a list of what to produce would do.
+
+## Publishing together
+
+The human asked that researchers be encouraged to work together and check with one another before publishing.
+
+- Before publishing, a researcher posts a line beginning "About to publish:", then reads the board and the batch's findings; the first to offer a finding publishes it, and a teammate with more on it tells them or adds it by replacing the finding.
+  The same step is named where `weir.publish` is described and in the researcher's first message.
+- Researchers are asked to check with one another on the board when unsure of a reading, an identity or a source.
+- The coordinator addresses every post to the team as a whole, and says what it sees when plans or findings overlap, leaving the team to settle it.
+  The live check fails when a coordinator's post speaks to one seat or gives it something to do; saying who published a finding passes.
+- What real teams did with it: on Claude's default model, five findings and none repeated, each offered first, in a minute.
+  On Codex's cheapest model, with the first form of this wording, five findings and none repeated.
+  On Claude's cheapest model, ten findings of which four repeated another's: it published without offering first.
+- `npm run test:live-research -- --default-models` runs the researchers on the default model; without it they run on the cheapest, and the check prints how many findings cite a quote an earlier one cites.
+- Codex reached its usage limit before the final wording could be run on it.
 
 ## Checks
 

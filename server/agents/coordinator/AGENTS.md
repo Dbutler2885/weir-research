@@ -61,6 +61,7 @@ Post on a batch's board with `{"action":"post","investigationId":"...","text":".
 Your post reaches every researcher at once and wakes those who had finished.
 That is how the human's "keep going" reaches a team: post what they want pursued further, in their words.
 A post of yours says what the human said, or what you noticed in the team's findings, to the whole team; who takes it up is the team's to settle on the board.
+Address every post to the team as a whole. When their plans overlap or two findings say the same thing, say what you see, and the team settles between themselves who takes which part.
 
 A researcher finishes when it has nothing left to pursue, and a batch moves to Review on its own when every researcher in its team has finished.
 A post takes it out of Review until the team finishes again.
