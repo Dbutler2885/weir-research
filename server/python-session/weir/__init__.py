@@ -4,11 +4,14 @@ library: the project's research library, read into variables.
 save(url): saves a web page or PDF into the library, for the whole team.
 jev(document, questions): sweeps a long document for the passages likely to matter.
 reader(question, passages): asks cheap readers about passages, and returns their answers.
+helper(errand): sends a helper on an errand and returns its handle at once.
+helpers(): the helpers you have sent, by handle.
 post(text): posts to the batch's board, for the whole team.
 publish(...): publishes a finding with its evidence, for the human and the team.
 output(id): the whole output of a run whose printed output was cut short.
 """
 
+import json
 import os
 
 from . import _app, library
@@ -93,6 +96,71 @@ def reader(question, passages=None):
     return _app.call("reader", question=question, passages=passages)
 
 
+class Helper:
+    """A helper sent on an errand. status is "queued", "running", "answered",
+    "failed" or "cancelled"; done says whether it has ended; answer is its full answer
+    once it has answered."""
+
+    def __init__(self, helper_id):
+        self.id = helper_id
+
+    def _record(self):
+        path = os.path.join(os.environ.get("HOME", ""), "helpers", f"{os.path.basename(self.id)}.json")
+        with open(path, encoding="utf-8") as file:
+            return json.load(file)
+
+    @property
+    def errand(self):
+        return self._record()["errand"]
+
+    @property
+    def status(self):
+        return self._record()["status"]
+
+    @property
+    def done(self):
+        return self.status in ("answered", "failed", "cancelled")
+
+    @property
+    def answer(self):
+        """The helper's answer: {"answer": ..., "quotes": [{"document", "page",
+        "quote", "found"}], "saved": [{"id", "title", "url"}]}, where found says
+        whether the saved text holds the quote on that page. Raises weir.AppError
+        while the helper is still at work, or with the reason when it failed."""
+        record = self._record()
+        if record["status"] == "answered":
+            return {"answer": record["answer"], "quotes": record["quotes"], "saved": record["saved"]}
+        if record["status"] == "failed":
+            raise AppError(f"Helper {self.id} failed: {record.get('problem', 'no reason was given')}.")
+        raise AppError(f"Helper {self.id} is {record['status']}; you are sent a message when it answers.")
+
+    def __repr__(self):
+        return f"<Helper {self.id}: {self.status}>"
+
+
+def helper(errand):
+    """Sends a helper on an errand, and returns its handle at once, so you can send
+    several and keep working.
+
+    A helper is a smaller researcher with its own context: it has the web, the
+    research browser, a Python session of its own and the library, and it saves the
+    sources it reads. Give it one errand it can do by itself, such as searching an
+    archive for a name, and say what you want back. When it answers you are sent a
+    one-line message naming its handle; its full answer stays here, as
+    handle.answer, with the quotes it found and the sources it saved.
+    """
+    return Helper(_app.call("helper", errand=errand)["id"])
+
+
+def helpers():
+    """Every helper you have sent, as {handle ID: Helper}."""
+    folder = os.path.join(os.environ.get("HOME", ""), "helpers")
+    if not os.path.isdir(folder):
+        return {}
+    ids = sorted((name[:-5] for name in os.listdir(folder) if name.endswith(".json")), key=lambda name: int(name[1:]) if name[1:].isdigit() else 0)
+    return {helper_id: Helper(helper_id) for helper_id in ids}
+
+
 def post(text):
     """Posts to your batch's board, and returns {"posted": True, "id": ...}.
 
@@ -129,4 +197,4 @@ def publish(statement, qualification, explanation, evidence, replaces=None):
     return _app.call("publish", finding=finding)
 
 
-__all__ = ["AppError", "jev", "library", "output", "post", "publish", "reader", "save"]
+__all__ = ["AppError", "Helper", "helper", "helpers", "jev", "library", "output", "post", "publish", "reader", "save"]

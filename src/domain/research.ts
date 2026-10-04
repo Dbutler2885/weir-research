@@ -269,7 +269,7 @@ export interface ResearchState {
     };
   }[];
   engine?: "manual" | "codex" | "claude";
-  researchSettings?: { timeLimitMinutes: number | null; researchersPerBatch?: number; readerLimit?: number; compactAt?: number };
+  researchSettings?: { timeLimitMinutes: number | null; researchersPerBatch?: number; readerLimit?: number; helperLimit?: number; compactAt?: number };
   reviewSettings?: { autoWalkthrough: boolean; autoGraph: boolean };
   organization?: {
     history: {

@@ -21,6 +21,7 @@ import { organize } from "./organization.mjs";
 import { Coordinator } from "./coordinator.mjs";
 import { ResearcherPool, executableOnPath } from "./researchers.mjs";
 import { Readers } from "./readers.mjs";
+import { Jobs } from "./jobs.mjs";
 import { JevClient, JevSweeps } from "./jev.mjs";
 import { stowKey, typesafeKey } from "./typesafe-key.mjs";
 import { ResearchLibrary } from "./research-library.mjs";
@@ -80,7 +81,7 @@ let closing = false;
 function close() {
   if (closing) return;
   closing = true;
-  for (const stop of [() => coordinatorHost.stop(), () => helpers.stop(), () => readers.stop(), () => researchers.stop(), () => graphBuilders.stop(), () => writers.stop(), () => pdfs.stop()])
+  for (const stop of [() => coordinatorHost.stop(), () => helpers.stop(), () => jobs.stop(), () => readers.stop(), () => researchers.stop(), () => graphBuilders.stop(), () => writers.stop(), () => pdfs.stop()])
     try {
       stop();
     } catch {
@@ -140,7 +141,15 @@ const researchers = new ResearcherPool(store, directory, root, {
     library: join(directory, "library"),
     // What a researcher's running code may ask of the app.
     // A seat's key is its assignment's ID.
-    calls: { save: (given) => sources.save(given), publish: (given, seat) => findings.publish(seat.key, given.finding), post: (given, seat) => researchers.post(seat.key, given.text), reader: (given, seat) => readers.ask(given, { seat: seat.key }), jev: (given) => sweeps.sweep(given) },
+    // A helper's session is allowed only some of these; a researcher's, all of them.
+    calls: {
+      save: (given, seat) => sources.save(given).then((receipt) => (jobs.saved(seat.key, receipt), receipt)),
+      publish: (given, seat) => findings.publish(seat.key, given.finding),
+      post: (given, seat) => researchers.post(seat.key, given.text),
+      reader: (given, seat) => jobs.reader(given, seat.key),
+      jev: (given) => sweeps.sweep(given),
+      helper: (given, seat) => jobs.helper(given.errand, seat.key),
+    },
     closed: (key) => readers.cancel(key),
   }),
 });
@@ -154,6 +163,11 @@ const dispatch = new DispatchRules(store, catalog);
 dispatch.ensure();
 coordinator.dispatch = dispatch;
 readers.dispatch = dispatch;
+// The helpers and readers at work for each seat, each a job with a ticket of its own.
+const jobs = new Jobs(store, directory, { supervisor, sessions: researchers.sessions, readers, dispatch, findExecutable: executableOnPath, browser: researchBrowser, notice: (seat, text, id) => researchers.notice(seat, text, id) });
+researchers.jobs = jobs;
+jobs.recover();
+process.on("exit", () => jobs.stop());
 process.on("exit", () => writers.stop());
 process.on("exit", () => graphBuilders.stop());
 process.on("exit", () => researchers.stop());
@@ -480,16 +494,17 @@ const server = createServer(async (req, res) => {
     }
     if (req.method === "POST" && url.pathname === "/api/research-settings") {
       const settings = researchers.configure(await body(req));
-      // A raised reader limit lets waiting readers start.
+      // A raised limit lets waiting readers and helpers start.
       readers.pump();
+      jobs.pump();
       return json(res, 200, settings);
     }
     // Closing the project: workers are kept running or stopped, as the human chose.
     // Closed from the browser, the launcher takes over with the welcome page.
     if (req.method === "POST" && url.pathname === "/api/quit") {
       const { keep, welcome } = await body(req);
-      const kept = keep ? supervisor.hosted((r) => r.meta?.project === directory && ["researcher", "builder", "writer"].includes(r.meta?.role) && !r.ended).length : 0;
-      if (keep) supervisor.keep((r) => r.meta?.project === directory && ["researcher", "builder", "writer"].includes(r.meta?.role));
+      const kept = keep ? supervisor.hosted((r) => r.meta?.project === directory && ["researcher", "errand", "builder", "writer"].includes(r.meta?.role) && !r.ended).length : 0;
+      if (keep) supervisor.keep((r) => r.meta?.project === directory && ["researcher", "errand", "builder", "writer"].includes(r.meta?.role));
       const next = welcome ? await startLauncher().then((address) => `${address}/welcome`, () => null) : null;
       json(res, 200, { closing: true, kept, next });
       setTimeout(close, 100);

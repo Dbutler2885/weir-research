@@ -7,7 +7,7 @@ export const ROLES = [
   { id: "researcher", label: "Researcher" },
   { id: "graph-builder", label: "Graph builder" },
   { id: "walkthrough-writer", label: "Walkthrough writer" },
-  { id: "helper", label: "Helper", note: "Small tasks the coordinator hands off" },
+  { id: "helper", label: "Helper", note: "Errands a researcher sends it on, and small tasks the coordinator hands off" },
   { id: "reader", label: "Reader", note: "One prompt and one answer, with no tools, for a researcher's code" },
 ] as const;
 export type Role = (typeof ROLES)[number]["id"];
@@ -115,11 +115,11 @@ function validateRule(rule: unknown, catalog: Catalog, where: string): DispatchR
 }
 
 // The choice for a role: what was named for this assignment, else the role's own
-// entry, else the default. A reader with no entry of its own, where the catalog is
-// given, is the cheap choice rather than the default.
+// entry, else the default. A helper or a reader with no entry of its own, where the
+// catalog is given, is the cheap choice rather than the default.
 export function choose(doc: Dispatch, role: Role, named?: Partial<Choice> | null, catalog?: Catalog | null): Choice {
   if (named?.agent) return { agent: named.agent, model: named.model ?? null, effort: named.effort ?? null };
-  if (role === "reader" && !doc.roles.reader && catalog) return cheapChoice(catalog, doc.default);
+  if ((role === "reader" || role === "helper") && !doc.roles[role] && catalog) return cheapChoice(catalog, doc.default);
   return doc.roles[role] ?? doc.default;
 }
 

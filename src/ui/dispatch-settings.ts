@@ -25,7 +25,7 @@ export function dispatchSettings(dispatch: Dispatch | undefined, catalog: Catalo
     return `<section><h2>Who does which job</h2><p class="page-context">Install Claude Code or Codex to choose which agent does each job.</p></section>`;
   const roleRows = ROLES.map((role) => {
     const choice = dispatch.roles[role.id];
-    return `<div class="dispatch-row" data-dispatch-role="${role.id}"><div class="dispatch-job"><span>${html(role.label)}</span>${"note" in role ? `<small>${html(role.note)}</small>` : ""}</div><div class="dispatch-menus">${menus(catalog, choice, role.label, true, role.id === "reader" ? `Default (${describeChoice(cheapChoice(catalog, dispatch.default), catalog)})` : undefined)}</div></div>`;
+    return `<div class="dispatch-row" data-dispatch-role="${role.id}"><div class="dispatch-job"><span>${html(role.label)}</span>${"note" in role ? `<small>${html(role.note)}</small>` : ""}</div><div class="dispatch-menus">${menus(catalog, choice, role.label, true, role.id === "reader" || role.id === "helper" ? `Default (${describeChoice(cheapChoice(catalog, dispatch.default), catalog)})` : undefined)}</div></div>`;
   }).join("");
   const rules = dispatch.rules.length
     ? `<ul class="dispatch-rules">${dispatch.rules

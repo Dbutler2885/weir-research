@@ -42,6 +42,7 @@ weir.save(url) saves a web page or PDF into the library for the whole team and r
 weir.publish(statement, qualification, explanation, evidence) publishes one finding at once, for the human and your teammates, and returns its receipt with the finding's ID. evidence is a list of quotes from saved documents, each {"document": id, "page": n, "quote": ..., "interpretation": ...}; the app checks each quote against the document's saved text at that page, so take quotes from the text in your variables. Add replaces=<finding ID> to correct an earlier finding of this batch, yours or a teammate's. A refused finding raises weir.AppError saying why, with the page a quote is on or the nearest passage there. help(weir.publish) says more.
 weir.jev(document_id, questions) sweeps a long document with yes-or-no questions on a fast, cheap model and returns {"passages": [...]}: the parts likely to matter, each with its pages and lines, ready to pass to weir.reader. It is for finding where to look in a document too long to send to readers whole. help(weir.jev) says more.
 weir.reader(question, passages) asks cheap readers the question of each passage and returns one answer for each, {"label", "relevant", "answer", "quotes": [{"page", "quote", "found"}]}, into your variables rather than your context. A passage is {"label": ..., "pages": weir.library.read(id)} or {"label": ..., "text": ...}, up to about 100,000 characters each. Send many passages in one call: the app packs them and runs the readers side by side, and asking the same question of the same passage again costs nothing. weir.reader(prompt) sends one prompt and returns the reply as text. help(weir.reader) says more.
+weir.helper(errand) sends a helper on an errand and returns its handle at once: a smaller researcher with its own context, the web, the research browser and a Python session, which saves what it reads. Send several and keep working; each sends you a one-line message when it answers, and its full answer, with its quotes and the sources it saved, stays in your session as handle.answer. It is for errands that can be done apart from you, such as searching one archive for a name. help(weir.helper) says more.
 weir.post(text) posts to your batch's board, where it reaches every teammate at once.
 The session reads the library and this folder, and writes this folder; what it needs from the web comes in through weir.save. Code running longer than a few minutes carries on, and its output reaches you as a message.
 `;
@@ -96,6 +97,8 @@ export class ResearcherPool {
     this.browser = browser;
     // Researchers' Python sessions, when the app keeps them.
     this.sessions = sessions;
+    // The helpers and readers at work for each seat, when the app runs them.
+    this.jobs = null;
     this.coordinator = coordinator;
     this.directory = directory;
     this.root = root;
@@ -162,6 +165,13 @@ export class ResearcherPool {
         throw new Error("The reader limit must be a whole number from 1 to 100.");
       return this.setting({ readerLimit });
     }
+    // How many helpers the app runs at once across the project.
+    if ("helperLimit" in settings) {
+      const { helperLimit } = settings;
+      if (!Number.isSafeInteger(helperLimit) || helperLimit < 1 || helperLimit > 50)
+        throw new Error("The helper limit must be a whole number from 1 to 50.");
+      return this.setting({ helperLimit });
+    }
     const { timeLimitMinutes } = settings;
     if (
       timeLimitMinutes !== null &&
@@ -186,12 +196,15 @@ export class ResearcherPool {
     for (const task of this.active.values()) this.terminate(task);
     this.sessions?.closeAll();
   }
+  // Ends a researcher's process. Its seat's Python session ends with it only when the
+  // seat has finished or been stopped: a seat that is paused or switched keeps its
+  // session, so code already running there carries on, and its next researcher takes
+  // the session over.
   terminate(task) {
     if (task.terminated) return;
     task.terminated = true;
-    // The session first: once the process has gone, the seat may start its next
-    // researcher, whose session must not be the one closed.
-    this.sessions?.close(task.id);
+    const seat = this.assignment(task);
+    if (!seat || ["finished", "stopped"].includes(seat.status)) this.sessions?.close(task.id);
     task.agent?.stop();
   }
   // The seat's own folder, above each of its researchers' folders, so what belongs to
@@ -202,19 +215,39 @@ export class ResearcherPool {
   inbox(batchId, seatId) {
     return new SeatInbox(this.seatFolder(batchId, seatId));
   }
-  // The researcher's Python session, which answers only this researcher's lease. What
-  // it has for the researcher, such as the output of a long run, goes to the seat's inbox.
+  // The seat's Python session, which takes new code only on this researcher's lease.
+  // What it has for the researcher, such as the output of a long run, goes to the
+  // seat's inbox, where it waits while the seat is paused.
   openSession(task) {
     this.sessions?.open(task.id, {
       folder: task.directory,
       seat: this.seatFolder(task.batchId, task.id),
       authorize: (lease) => lease === task.token && !task.terminated && this.current(task),
-      deliver: (text) => {
-        if (task.terminated || !this.current(task)) return;
-        this.inbox(task.batchId, task.id).add({ kind: "notice", text });
-        this.deliver(task);
-      },
+      deliver: (text) => this.notice(task.id, text),
+      live: () => this.seatLive(task.id),
     });
+  }
+  seat(seatId) {
+    for (const batch of this.store.state.investigations) {
+      const seat = batch.assignments?.find((a) => a.id === seatId);
+      if (seat) return { batch, seat };
+    }
+    return null;
+  }
+  // A seat may act, and be sent things, until it is stopped or its batch closes.
+  seatLive(seatId) {
+    const found = this.seat(seatId);
+    return Boolean(found) && found.seat.status !== "stopped" && !found.batch.closedAt;
+  }
+  // A notice for a seat's researcher, such as a helper's answer or a run's output: it
+  // goes to the seat's inbox, once for an ID, and from there to the researcher at once
+  // when one is at work, or when the seat is next resumed. A stopped seat gets nothing.
+  notice(seatId, text, id) {
+    const found = this.seat(seatId);
+    if (!found || !this.seatLive(seatId)) return;
+    this.inbox(found.batch.id, seatId).add({ kind: "notice", text }, id ? { id, at: new Date().toISOString() } : undefined);
+    const task = this.active.get(seatId);
+    if (task) this.deliver(task);
   }
   batch(id) {
     return this.store.state.investigations.find((i) => i.id === id);
@@ -354,6 +387,8 @@ export class ResearcherPool {
         this.deliver(task);
       }
     }
+    // A session outlasts a pause, and ends when its seat is stopped or its batch closes.
+    for (const key of this.sessions?.keys?.() ?? []) if (!key.startsWith("helper:") && !this.seatLive(key)) this.sessions.close(key);
     // Batches are worked in queue order; a held batch waits, and so does one the human
     // paused. Only a team's seats start: assignments from before teams are history.
     for (const batch of queueOf(this.store.state)) {
@@ -503,7 +538,7 @@ ${DONE_PHRASE}
 
 It tells the app you have finished; it is not a post and carries no report, since your findings are already published.
 A later post on the board wakes you with your conversation and your variables as you left them: take up what it offers, or say the line again.
-While code of yours is still running, the app keeps you at work until its output has reached you.
+While code of yours is still running, or a helper is still at work for you, the app keeps you at work until its result has reached you.
 `;
   }
   // The first message of a researcher's conversation, or of its conversation picked up
@@ -592,6 +627,11 @@ While code of yours is still running, the app keeps you at work until its output
     if (runs) out.push(`${runs === 1 ? "a Python run of yours is" : `${runs} Python runs of yours are`} still going, and ${runs === 1 ? "its" : "their"} output will reach you as a message`);
     const waiting = this.inbox(task.batchId, task.id).list().filter((item) => !task.sent.has(item.file)).length;
     if (waiting) out.push(`${waiting === 1 ? "a message is" : `${waiting} messages are`} on ${waiting === 1 ? "its" : "their"} way to you`);
+    const jobs = this.jobs?.outstanding(task.id) ?? [];
+    const helpers = jobs.filter((job) => job.kind === "helper");
+    if (helpers.length) out.push(`${helpers.length === 1 ? `helper ${helpers[0].id} is` : `helpers ${helpers.map((job) => job.id).join(", ")} are`} still at work, and you will be sent a message as each answers`);
+    const readers = jobs.length - helpers.length;
+    if (readers) out.push(`${readers === 1 ? "a batch of readers is" : `${readers} batches of readers are`} still reading for you`);
     return out;
   }
   // A turn that ends with the done phrase finishes the seat when nothing of its own is
@@ -687,7 +727,6 @@ While code of yours is still running, the app keeps you at work until its output
       );
     } finally {
       if (this.active.get(task.id) === task) this.active.delete(task.id);
-      this.sessions?.close(task.id);
       this.pump();
     }
   }
@@ -723,7 +762,12 @@ While code of yours is still running, the app keeps you at work until its output
     for (const task of this.active.values()) if (task.batchId === batchId) this.checkpoint(task);
     const result = this.store.command({ type: "stop-team", investigationId: batchId, reason });
     for (const task of this.active.values()) if (task.batchId === batchId) this.terminate(task);
-    for (const a of this.batch(batchId).assignments || []) this.inbox(batchId, a.id).clear();
+    // Their helpers and readers end with them, and so do the sessions of seats that were paused.
+    this.jobs?.stopBatch(batchId);
+    for (const a of this.batch(batchId).assignments || []) {
+      this.sessions?.close(a.id);
+      this.inbox(batchId, a.id).clear();
+    }
     this.inReview(batchId);
     return result;
   }

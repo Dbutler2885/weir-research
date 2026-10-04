@@ -102,6 +102,7 @@ function fakeSessions() {
       return this.startingNow;
     },
     open: (key: string, seat: any) => seats.set(key, { ...seat, open: true }),
+    keys: () => [...seats.entries()].filter(([, seat]) => seat.open).map(([key]) => key),
     close: (key: string) => seats.has(key) && (seats.get(key).open = false),
     closeAll: () => seats.forEach((seat) => (seat.open = false)),
   };
@@ -566,11 +567,22 @@ describe("researchers' Python sessions", () => {
     seat.deliver("Your long Python run has finished. Its output:\n\n40 pages");
     await tick();
     expect(f.of(0).sent.at(-1)).toContain("40 pages");
-    // Paused, the researcher's lease no longer runs code, and its session closes.
+    // Paused, the researcher's lease no longer runs code, but the seat's session stays,
+    // so code already running there can finish; what it has for the seat waits in its inbox.
     const token = assignment.lease.token;
     f.pool.pause(assignment.id);
     expect(seat.authorize(token)).toBe(false);
-    expect(seat.open).toBe(false);
+    expect(seat.open).toBe(true);
+    expect(seat.live()).toBe(true);
+    seat.deliver("A Python run started before this seat's researcher was paused or switched has finished. Its output:\n\n12 rows");
+    const before = f.launches.length;
+    f.pool.resume(assignment.id);
+    expect(f.launches).toHaveLength(before + 1);
+    expect(f.launches.at(-1)!.sent[0]).toContain("12 rows");
+    // Stopped, the seat can no longer act, and its session ends.
+    f.pool.stopTeam(id, "The human stopped the batch.");
+    expect(sessions.seats.get(assignment.id).open).toBe(false);
+    expect(sessions.seats.get(assignment.id).live()).toBe(false);
   });
 
   it("stay with the seat when the human switches its researcher to another agent", () => {

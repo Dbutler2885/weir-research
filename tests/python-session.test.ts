@@ -175,10 +175,11 @@ describe.skipIf(!onMac)("the session desk", () => {
     });
 
   // A seat whose researcher works in its own folder within it.
-  function desk(wait = 60_000) {
+  function desk(wait = 60_000, more: Record<string, unknown> = {}) {
     const { folder: seat, library } = fixture();
     const messages: string[] = [];
     let lease = "lease-1";
+    let stopped = false;
     // What the app would do for the session's code: a stand-in for saving a source.
     const asked: any[] = [];
     const calls = {
@@ -192,7 +193,12 @@ describe.skipIf(!onMac)("the session desk", () => {
         if (given.finding.evidence[0].page !== 2) throw new Error("Evidence 1 was not found in doc-1 (Harbor ledger.pdf). The quote is not on page 1; it is on page 2. Cite the page it is on.");
         return { id: "report-1/f1", statement: given.finding.statement, evidence: [{ document: "doc-1", pages: [2, 2], check: "checked" }] };
       },
+      helper: async (given: any, context: any) => {
+        asked.push({ ...given, seat: context.key });
+        return { id: "h1", status: "queued" };
+      },
       jev: async (given: any, context: any) => {
+
         asked.push({ ...given, seat: context.key });
         if (given.document !== "doc-1") throw new Error(`No saved document has the ID ${JSON.stringify(given.document)}.`);
         return { document: "doc-1", passages: [{ label: "doc-1, page 2 line 1 to page 2 line 1", document: "doc-1", pages: [{ page: 2, text: "The ledger names Ada Example." }], matched: ["q1"], probability: 0.9 }], chunks: 2, flagged: 1, characters: 60, passed: 29, whole: false };
@@ -213,11 +219,11 @@ describe.skipIf(!onMac)("the session desk", () => {
     const open = (name: string) => {
       const folder = join(seat, name);
       mkdirSync(folder, { recursive: true });
-      d.open("seat-1", { folder, seat, authorize: (given: string) => given === lease, deliver: (text: string) => messages.push(text) });
+      d.open("seat-1", { folder, seat, authorize: (given: string) => given === lease, deliver: (text: string) => messages.push(text), live: () => !stopped, ...more });
       return folder;
     };
     const folder = open(lease);
-    return { folder, messages, open, asked, revoke: (next = "lease-2") => (lease = next), running: () => d.running("seat-1") };
+    return { folder, messages, open, asked, revoke: (next = "lease-2") => (lease = next), stop: () => (stopped = true), running: () => d.running("seat-1") };
   }
 
   it("runs the researcher's code through its tool", async () => {
@@ -282,6 +288,24 @@ describe.skipIf(!onMac)("the session desk", () => {
     expect(asked[2]).toMatchObject({ document: "doc-9", threshold: 0.3 });
   });
 
+  it("lets running code send a helper, and read its answer from the handle once the app has put it in the session", async () => {
+    const { folder, asked } = desk();
+    const seat = join(folder, "..");
+    const code = "h = weir.helper('Search the fictional gazette for Ada Example.')\nprint(h.id)";
+    expect((await tool(folder, code, "lease-1")).stdout).toBe("h1\n");
+    expect(asked[0]).toEqual({ errand: "Search the fictional gazette for Ada Example.", seat: "seat-1" });
+    // What the app writes of the helper, beside the session's variables.
+    const shown = join(seat, "session", "helpers");
+    mkdirSync(shown, { recursive: true });
+    writeFileSync(join(shown, "h1.json"), JSON.stringify({ id: "h1", errand: "Search the fictional gazette for Ada Example.", status: "running", saved: [] }));
+    const waiting = "print(h, h.done)\ntry:\n    h.answer\nexcept weir.AppError as error:\n    print(error)";
+    expect((await tool(folder, waiting, "lease-1")).stdout).toBe("<Helper h1: running> False\nHelper h1 is running; you are sent a message when it answers.\n");
+    writeFileSync(join(shown, "h1.json"), JSON.stringify({ id: "h1", errand: "Search the fictional gazette for Ada Example.", status: "answered", answer: "She sold the mill in 1901.", quotes: [{ document: "doc-1", page: 2, quote: "Ada Example", found: true }], saved: [{ id: "doc-1", title: "Harbor ledger" }] }));
+    writeFileSync(join(shown, "h2.json"), JSON.stringify({ id: "h2", errand: "Another.", status: "failed", problem: "its turn ended with an error", saved: [] }));
+    const done = "print(h.done, h.answer['answer'], [q['found'] for q in h.answer['quotes']], h.answer['saved'][0]['id'])\nprint(list(weir.helpers()))\ntry:\n    weir.helpers()['h2'].answer\nexcept weir.AppError as error:\n    print(error)";
+    expect((await tool(folder, done, "lease-1")).stdout).toBe("True She sold the mill in 1901. [True] doc-1\n['h1', 'h2']\nHelper h2 failed: its turn ended with an error.\n");
+  });
+
   it("lets running code post to the board, hear when the same post was already made, and counts as under way while it runs", async () => {
     const { folder, asked, running } = desk();
     const code = `import time\ntime.sleep(0.6)\ntry:\n    print(weir.post("The 1881 register is missing from the scans."))\nexcept weir.AppError as error:\n    print(error)`;
@@ -297,17 +321,46 @@ describe.skipIf(!onMac)("the session desk", () => {
     expect(asked).toHaveLength(1);
   });
 
-  it("does nothing for code whose researcher has lost the seat while it ran", async () => {
-    const { folder, asked, revoke } = desk();
-    const running = tool(folder, "import time\ntime.sleep(1.5)\ntry:\n    weir.save('https://example.org/gazette')\nexcept weir.AppError as error:\n    refusal = str(error)", "lease-1");
+  it("lets code started before its researcher was paused or switched carry on, and sends its output to the seat", async () => {
+    const { folder, asked, revoke, messages } = desk();
+    const running = tool(folder, "import time\ntime.sleep(1.5)\nsaved = weir.save('https://example.org/gazette')\nprint('saved', saved['id'])", "lease-1");
     await new Promise((done) => setTimeout(done, 500));
+    // The researcher is paused: its lease is no longer the seat's.
     revoke("lease-2");
-    await running;
-    expect(asked).toEqual([]);
-    revoke("lease-1");
-    expect((await tool(folder, "print(refusal)", "lease-1")).stdout).toMatch(/lease on the seat is no longer current, so the app did not do what its code asked/);
+    await until(() => messages.length === 1);
+    // The run kept its ticket, so the app did what its code asked.
+    expect(asked).toEqual([{ url: "https://example.org/gazette", fresh: false, seat: "seat-1" }]);
+    expect(messages[0]).toBe("A Python run started before this seat's researcher was paused or switched has finished. Its output:\n\nsaved doc-9\n");
+    // New code from the old researcher is refused.
+    expect((await tool(folder, "print(1)", "lease-1")).stderr).toMatch(/lease on the seat is no longer current, so its code was not run/);
+    void running;
   });
-
+  it("does nothing more for a run whose seat has been stopped", async () => {
+    const { folder, asked, stop } = desk();
+    const running = tool(folder, "import time\ntime.sleep(1.5)\ntry:\n    weir.save('https://example.org/gazette')\nexcept weir.AppError as error:\n    print(error)", "lease-1");
+    await new Promise((done) => setTimeout(done, 500));
+    stop();
+    expect((await running).stdout).toBe("This run's seat has been stopped, so the app did not do what its code asked.\n");
+    expect(asked).toEqual([]);
+  });
+  it("refuses a helper's session what only a researcher's may ask, in words the helper can act on", async () => {
+    const { folder, asked } = desk(60_000, { can: new Set(["save", "reader", "jev"]), refusal: (name: string) => `A helper's session cannot ${name}; put it in your answer.` });
+    const code = "for ask in (lambda: weir.post('x'), lambda: weir.publish('s', 'supported', 'e', []), lambda: weir.helper('go')):\n    try:\n        ask()\n    except weir.AppError as error:\n        print(error)\nprint(weir.save('https://example.org/gazette')['id'])";
+    expect((await tool(folder, code, "lease-1")).stdout).toBe("A helper's session cannot post; put it in your answer.\nA helper's session cannot publish; put it in your answer.\nA helper's session cannot helper; put it in your answer.\ndoc-9\n");
+    expect(asked).toHaveLength(1);
+  });
+  it("keeps a seat's session, and the code running in it, when the seat is opened again for its next researcher", async () => {
+    const { folder, open, revoke, messages } = desk();
+    await tool(folder, "kept = 7", "lease-1");
+    const long = tool(folder, "import time\ntime.sleep(1.5)\nkept += 1\nprint('done', kept)", "lease-1");
+    await new Promise((done) => setTimeout(done, 400));
+    revoke("lease-2");
+    const next = open("lease-2");
+    // The next researcher's code waits its turn behind the run under way, in the same session.
+    expect((await tool(next, "print(kept)", "lease-2")).stdout).toBe("8\n");
+    expect(messages).toEqual(["A Python run started before this seat's researcher was paused or switched has finished. Its output:\n\ndone 8\n"]);
+    void long;
+  });
   it("keeps the seat's variables when its researcher moves to another agent's folder", async () => {
     const { folder, open, revoke } = desk();
     await tool(folder, "remembered = 42", "lease-1");

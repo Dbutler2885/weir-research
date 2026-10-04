@@ -31,7 +31,8 @@
     "test:live-session": "node --no-warnings scripts/live-python-session.mjs",
     "test:live-team": "node --no-warnings scripts/live-team.mjs",
     "test:live-readers": "node --no-warnings scripts/live-readers.mjs",
-    "test:live-jev": "node --no-warnings scripts/live-jev.mjs"
+    "test:live-jev": "node --no-warnings scripts/live-jev.mjs",
+    "test:live-helper": "node --no-warnings scripts/live-helper.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.1",

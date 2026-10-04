@@ -32,7 +32,9 @@ describe("who does which job, in settings", () => {
     expect(values(helper)).toEqual(["", "", ""]);
     // A role following the default has no model or effort of its own to choose.
     expect((helper.querySelector('[data-field="model"]') as HTMLSelectElement).disabled).toBe(true);
-    expect(helper.textContent).toContain("Small tasks the coordinator hands off");
+    expect(helper.textContent).toContain("Errands a researcher sends it on, and small tasks the coordinator hands off");
+    // Like a reader's, a helper's default is a cheap model.
+    expect(helper.querySelector('[data-field="agent"] option')!.textContent).toBe("Default (Claude Code, Haiku, high effort)");
     expect(page.textContent).toContain("ask the coordinator in the conversation");
     // A reader's default is a cheap model rather than the project's default, and says so.
     const reader = page.querySelector('[data-dispatch-role="reader"]')!;

@@ -1,11 +1,14 @@
-// Where researchers' code reaches their Python sessions. The command tool in a seat's
+// Where agents' code reaches their Python sessions. The command tool in an agent's
 // folder writes each request to python/requests/, with the lease of the agent that
 // ran it, and the desk writes the answer to python/responses/. A request whose lease
 // is no longer the seat's is refused. Code still running after the wait is answered
-// with a note, and its output is delivered to the researcher as a message later.
+// with a note, and its output is delivered to the agent as a message later.
 // Running code reaches the app the same way: the session writes each call to calls/ in
-// its own folder, naming its run, and the desk makes the call for the lease that run
-// was sent with and writes the answer to answers/.
+// its own folder, naming its run, and the desk makes the call and writes the answer to
+// answers/. A run the desk accepted keeps its ticket until it ends: its calls are made
+// even when the agent that started it has since been paused or switched, and are
+// refused only once the seat is stopped. What a session's code may ask for depends on
+// whose session it is: a helper's cannot post, publish or send helpers.
 import { copyFileSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, watch, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -33,18 +36,31 @@ export class SessionDesk {
     this.makeSession = session;
     this.seats = new Map();
   }
-  // Opens a seat's desk: its tool is placed in the researcher's folder, the seat's
-  // session starts, and a run cut short before is reported. The session belongs to the
-  // seat, so it outlasts the researcher's folder when the researcher is switched to
-  // another agent. authorize(lease) says whether a lease is the seat's current one;
-  // deliver(text) sends the researcher a message.
-  open(key, { folder, seat: seatFolder, authorize, deliver }) {
-    this.close(key);
+  // Opens a seat's desk: its tool is placed in the agent's folder, the seat's session
+  // starts, and a run cut short before is reported. The session belongs to the seat,
+  // so it outlasts the agent's folder: a seat opened again, for a researcher resumed or
+  // switched to another agent, keeps its session and whatever it is running.
+  // authorize(lease) says whether a lease is the seat's current one; deliver(text)
+  // sends the agent a message; live() says whether the seat may still act, which it
+  // may until it is stopped; can names what its code may ask of the app, all of it
+  // when absent, with refusal(name) the words for what it may not.
+  open(key, { folder, seat: seatFolder, authorize, deliver, live = () => true, can = null, refusal = (name) => `This session cannot ask the app for ${JSON.stringify(name)}.` }) {
     const requests = join(folder, "python", "requests");
     mkdirSync(requests, { recursive: true });
     mkdirSync(join(folder, "python", "responses"), { recursive: true });
     mkdirSync(join(folder, "tools"), { recursive: true });
     copyFileSync(TOOL, join(folder, "tools", "python.mjs"));
+    const watching = (seat) => {
+      seat.watcher?.close();
+      seat.watcher = watch(requests, () => this.collect(seat));
+    };
+    const open = this.seats.get(key);
+    if (open) {
+      Object.assign(open, { folder, authorize, deliver, live, can, refusal });
+      watching(open);
+      this.collect(open);
+      return open;
+    }
     // Calls and answers left by a run that was cut short belong to nobody now.
     const state = join(seatFolder, "session");
     for (const name of ["calls", "answers"]) {
@@ -56,14 +72,17 @@ export class SessionDesk {
       folder,
       authorize,
       deliver,
+      live,
+      can,
+      refusal,
       session: this.makeSession({ folder: seatFolder, library: this.library, home: this.home, outputLimit: this.outputLimit }),
       taken: new Set(),
       state,
-      // The lease each run in progress was sent with.
+      // The runs in progress, each with the lease it was accepted on.
       runs: new Map(),
     };
     this.seats.set(key, seat);
-    seat.watcher = watch(requests, () => this.collect(seat));
+    watching(seat);
     seat.callWatcher = watch(join(state, "calls"), () => this.collectCalls(seat));
     seat.timer = setInterval(() => {
       this.collect(seat);
@@ -77,10 +96,10 @@ export class SessionDesk {
       .start()
       .then(
         ({ interrupted, problem }) => {
-          if (interrupted) deliver(`Your last Python run was interrupted before it finished, when the app or the session restarted. It was not run again; your variables are as they were after the run before it.`);
-          if (problem) deliver(problem);
+          if (interrupted) seat.deliver(`Your last Python run was interrupted before it finished, when the app or the session restarted. It was not run again; your variables are as they were after the run before it.`);
+          if (problem) seat.deliver(problem);
         },
-        (error) => deliver(`Your Python session could not start: ${error.message}`),
+        (error) => seat.deliver(`Your Python session could not start: ${error.message}`),
       )
       .then(() => (seat.starting = null));
     return seat;
@@ -95,6 +114,12 @@ export class SessionDesk {
     clearInterval(seat.timer);
     seat.session.stop();
     this.closed(key);
+  }
+  has(key) {
+    return this.seats.has(key);
+  }
+  keys() {
+    return [...this.seats.keys()];
   }
   // Resolves once a seat's session has started and its notices are delivered; null
   // when it already has.
@@ -161,9 +186,10 @@ export class SessionDesk {
           /* The seat's folder is gone; nobody is waiting. */
         }
       };
-      const lease = seat.runs.get(call.run);
-      if (lease === undefined || !seat.authorize(lease)) reply({ error: "This agent's lease on the seat is no longer current, so the app did not do what its code asked." });
+      // The run's ticket: it was accepted, has not ended, and its seat has not been stopped.
+      if (!seat.runs.has(call.run) || !seat.live()) reply({ error: "This run's seat has been stopped, so the app did not do what its code asked." });
       else if (!Object.hasOwn(this.calls, call.name)) reply({ error: `The app has nothing called ${JSON.stringify(call.name)} for a session to ask for.` });
+      else if (seat.can && !seat.can.has(call.name)) reply({ error: seat.refusal(call.name) });
       else
         Promise.resolve()
           .then(() => this.calls[call.name](call.arguments || {}, { key: seat.key }))
@@ -191,16 +217,22 @@ export class SessionDesk {
       this.answer(seat, id, { pending: true, note: `Still running after ${duration(this.wait)}. It carries on, and its output will reach you as a message when it finishes; you can keep working meanwhile, and later code waits for it.` });
     }, this.wait);
     seat.runs.set(id, request.lease);
+    // The agent that asked may be gone by the time the run ends, paused or switched:
+    // what its code printed then goes to the seat as a message, for whoever holds it next.
+    const asker = () => !seat.closed && seat.folder === folder && seat.authorize(request.lease);
+    const folder = seat.folder;
     seat.session.run(request.code, { id }).finally(() => seat.runs.delete(id)).then(
       (result) => {
         clearTimeout(timer);
-        if (!answered) return this.answer(seat, id, { output: result.output, failed: result.failed });
-        if (!seat.closed && seat.authorize(request.lease)) seat.deliver(`Your long Python run has finished${result.failed ? " with an error" : ""}. Its output:\n\n${result.output || "(nothing printed)"}`);
+        if (seat.closed) return;
+        if (!answered && asker()) return this.answer(seat, id, { output: result.output, failed: result.failed });
+        seat.deliver(`${answered ? "Your long Python run has finished" : "A Python run started before this seat's researcher was paused or switched has finished"}${result.failed ? " with an error" : ""}. Its output:\n\n${result.output || "(nothing printed)"}`);
       },
       (error) => {
         clearTimeout(timer);
-        if (!answered) return this.answer(seat, id, { error: error.message });
-        if (!seat.closed && seat.authorize(request.lease)) seat.deliver(`Your long Python run did not finish: ${error.message}`);
+        if (seat.closed) return;
+        if (!answered && asker()) return this.answer(seat, id, { error: error.message });
+        seat.deliver(`${answered ? "Your long Python run" : "A Python run started before this seat's researcher was paused or switched"} did not finish: ${error.message}`);
       },
     );
   }
