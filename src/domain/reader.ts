@@ -86,19 +86,28 @@ export function readerPassages(given: unknown, limit = READER_INPUT): Passage[] 
   });
 }
 
+// A passage as a section of a prompt, under its numbered, labelled line.
+const section = (p: Pick<Passage, "label" | "text">, n: number) => `=== Passage ${n + 1}: ${p.label} ===\n${p.text}`;
+
 // Packs passages into prompts in the order given: as many whole passages as fit the
-// input size, and never part of one.
-export function packPassages<P extends { text: string }>(passages: P[], limit = READER_INPUT): P[][] {
+// input size, and never part of one. A prompt's size is everything in it: the question,
+// how to answer, and each passage's section with its heading. A passage that fills the
+// input size by itself has a prompt of its own.
+export function packPassages<P extends Pick<Passage, "label" | "text">>(passages: P[], limit = READER_INPUT, question = ""): P[][] {
+  // The words around the passages, at their longest: they vary a little with how many there are.
+  const none = { label: "", text: "" };
+  const frame = batchPrompt(question, [none, none]).length;
   const prompts: P[][] = [];
   let size = 0;
   for (const passage of passages) {
     const current = prompts[prompts.length - 1];
-    if (current && size + passage.text.length <= limit) {
+    const added = section(passage, current?.length ?? 0).length + 2;
+    if (current && size + added <= limit) {
       current.push(passage);
-      size += passage.text.length;
+      size += added;
     } else {
       prompts.push([passage]);
-      size = passage.text.length;
+      size = frame + section(passage, 0).length + 2;
     }
   }
   return prompts;
@@ -120,7 +129,7 @@ Reply with a JSON array and nothing else, holding one object for ${many ? "each 
 - Each quote is copied exactly from one page of the passage, and is the shortest stretch that carries the point. Give a quote for every point of the answer.
 - "page" is the number in the "[Page n]" line above the quoted words, or null where the passage has no such lines.
 
-${passages.map((p, n) => `=== Passage ${n + 1}: ${p.label} ===\n${p.text}`).join("\n\n")}`;
+${passages.map(section).join("\n\n")}`;
 }
 
 const PAGE = /^\[Page (\d+)\]\n/gm;
@@ -160,20 +169,24 @@ export function readAnswers(reply: string, passages: Pick<Passage, "text">[]): (
     const item = inOrder ? list[n] : numbered.get(n + 1);
     if (!item) return { problem: "The reader gave no answer for this passage." };
     if (typeof item.relevant !== "boolean" || typeof item.answer !== "string") return { problem: "The reader's answer for this passage was not in the form it was asked for." };
+    // Quotes in any other form are a reply to ask for again, not an answer without quotes.
+    const given = item.quotes;
+    const formed =
+      Array.isArray(given) &&
+      given.every((q) => q && typeof q === "object" && typeof q.quote === "string" && q.quote.trim() && (q.page === null || q.page === undefined || Number.isSafeInteger(q.page)));
+    if (!formed) return { problem: "The reader's quotes for this passage were not in the form it was asked for." };
     const pages = pagesIn(passage.text);
     const whole = flat(passage.text);
-    const quotes = (Array.isArray(item.quotes) ? item.quotes : [])
-      .filter((q): q is Record<string, unknown> => q && typeof q === "object" && typeof q.quote === "string" && Boolean(q.quote.trim()))
-      .map((q) => {
-        const cited = Number.isSafeInteger(q.page) ? (q.page as number) : null;
-        const quote = q.quote as string;
-        const words = flat(quote);
-        if (!pages) return { page: cited, quote, found: whole.includes(words) };
-        // The page is where the words are: the one the reader cited when they are there,
-        // else the page they are found on.
-        const on = cited !== null && pages.get(cited)?.includes(words) ? cited : [...pages].find(([, text]) => text.includes(words))?.[0];
-        return { page: on ?? cited, quote, found: on !== undefined };
-      });
+    const quotes = (given as Record<string, unknown>[]).map((q) => {
+      const cited = Number.isSafeInteger(q.page) ? (q.page as number) : null;
+      const quote = q.quote as string;
+      const words = flat(quote);
+      if (!pages) return { page: cited, quote, found: whole.includes(words) };
+      // The page is where the words are: the one the reader cited when they are there,
+      // else the page they are found on.
+      const on = cited !== null && pages.get(cited)?.includes(words) ? cited : [...pages].find(([, text]) => text.includes(words))?.[0];
+      return { page: on ?? cited, quote, found: on !== undefined };
+    });
     return { relevant: item.relevant, answer: item.answer, quotes };
   });
 }

@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { AgentSupervisor } from "../server/agents/supervisor.mjs";
 import { Readers } from "../server/readers.mjs";
-import { READER_INSTRUCTIONS } from "../src/domain/reader";
+import { READER_INSTRUCTIONS, batchPrompt, readerPassages } from "../src/domain/reader";
 import { until } from "./fixtures/until";
 
 const cleanups: (() => void)[] = [];
@@ -62,7 +62,7 @@ describe.each(["claude", "codex"] as const)("readers on %s", (provider) => {
       dispatch: { choose: () => ({ agent: provider, model: "cheap", effort: "high" }) },
       env: { ...process.env, FAKE_CLAUDE_STEPS: steps, FAKE_CODEX_STEPS: steps },
       // The ledger and the gazette fit one prompt together; the deed needs the next.
-      input: 150,
+      input: batchPrompt(question, readerPassages(passages).slice(0, 2)).length + 60,
     });
     cleanups.push(() => r.stop());
     return { directory, launched, readers: r };
@@ -117,7 +117,7 @@ function staged({ limit = 20 }: { limit?: number } = {}) {
   const started: any[] = [];
   const supervisor = {
     start(options: any) {
-      const agent = Object.assign(new EventEmitter(), { stopped: false, stop() { agent.stopped = true; } });
+      const agent = Object.assign(new EventEmitter(), { stopped: false, stop() { if (!agent.stopped) setTimeout(() => agent.emit("exit", {})); agent.stopped = true; } });
       started.push({ ...options, agent });
       return agent;
     },
@@ -150,6 +150,32 @@ describe("the reader limit", () => {
     expect(started.map((s) => s.prompt)).toEqual(["one", "two", "three", "four", "five"]);
     for (const job of started) job.agent.emit("turn", { outcome: "done", text: `Reply to ${job.prompt}.` });
     expect(await Promise.all(replies)).toEqual(["Reply to one.", "Second.", "Reply to three.", "Reply to four.", "Reply to five."]);
+  });
+  it("keeps a reader's place until its process has gone, and ends readers at once when the app closes", async () => {
+    const directory = project();
+    const started: any[] = [];
+    const supervisor = {
+      start(options: any) {
+        const agent = Object.assign(new EventEmitter(), { stopped: false, killed: false, stop() { agent.stopped = true; }, kill() { agent.killed = true; } });
+        started.push({ ...options, agent });
+        return agent;
+      },
+    };
+    const readers = new Readers({ state: { researchSettings: { readerLimit: 1 } } }, directory, { supervisor, findExecutable: () => "/bin/codex", dispatch: { choose: () => ({ agent: "codex" }) } });
+    const first = readers.ask({ prompt: "one" });
+    const second = readers.ask({ prompt: "two" }).catch((error: Error) => error.message);
+    await tick();
+    started[0].agent.emit("turn", { outcome: "done", text: "First." });
+    // The caller has its answer, and the reader is told to go, but it has not gone yet.
+    expect(await first).toBe("First.");
+    await tick();
+    expect(started[0].agent.stopped).toBe(true);
+    expect(started).toHaveLength(1);
+    started[0].agent.emit("exit", {});
+    expect(started).toHaveLength(2);
+    readers.stop();
+    expect(started[1].agent.killed).toBe(true);
+    expect(await second).toBe("The app is closing.");
   });
   it("counts the prompts of one batch", async () => {
     const { started, readers, answer } = staged({ limit: 1 });
@@ -243,13 +269,13 @@ describe("a reader that does not answer", () => {
     started[1].agent.emit("failed", new Error("Codex is not signed in for this app."));
     await expect(failing).rejects.toThrow("The reader could not run: Codex is not signed in for this app.");
     // The log of a reader that failed is kept for diagnosis; there is none here, and its folder is gone.
-    expect(readdirSync(join(directory, "agents", "readers"))).toEqual([]);
+    await until(() => readdirSync(join(directory, "agents", "readers")).length === 0);
     readers.findExecutable = () => null;
     await expect(readers.ask({ prompt: "Anything." })).rejects.toThrow("No agent CLI is installed for readers.");
   });
   it("is ended when it takes too long", async () => {
     const directory = project();
-    const agent = Object.assign(new EventEmitter(), { stopped: false, stop() { agent.stopped = true; } });
+    const agent = Object.assign(new EventEmitter(), { stopped: false, stop() { agent.stopped = true; agent.emit("exit", {}); } });
     const readers = new Readers({ state: {} }, directory, { supervisor: { start: () => agent }, findExecutable: () => "/bin/codex", dispatch: { choose: () => ({ agent: "codex" }) }, patience: 20 });
     await expect(readers.ask({ prompt: "Anything." })).rejects.toThrow("The reader did not answer in time, and was ended.");
     expect(agent.stopped).toBe(true);

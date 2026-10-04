@@ -71,7 +71,7 @@ export class Readers {
     }
     const failures = [];
     await Promise.all(
-      packPassages(passages.filter((p) => !answers.has(p)), this.input).map(async (group) => {
+      packPassages(passages.filter((p) => !answers.has(p)), this.input, question).map(async (group) => {
         let read;
         try {
           read = readAnswers(await this.run(batchPrompt(question, group), choice, seat), group);
@@ -107,18 +107,24 @@ export class Readers {
     const log = `${folder}.log`;
     this.running.add(job);
     let settled = false;
+    // The reader's place is free once its process has gone, not when it is told to go:
+    // the limit counts processes.
+    const release = () => {
+      if (!this.running.delete(job)) return;
+      // The folder was only somewhere to stand. The log explains a failure, and is kept for one.
+      rmSync(folder, { recursive: true, force: true });
+      if (!job.failed) rmSync(log, { force: true });
+      this.pump();
+    };
     const end = (error, text) => {
       if (settled) return;
       settled = true;
       clearTimeout(job.timer);
-      this.running.delete(job);
-      job.agent?.stop();
-      // The folder was only somewhere to stand. The log explains a failure, and is kept for one.
-      rmSync(folder, { recursive: true, force: true });
-      if (!error) rmSync(log, { force: true });
+      job.failed = Boolean(error);
       if (error) job.reject(error);
       else job.resolve(text);
-      this.pump();
+      if (job.agent && !job.exited) job.agent.stop();
+      else release();
     };
     job.end = end;
     try {
@@ -148,7 +154,11 @@ export class Readers {
     // A reader does not wait out a usage limit: the code that asked is told, and can ask again later.
     job.agent.on("paused", ({ resetsAt }) => end(new Error(`The readers' usage limit is reached${resetsAt ? `; it resets at ${resetTime(resetsAt, Date.now())}` : ""}. Answers already given are kept, so the same call later asks only for the rest.`)));
     job.agent.on("failed", (error) => end(new Error(`The reader could not run: ${error.message}`)));
-    job.agent.on("exit", () => end(new Error("The reader ended before it answered.")));
+    job.agent.on("exit", () => {
+      job.exited = true;
+      end(new Error("The reader ended before it answered."));
+      release();
+    });
     job.timer = setTimeout(() => end(new Error("The reader did not answer in time, and was ended.")), this.patience);
     job.timer.unref();
   }
@@ -163,6 +173,10 @@ export class Readers {
   stop() {
     const dropped = new Cancelled("The app is closing.");
     for (const job of this.waiting.splice(0)) job.reject(dropped);
-    for (const job of [...this.running]) job.end(dropped);
+    for (const job of [...this.running]) {
+      job.end(dropped);
+      // The app is going: a reader has nothing to finish, so it is not given time to.
+      job.agent?.kill?.();
+    }
   }
 }

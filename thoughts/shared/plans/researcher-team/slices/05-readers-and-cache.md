@@ -38,6 +38,10 @@ See **Depths and roles**, **Readers** and **The cache**.
 - A passage is its text, or its pages as `weir.library.read` gives them, which the reader sees under "[Page n]" lines.
   A passage longer than a reader takes is refused with its size; cutting long runs into passages is slice 06.
 - Passages are packed in the order given, each prompt taking whole passages until the next would not fit.
+  A prompt's size counts everything in it: the question, how to answer, and each passage's heading and label.
+- A reader's place under the limit is free once its process has gone, not when it is told to go.
+  When the app closes, readers are ended at once, having nothing to finish.
+- An answer whose quotes are not in the form asked for is a problem to ask again, not an answer without quotes.
 - The app checks each quote against the passage, spacing aside, and marks it `found` or not.
   Where the passage has pages, the quote's page is the page the words are on, whatever the reader cited.
 - An answer is cached per passage, by the reader's agent, model and effort, the question and the passage's text.

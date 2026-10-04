@@ -569,6 +569,11 @@ class Agent extends EventEmitter {
     }, this.stopGrace);
     timer.unref();
   }
+  // Ends the agent at once, for one with nothing to finish when the app is closing.
+  kill() {
+    this.stop();
+    if (this.child.exitCode === null) this.child.kill("SIGKILL");
+  }
   exited(code) {
     if (this.ended) return;
     this.ended = true;
