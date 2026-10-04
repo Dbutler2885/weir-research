@@ -105,6 +105,7 @@ describe("the instructions the research agents work from", () => {
     expect(text).toContain("leave the dividing to the team");
     expect(text).toContain("Keep to what the human said");
     expect(text).toContain("Address every post to the team as a whole.");
+    expect(text).toContain("theirs to work out among themselves on the board");
     // The commands it lost: assigning, steering or stopping one researcher, sending work back, publishing results and marking a batch ready.
     expect(text).not.toMatch(/"action":"(assign|steer|stop-assignment|send-back|publish-findings|publish|ready|brief)"/);
     expect(text).not.toMatch(/\bbrief each researcher|write (a|each) researcher'?s? brief/i);

@@ -136,26 +136,8 @@ export class Coordinator {
         const { findings, ...rest } = investigationIndex(i);
         return { ...rest, findingCount: findings.length };
       });
-    const seat = (i, id) => i.assignments?.find((a) => a.id === id)?.title;
-    const boardPosts = state.investigations.flatMap((i) =>
-      // Its own posts are not news to the coordinator.
-      (i.board || []).slice(changed.boardFrom?.get(i.id) ?? 0).filter((p) => p.author !== "coordinator").map((p) => ({
-        investigationId: i.id,
-        from: seat(i, p.assignmentId),
-        text: p.text,
-      })),
-    );
-    // Findings the researchers published since, each as the human now sees it.
-    const findings = state.investigations.flatMap((i) =>
-      i.proposals.slice(changed.findingsFrom?.get(i.id) ?? 0).filter((p) => p.key).map((p) => ({
-        investigationId: i.id,
-        id: `${p.id}/${p.findings[0].id}`,
-        from: seat(i, p.assignmentId),
-        statement: p.findings[0].statement,
-        qualification: p.findings[0].qualification,
-        ...(p.findings[0].replaces ? { replaces: `${p.findings[0].replaces.proposalId}/${p.findings[0].replaces.findingId}` } : {}),
-      })),
-    );
+    // A team's board and the findings it publishes are not sent: the team organizes
+    // itself, and the coordinator reads them with inspect when it has a reason to.
     // Each researcher that finished since, and each time a batch reached Review, read
     // from the batch's record of events, so one that has since been woken is still told.
     const eventsSince = (i) => i.events.slice(changed.eventsFrom?.get(i.id) ?? 0);
@@ -165,8 +147,6 @@ export class Coordinator {
     );
     if (
       !messages.length &&
-      !boardPosts.length &&
-      !findings.length &&
       !investigations.length &&
       !changed.removedInvestigationIds.length &&
       !changed.decisionsChanged &&
@@ -180,8 +160,6 @@ export class Coordinator {
         // The human's own messages, as sent; the inbox shapes them for the coordinator.
         messages,
         investigations,
-        ...(boardPosts.length ? { boardPosts } : {}),
-        ...(findings.length ? { findings } : {}),
         ...(researchersFinished.length ? { researchersFinished } : {}),
         ...(batchesReady.length ? { batchesReady } : {}),
         ...(changed.removedInvestigationIds.length

@@ -100,7 +100,12 @@ The human asked that researchers be encouraged to work together and check with o
 - Before publishing, a researcher posts a line beginning "About to publish:", then reads the board and the batch's findings; the first to offer a finding publishes it, and a teammate with more on it tells them or adds it by replacing the finding.
   The same step is named where `weir.publish` is described and in the researcher's first message.
 - Researchers are asked to check with one another on the board when unsure of a reading, an identity or a source.
-- The coordinator addresses every post to the team as a whole, and says what it sees when plans or findings overlap, leaving the team to settle it.
+- The coordinator addresses every post to the team as a whole.
+  The human settled that it hands the team the goal and the team organizes itself: how they divide the goal and settle an overlap is theirs, however many posts it takes, and the coordinator posts when the human has something for them or a finding says what its quote does not show.
+  A researcher whose post came first keeps its part, and one whose post came second moves and says so once.
+- The coordinator is no longer sent a team's board posts, its checkpoints or the findings it publishes, which had each started a turn of its own and drawn it into the team's organizing.
+  It is told when a researcher finishes and when a batch reaches Review, and inspects the batch to read the board and the findings when it has a reason to.
+  The PRD's line on the coordinator's news and user story 79 were changed to say so, with the human's agreement.
   The live check fails when a coordinator's post speaks to one seat or gives it something to do; saying who published a finding passes.
 - What real teams did with it: on Claude's default model, five findings and none repeated, each offered first, in a minute.
   On Codex's cheapest model, with the first form of this wording, five findings and none repeated.

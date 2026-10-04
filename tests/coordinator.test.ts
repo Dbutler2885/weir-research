@@ -313,7 +313,7 @@ describe("research coordination", () => {
       expect(() => f.run(data)).toThrow(/Unknown (coordinator action|investigation)/);
     expect(() => f.run({ action: "open-batch", engine: "claude", title: "Old", goal: "G", assignments: [{ title: "A part", brief: "Look." }] })).toThrow("A batch opens with a title and a goal");
   });
-  it("hears of each published finding, each board post, each researcher finishing and a batch reaching Review", () => {
+  it("hears of each researcher finishing and a batch reaching Review, and reads the board and findings by inspecting", () => {
     const f = fixture();
     f.store.update((next: any) => {
       next.researchSettings = { timeLimitMinutes: null, researchersPerBatch: 2 };
@@ -327,10 +327,17 @@ describe("research coordination", () => {
     f.store.command({ type: "post", assignmentId: second, text: "The directories add nothing.", key: "k" });
     // The coordinator's own post is not news to it.
     f.store.command({ type: "coordinator-post", investigationId, text: "The human has the 1895 directory." });
-    const news = (f.coordinator.delta(f.secret, start) as any).changed;
-    expect(news.findings).toEqual([{ investigationId, id: receipt.id, from: "Researcher 1", statement: "Ann Example bought the mill in 1896.", qualification: "supported" }]);
-    expect(news.boardPosts).toEqual([{ investigationId, from: "Researcher 2", text: "The directories add nothing." }]);
-    expect(news.researchersFinished).toBeUndefined();
+    // A finding, a researcher's post and a checkpoint are the team's own work: none of
+    // them is sent to the coordinator, which reads them by inspecting the batch.
+    const working = f.store.state.revision;
+    publisher.publish(second, { statement: "The deed names Ann Example.", qualification: "supported", explanation: "It does.", evidence: [{ document: "deed", page: 1, quote: "Sold to Ann Example", interpretation: "Her name." }] });
+    f.store.command({ type: "post", assignmentId: first, text: "The deed is one page.", key: "k3" });
+    expect(f.coordinator.delta(f.secret, working)).toEqual({ revision: f.store.state.revision, unchanged: true });
+    expect(f.coordinator.delta(f.secret, start)).toEqual({ revision: f.store.state.revision, unchanged: true });
+    expect(receipt.id).toBeTruthy();
+    const seen = f.run({ action: "inspect", kind: "investigation", id: investigationId }) as any;
+    expect(seen.board.map((p: any) => p.text)).toEqual(["The directories add nothing.", "The human has the 1895 directory.", "The deed is one page."]);
+    expect(seen.proposals.map((p: any) => p.findings[0].statement)).toEqual(["Ann Example bought the mill in 1896.", "The deed names Ann Example."]);
     // One finishes, then the other: the batch is ready for review.
     const finish = (assignmentId: string) => {
       const token = (f.store.command({ type: "claim", investigationId, assignmentId, worker: "Claude Code researcher" }) as any).assignment.lease.token;
@@ -347,7 +354,7 @@ describe("research coordination", () => {
     const both = (f.coordinator.delta(f.secret, then) as any).changed;
     expect(both.researchersFinished).toEqual([{ investigationId, researcher: "Researcher 2" }]);
     expect(both.batchesReady).toEqual([{ investigationId, title: "The mill's buyer" }]);
-    expect(both.investigations[0]).toMatchObject({ status: "review", ready: true, findingCount: 1 });
+    expect(both.investigations[0]).toMatchObject({ status: "review", ready: true, findingCount: 2 });
     // A finish the coordinator has not heard of is still news after a post has woken
     // the researcher again, and so is the Review the batch has since left.
     f.store.command({ type: "post", assignmentId: second, text: "A new lead.", key: "k2" });

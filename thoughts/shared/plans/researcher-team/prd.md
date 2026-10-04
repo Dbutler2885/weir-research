@@ -133,7 +133,7 @@ The coordinator talks with the human, opens batches, and moves the project betwe
 76. As a human, I want to rerun past batches that came back empty-handed and compare the results, so that I can judge whether this design is better before it is merged.
 77. As a coordinator, I want to open a batch with a title and a plain goal, so that the team starts without my dividing the work.
 78. As a coordinator, I want to post on a batch's board, waking the whole team, so that I can pass on something the human said or send the team back to work.
-79. As a coordinator, I want news of each published finding, each board post and each researcher finishing, so that I can answer the human.
+79. As a coordinator, I want news of each researcher finishing, and to read a batch's board and findings when I need them, so that I can answer the human and leave the team to organize itself.
 80. As a coordinator, I want to stop a batch's team when the human asks, so that the human's word ends the work.
 
 ## Implementation Decisions
@@ -334,7 +334,7 @@ The coordinator talks with the human, opens batches, and moves the project betwe
 - Opening a batch takes a title and a goal; the coordinator's instructions say to restate the human's request plainly and not to divide or scope the work.
 - The coordinator keeps: conversation with the human, opening batches, posting to a board, stopping a batch's team, access requests, helpers for itself, walkthroughs, graph updates and project organization.
 - It loses: assigning, steering a single researcher, stopping a single researcher, sending work back, publishing results and marking a batch ready.
-- Its news gains published findings and researchers finishing, beside board posts.
+- Its news gains researchers finishing; it reads a batch's board and findings when it needs them, and is not sent them.
 - Its instructions, the coordinate-research skill and its startup context are rewritten to match.
 
 ### The researcher's and helper's instructions

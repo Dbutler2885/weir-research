@@ -359,8 +359,8 @@ describe("the board", () => {
     // The same post from the same seat, as when code is run again, is refused.
     expect(() => f.pool.post(f.seats()[0].id, "The 1881 register is missing from the scans.")).toThrow("already posted exactly this");
     expect(f.batch().board).toHaveLength(1);
-    // The coordinator hears of it, and the library keeps it for those who start later.
-    expect(coordinator.delta(coordinator.session.secret, before).changed.boardPosts).toEqual([{ investigationId: f.batch().id, from: "Researcher 1", text: "The 1881 register is missing from the scans." }]);
+    // The board is the team's: the coordinator is not sent the post, and the library keeps it for those who start later.
+    expect(coordinator.delta(coordinator.session.secret, before).changed?.boardPosts).toBeUndefined();
     expect(readFileSync(join(f.directory, "library", "batches", "batch-1", "board.md"), "utf8")).toContain("Nothing posted yet.");
     const { writeLibrary } = await import("../server/research-library.mjs");
     writeLibrary(f.store.state, f.directory);

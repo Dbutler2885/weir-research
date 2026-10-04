@@ -168,7 +168,7 @@ export function publishFinding(
   batch.proposals.push(proposal);
   // Raised when a finding is published or replaced, and only then.
   batch.findingsRevision = (batch.findingsRevision ?? 0) + 1;
-  batch.events.push({ at: now, message: `${seat.title} published a finding: ${proposal.title}` });
+  batch.events.push({ at: now, message: `${seat.title} published a finding: ${proposal.title}`, kind: "published" });
   return {
     id: `${proposal.id}/f1`,
     statement: proposal.title,

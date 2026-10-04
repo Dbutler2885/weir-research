@@ -155,8 +155,12 @@ export class WorkspaceStore {
 }
 
 // Cheap per-investigation stamp: identity and sizes only, never deep content.
+// A team's own work is left out of it: its board, its checkpoints and the findings its
+// researchers publish are the team's to get on with, and the coordinator reads them
+// when it has a reason to.
 function fingerprint(i) {
   const flow = i.reviewFlow;
+  const team = typeof i.goal === "string";
   return [
     i.status,
     i.title,
@@ -169,10 +173,10 @@ function fingerprint(i) {
     i.walkthroughRequestedAt,
     i.annotations.length,
     i.annotations.filter((a) => a.dispatchedAt).length,
-    i.proposals.length,
-    i.events.length,
-    (i.assignments || []).map((a) => `${a.id}:${a.status}:${a.checkpoints.length}:${a.title}`).join(),
-    (i.board || []).length,
+    team ? i.proposals.filter((p) => !p.key).length : i.proposals.length,
+    team ? i.events.filter((e) => e.kind !== "published").length : i.events.length,
+    (i.assignments || []).map((a) => `${a.id}:${a.status}:${team ? "" : a.checkpoints.length}:${a.title}`).join(),
+    team ? 0 : (i.board || []).length,
     i.accessRequest?.resolvedAt ?? i.accessRequest?.at,
     i.resumeRequest?.status,
     i.graphRequest?.at,
