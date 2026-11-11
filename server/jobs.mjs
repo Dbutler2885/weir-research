@@ -288,7 +288,7 @@ Work in this folder and the library; your shell runs any command here.
           this.fail(job, `its agent could not start: ${error.message}`);
         }
       };
-      if (web && this.browser?.available) this.browser.open().then((url) => launch(this.browser.mcpServer(url)), () => launch(null));
+      if (web && this.browser?.available) this.browser.open().then((url) => launch(this.browser.mcpServer(url)), (error) => this.fail(job, `the research browser could not be opened: ${String(error.message).replace(/\.$/, "")}`));
       else launch(null);
     } catch (error) {
       this.fail(job, `its folder could not be prepared: ${error.message}`);

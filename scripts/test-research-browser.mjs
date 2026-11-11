@@ -95,8 +95,36 @@ for (const kind of browsers) {
   const browser = new ResearchBrowser(app, { browser: kind, headless: true, root: resolve(".") });
   const workers = [];
   try {
-    const url = await browser.open();
+    let url = await browser.open();
     assert.equal(await new ResearchBrowser(app, { browser: kind, headless: true, root: resolve(".") }).open(), url, "a second service reuses the running browser");
+    // Researchers starting together share the one browser.
+    assert.deepEqual(await Promise.all([browser.open(), browser.open(), browser.open()]), [url, url, url], "opening it several times at once reaches the one browser");
+    if (kind.engine === "chromium" && browser.engine.holder()) {
+      // A check the browser misses while busy does not start another on its profile,
+      // which would open a blank tab in it and lose its address.
+      const running = browser.engine.running;
+      browser.engine.running = async () => ((browser.engine.running = running), null);
+      assert.equal(await browser.open(), url, "a busy browser is waited for, not started again");
+      await browser.show(`${site}/shown`);
+      let shown = null;
+      for (let n = 0; n < 50 && !shown; n++) {
+        shown = await browser.capture(`${site}/shown`);
+        if (!shown) await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      assert.ok(shown, "a page the human asks for opens in the browser");
+      // A browser that stops answering is closed and started again at the same address,
+      // so the tools researchers already hold reach it again.
+      const stuck = browser.engine.holder();
+      process.kill(stuck, "SIGSTOP");
+      assert.equal(await browser.open(), url, "a stuck browser is started again at its address");
+      assert.notEqual(browser.engine.holder(), stuck, "the stuck browser was closed");
+      // One whose address is lost is started again too, rather than given a blank tab.
+      rmSync(join(browser.profile, "DevToolsActivePort"));
+      const lost = browser.engine.holder();
+      url = await browser.open();
+      assert.notEqual(browser.engine.holder(), lost, "the browser out of reach was closed");
+      assert.ok((await fetch(`${url}/json/version`)).ok, "the browser started again answers");
+    }
     const one = worker(browser.mcpServer(url));
     const two = worker(browser.mcpServer(url));
     workers.push(one, two);

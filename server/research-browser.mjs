@@ -1,6 +1,6 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { homedir } from 'node:os';
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readlinkSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { executableOnPath } from './researchers.mjs';
 
@@ -75,9 +75,11 @@ export class ResearchBrowser {
   }
   // The address workers' tools reach the browser at, starting it when it is not
   // already running. Every project's service shares it, so a running one is reused.
+  // Researchers starting together share one start, rather than each starting a browser.
   async open() {
     if (!this.engine) throw new Error('No browser researchers can drive, such as Chrome, Brave or Firefox, is installed.');
-    return (await this.engine.running()) || this.engine.start();
+    this.opening ||= (async () => (await this.engine.running()) || this.engine.start())().finally(() => (this.opening = null));
+    return this.opening;
   }
   // Opens a tab for the human, to sign in to archives: a blank one, or the page a
   // worker asked for help with. Only web pages are opened.
@@ -145,10 +147,31 @@ class ChromiumEngine {
   }
   async start() {
     mkdirSync(this.profile, {recursive: true});
+    const holder = this.holder();
+    if (!holder) return this.launch(0);
+    // A browser already on this profile is the research browser, busy or still starting.
+    // Starting another would only open a blank tab in it, so it is waited for.
+    const url = await this.answer();
+    if (url) return url;
+    // It is stuck, or its address is lost: it is closed and started again. Sign-ins stay
+    // in the profile, and at the address it had, the tools researchers hold reach it again.
+    const port = this.port();
+    await this.end(holder);
+    if (port) {
+      try {
+        return await this.launch(port);
+      } catch {
+        await this.end(this.holder());
+      }
+    }
+    return this.launch(0);
+  }
+  // Starts the browser on this profile, at a port when one is asked for.
+  async launch(port) {
     rmSync(join(this.profile, 'DevToolsActivePort'), {force: true});
     const child = spawn(this.path, [
       `--user-data-dir=${this.profile}`,
-      '--remote-debugging-port=0',
+      `--remote-debugging-port=${port}`,
       '--remote-debugging-address=127.0.0.1',
       '--no-first-run',
       '--no-default-browser-check',
@@ -160,27 +183,81 @@ class ChromiumEngine {
     // A browser that cannot be started, such as one removed since it was found, ends the wait.
     let failed = null;
     child.on('error', (error) => (failed = error));
-    for (let n = 0; n < 150 && !failed; n++) {
-      const url = await this.running();
-      if (url) return url;
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    }
+    const url = await this.answer(() => failed, port);
+    if (url) return url;
     throw new Error(`The research browser did not start${failed ? `: ${failed.code === 'ENOENT' ? `${this.path} is not there` : failed.message}` : '.'}`);
   }
-  // The DevTools address of a research browser already running on this profile.
-  async running() {
-    const file = join(this.profile, 'DevToolsActivePort');
-    if (!existsSync(file)) return null;
-    const port = Number(readFileSync(file, 'utf8').split('\n')[0]);
-    if (!port) return null;
-    const url = `http://127.0.0.1:${port}`;
+  // The browser's address once it answers, waited for a quarter of a minute. A browser
+  // given its port does not record its address in the profile, so it is recorded for it.
+  async answer(failed = () => null, port = 0) {
+    const deadline = Date.now() + 15_000;
+    while (Date.now() < deadline && !failed()) {
+      const version = await this.version(port || this.port());
+      if (version) {
+        if (port) writeFileSync(join(this.profile, 'DevToolsActivePort'), `${port}\n${new URL(version.webSocketDebuggerUrl).pathname}`);
+        return `http://127.0.0.1:${port || this.port()}`;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    return null;
+  }
+  // The process of a browser running on this profile, from the lock a Chromium browser
+  // keeps there, named for its host and process. A lock left by a browser that has
+  // gone may name a process that is now something else, so the process is checked.
+  holder() {
     try {
-      const response = await fetch(`${url}/json/version`, {signal: AbortSignal.timeout(1500)});
-      if (!response.ok) return null;
+      const pid = Number(readlinkSync(join(this.profile, 'SingletonLock')).split('-').at(-1));
+      const command = spawnSync('ps', ['-o', 'command=', '-p', String(pid)], {encoding: 'utf8', timeout: 5000}).stdout || '';
+      return command.includes(`--user-data-dir=${this.profile}`) ? pid : null;
     } catch {
       return null;
     }
-    return url;
+  }
+  // Closes a browser: asked first, then made to.
+  async end(pid) {
+    if (!pid) return;
+    const gone = () => {
+      try {
+        process.kill(pid, 0);
+        return false;
+      } catch {
+        return true;
+      }
+    };
+    for (const signal of ['SIGTERM', 'SIGKILL']) {
+      try {
+        process.kill(pid, signal);
+      } catch {
+        return;
+      }
+      for (let n = 0; n < 50; n++) {
+        if (gone()) return;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+    }
+  }
+  // The port the browser last said it listens on.
+  port() {
+    try {
+      return Number(readFileSync(join(this.profile, 'DevToolsActivePort'), 'utf8').split('\n')[0]) || null;
+    } catch {
+      return null;
+    }
+  }
+  // What a browser listening on a port says of itself, when one answers there.
+  async version(port) {
+    if (!port) return null;
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/json/version`, {signal: AbortSignal.timeout(1500)});
+      return response.ok ? await response.json() : null;
+    } catch {
+      return null;
+    }
+  }
+  // The DevTools address of a research browser already running on this profile.
+  async running() {
+    const port = this.port();
+    return (await this.version(port)) ? `http://127.0.0.1:${port}` : null;
   }
   async show(url, page) {
     const tab = await fetch(`${url}/json/new?${page ? encodeURI(page) : 'about:blank'}`, {method: 'PUT'}).then((r) => r.json()).catch(() => null);

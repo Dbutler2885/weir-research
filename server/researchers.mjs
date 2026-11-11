@@ -509,7 +509,14 @@ export class ResearcherPool {
         }
       };
       if (web && this.browser?.available)
-        this.browser.open().then((url) => launch(this.browser.mcpServer(url)), () => launch(null));
+        this.browser.open().then(
+          (url) => launch(this.browser.mcpServer(url)),
+          // Without the browser it would search and find nothing, so it waits for the human.
+          (error) => {
+            this.fail(task, `${task.title} could not start: ${error.message} Resume it once the research browser opens.`);
+            this.active.delete(assignmentId);
+          },
+        );
       else launch(null);
     } catch (error) {
       this.fail(task, `Unable to prepare ${task.title}: ${error.message}`);

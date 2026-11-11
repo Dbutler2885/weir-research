@@ -182,6 +182,16 @@ describe("a helper sent on an errand", () => {
     expect(f.shown("h3")).toMatchObject({ status: "failed", problem: "its turn ended with an error" });
     expect(f.researcher().sent.at(-1)).toContain('Helper h3 failed ("Third errand."): its turn ended with an error. It no longer counts as outstanding.');
   });
+  it("fails with the reason when the research browser cannot be opened, rather than searching without it", async () => {
+    const f = fixture();
+    f.jobs.browser = { available: true, open: async () => Promise.reject(new Error("The research browser did not start.")), mcpServer: () => ({}) } as any;
+    f.jobs.helper("Search the fictional gazette.", f.seat().id);
+    await tick();
+    expect(f.supervisor.started).toHaveLength(0);
+    expect(f.shown("h1")).toMatchObject({ status: "failed", problem: "the research browser could not be opened: The research browser did not start" });
+    expect(f.researcher().sent.at(-1)).toContain('Helper h1 failed ("Search the fictional gazette."): the research browser could not be opened: The research browser did not start. It no longer counts as outstanding.');
+  });
+
   it("is refused to a helper, and to an errand with nothing in it", () => {
     const f = fixture();
     expect(() => f.jobs.helper("Go further.", `helper:${f.seat().id}:h1`)).toThrow("A helper works its errand itself");

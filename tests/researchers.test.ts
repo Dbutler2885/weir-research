@@ -783,6 +783,16 @@ describe("the research browser for web researchers", () => {
     expect(args.join(" ")).toContain("Open your own tab with new_page");
   });
 
+  it("pauses a web researcher, saying why, when the research browser cannot be opened", async () => {
+    const f = fixture();
+    f.pool.browser = { available: true, open: async () => Promise.reject(new Error("The research browser did not start.")), mcpServer: () => ({}) } as any;
+    openTeam(f.store, f.pool, "claude");
+    await new Promise((done) => setTimeout(done, 10));
+    expect(f.launches).toHaveLength(0);
+    expect(JSON.stringify(f.batch().events)).toContain("could not start: The research browser did not start. Resume it once the research browser opens.");
+    expect(f.batch().assignments.every((a: any) => a.status === "paused")).toBe(true);
+  });
+
   it("gives a researcher confined to local documents no browser", async () => {
     const f = fixture();
     let opened = false;
